@@ -27,19 +27,20 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         const timer = setTimeout(async () => {
             setSaving(true);
             try {
-                // In a real app, use the Delta object, not just HTML/Value if possible
-                // For simplicity here, we assume 'value' is what we want to save (Textarea for now?)
-                // Wait, we need to switch back to Quill to get Delta.
-                // Let's assume we are passing a mock Delta for now if using Textarea.
+                // Extract first line as title (simplified logic: remove HTML tags)
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = value;
+                const plainText = tempDiv.textContent || tempDiv.innerText || '';
+                const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
 
                 await fetch(`/api/entry/${entryId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         userId,
-                        content: { ops: [{ insert: value }] }, // Mock Delta for textarea
-                        html: value, // Store raw text as HTML for now
-                        title
+                        content: { ops: [{ insert: value }] }, // Mock Delta
+                        html: value,
+                        title: derivedTitle
                     })
                 });
                 setLastSaved(new Date());
@@ -51,13 +52,13 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         }, 1500); // 1.5s debounce
 
         return () => clearTimeout(timer);
-    }, [value, entryId, title, userId]);
+    }, [value, entryId, userId]); // Removed 'title' dependency
 
     // Initial Load (Get Entry for selectedDate)
     useEffect(() => {
         const fetchEntry = async () => {
-            setValue(''); // Reset content while loading
-            setEntryId(null); // Reset ID
+            setValue('');
+            setEntryId(null);
 
             try {
                 const res = await fetch('/api/entry/by-date', {
@@ -72,20 +73,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 const data = await res.json();
                 if (data.id) {
                     setEntryId(data.id);
-                    setTitle(data.title);
-                    // Handle Content
-                    // If we have quill delta, ideally we use it. 
-                    // But for simple text/html for now:
                     if (data.html) setValue(data.html);
-                    // If content is just Delta JSON string, we might tricky things.
-                    // For now let's persist HTML or Delta? 
-                    // The API saves 'content' as Delta OPS, and 'html' as string.
-                    // If we are using Quill, we should pass Delta to 'value' if it supports it, or HTML.
-                    // ReactQuill 'value' prop supports HTML string or Delta object.
-                    // Let's prefer HTML for simplicity if we stored it, or construct it.
                 } else {
-                    // If no entry found, reset title and content
-                    setTitle('');
                     setValue('');
                 }
             } catch (err) {
@@ -108,58 +97,25 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     return (
         <div className="flex flex-col h-full bg-gray-900">
-            {/* Top Toolbar Area */}
-            <div className="h-14 border-b border-gray-800 flex items-center justify-between px-6 bg-gray-900">
-                <div className="flex items-center space-x-4">
-                    <div className="text-gray-400 text-sm">Inter</div>
-                    <div className="w-px h-4 bg-gray-700"></div>
-                    <div className="text-gray-400 text-sm">11</div>
-                </div>
-
-                {/* Right Actions */}
-                <div className="flex items-center space-x-3">
-                    <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
-                        {saving ? 'Saving...' : 'Saved'}
-                    </span>
-                    <button className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded transition-colors">
-                        Share
-                    </button>
-                </div>
+            {/* Top Toolbar Status Only */}
+            <div className="h-8 border-b border-gray-800 flex items-center justify-end px-4 bg-gray-900 absolute top-0 right-0 z-50 pointer-events-none">
+                {/* Status Indicator floating */}
+                <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
+                    {saving ? 'Saving...' : 'Saved'}
+                </span>
             </div>
 
-            {/* Scrollable Editor Area */}
-            <div className="flex-1 overflow-y-auto relative">
-                <div className="max-w-4xl mx-auto py-12 px-8 min-h-full">
-                    {/* Metadata Header */}
-                    <div className="mb-8 space-y-4">
-                        <div className="flex items-center space-x-2 text-xs text-purple-400 uppercase tracking-widest font-semibold">
-                            <span>My Journal</span>
-                            <span className="text-gray-600">/</span>
-                            <span>{new Date().getFullYear()}</span>
-                        </div>
-
-                        <input
-                            type="text"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            className="w-full bg-transparent text-5xl font-bold text-white placeholder-gray-700 outline-none"
-                            placeholder="Entry Title"
-                        />
-                    </div>
-
-                    {/* Quill Editor */}
-                    <div className="prose prose-invert max-w-none text-lg leading-relaxed text-gray-300 editor-override h-full">
-                        <ReactQuill
-                            theme="snow"
-                            value={value}
-                            onChange={setValue}
-                            modules={modules}
-                            className="bg-transparent border-none h-full"
-                            placeholder="Start writing..."
-                        />
-                    </div>
-                </div>
+            {/* Editor Area - Toolbar will be injected by Quill at top */}
+            <div className="flex-1 overflow-hidden relative flex flex-col">
+                <ReactQuill
+                    theme="snow"
+                    value={value}
+                    onChange={setValue}
+                    modules={modules}
+                    className="flex-1 flex flex-col bg-transparent border-none"
+                    placeholder="Start writing..."
+                />
             </div>
 
             <style jsx global>{`
@@ -169,23 +125,25 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     border-bottom: 1px solid #1f2937 !important;
                     background: #111827;
                     color: #fff;
-                    position: sticky;
-                    top: 0;
-                    z-index: 50;
+                    padding: 12px 24px !important;
                 }
                 .ql-container {
                     border: none !important;
                     font-size: 1.125rem;
-                    height: calc(100% - 42px); /* Subtract toolbar height approx */
-                    overflow-y: hidden; /* Let child scroll or container scroll? react-quill is weird */
+                    flex: 1;
+                    overflow: hidden; 
+                    display: flex;
+                    flex-direction: column;
                 }
                 .ql-editor {
-                    height: 100%;
+                    flex: 1;
                     overflow-y: auto;
-                    padding: 0 !important;
+                    padding: 2rem 4rem !important; /* Spacious padding */
+                    color: #d1d5db;
                 }
                 .ql-editor p {
-                    color: #d1d5db;
+                     margin-bottom: 0.8em;
+                     line-height: 1.6;
                 }
                 .ql-stroke {
                     stroke: #9ca3af !important;

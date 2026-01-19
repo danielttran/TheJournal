@@ -19,15 +19,22 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
 
     // Journal Mode: Date Selection
     const urlDate = searchParams.get('date');
-    const selectedDate = urlDate ? new Date(urlDate) : new Date();
+    const selectedDate = urlDate ? (() => {
+        const [y, m, d] = urlDate.split('-').map(Number);
+        return new Date(y, m - 1, d);
+    })() : new Date();
     const [currentMonth, setCurrentMonth] = useState(new Date());
 
     // Notebook Mode: Pages List
     const [pages, setPages] = useState<any[]>([]);
+    // Journal Mode: Entries List (Tree)
+    const [journalEntries, setJournalEntries] = useState<any[]>([]);
 
     useEffect(() => {
         if (type === 'Notebook') {
             fetchPages();
+        } else if (type === 'Journal') {
+            fetchJournalEntries();
         }
     }, [categoryId, type]);
 
@@ -41,10 +48,34 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
         }
     };
 
+    const fetchJournalEntries = async () => {
+        try {
+            const res = await fetch(`/api/entry/dates?categoryId=${categoryId}`);
+            const data = await res.json();
+            if (Array.isArray(data)) setJournalEntries(data);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
     const onDateClick = (day: Date) => {
         const dateStr = format(day, 'yyyy-MM-dd');
         router.push(`?date=${dateStr}`);
     };
+
+    // Group Journal Entries by Year -> Month
+    const groupedEntries = journalEntries.reduce((acc: any, entry: any) => {
+        const date = new Date(entry.CreatedDate);
+        if (isNaN(date.getTime())) return acc; // Skip invalid dates
+        const year = format(date, 'yyyy');
+        const month = format(date, 'MMMM');
+
+        if (!acc[year]) acc[year] = {};
+        if (!acc[year][month]) acc[year][month] = [];
+
+        acc[year][month].push(entry);
+        return acc;
+    }, {});
 
     const onCreatePage = async () => {
         // Create a new untitled page
@@ -122,11 +153,50 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
                     </div>
                     {/* Journal Tree View */}
                     <div className="flex-1 overflow-y-auto p-2">
-                        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2 mt-2">{format(currentMonth, 'yyyy')}</div>
-                        {/* Placeholder for daily entries list if any */}
-                        <div className="px-4 py-8 text-center text-gray-600 text-sm">
-                            Select a date to view entries
-                        </div>
+                        {Object.keys(groupedEntries).sort((a, b) => a.localeCompare(b)).map(year => (
+                            <details key={year} open className="group mb-2">
+                                <summary className="flex items-center cursor-pointer text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 px-2 mt-2 select-none hover:text-gray-300 outline-none">
+                                    <span className="mr-1 group-open:rotate-90 transition-transform text-gray-600 inline-block w-3">▸</span>
+                                    {year}
+                                </summary>
+                                {Object.keys(groupedEntries[year]).map(month => (
+                                    <div key={month} className="pl-2">
+                                        <details open className="group/month">
+                                            <summary className="flex items-center cursor-pointer text-sm text-gray-400 hover:text-white py-1 px-2 rounded hover:bg-gray-800 select-none outline-none">
+                                                <span className="mr-2 text-[10px] group-open/month:rotate-90 transition-transform inline-block w-3 text-gray-500">▸</span>
+                                                {month}
+                                            </summary>
+                                            <div className="pl-6 space-y-0.5 mt-1 border-l border-gray-800 ml-3">
+                                                {groupedEntries[year][month].sort((a: any, b: any) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime()).map((entry: any) => {
+                                                    const entryDate = new Date(entry.CreatedDate);
+                                                    const isSelected = isSameDay(entryDate, selectedDate);
+                                                    const displayTitle = entry.Title && entry.Title !== 'Untitled' ? ` - ${entry.Title}` : '';
+                                                    return (
+                                                        <div
+                                                            key={entry.EntryID}
+                                                            onClick={() => onDateClick(entryDate)}
+                                                            className={`
+                                                                px-2 py-1 rounded cursor-pointer text-sm truncate transition-colors
+                                                                ${isSelected ? 'bg-purple-900/40 text-purple-200' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-300'}
+                                                            `}
+                                                            title={`${format(entryDate, 'PPP')}${displayTitle}`}
+                                                        >
+                                                            {format(entryDate, 'd')} ({format(entryDate, 'EEE')}){displayTitle}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </details>
+                                    </div>
+                                ))}
+                            </details>
+                        ))}
+
+                        {journalEntries.length === 0 && (
+                            <div className="px-4 py-8 text-center text-gray-600 text-sm">
+                                Select a date to create your first entry
+                            </div>
+                        )}
                     </div>
                 </>
             ) : (

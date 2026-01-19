@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Plus, X, Book, FileText } from 'lucide-react';
@@ -21,6 +21,46 @@ export default function TabBar({ userId }: { userId: string }) {
     // Modal State
     const [newTabName, setNewTabName] = useState('');
     const [newTabType, setNewTabType] = useState<'Journal' | 'Notebook'>('Journal');
+
+    // File Menu State
+    const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleImportClick = () => {
+        fileInputRef.current?.click();
+        setIsFileMenuOpen(false);
+    };
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!confirm("Caution: This will overwrite your current journal data. Proceed?")) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await fetch('/api/backup/import', {
+                method: 'POST',
+                body: formData
+            });
+            if (res.ok) {
+                alert("Import successful. Reloading...");
+                window.location.reload();
+            } else {
+                alert("Import failed.");
+            }
+        } catch (err) {
+            console.error(err);
+            alert("Error importing file.");
+        }
+    };
+
+    const handleExportClick = () => {
+        window.open('/api/backup/export', '_blank');
+        setIsFileMenuOpen(false);
+    };
 
     useEffect(() => {
         fetchTabs();
@@ -66,10 +106,44 @@ export default function TabBar({ userId }: { userId: string }) {
 
     return (
         <div className="flex flex-col w-full bg-[#1e1e1e] border-b border-[#333]">
+            {/* Hidden Input for Import */}
+            <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept=".db,.sqlite"
+                onChange={handleFileChange}
+            />
+
             {/* Top Menu Bar (Visual Only) */}
-            <div className="flex items-center px-4 py-1 space-x-4 bg-[#2d2d2d] text-xs text-gray-300 select-none">
+            <div className="flex items-center px-4 py-1 space-x-4 bg-[#2d2d2d] text-xs text-gray-300 select-none relative">
                 <div className="w-6 h-6 bg-purple-600 rounded flex items-center justify-center font-bold text-white mr-2">J</div>
-                <span className="hover:bg-gray-700 px-2 py-0.5 rounded cursor-pointer">File</span>
+
+                {/* File Menu */}
+                <div className="relative">
+                    <span
+                        onClick={() => setIsFileMenuOpen(!isFileMenuOpen)}
+                        className={`px-2 py-0.5 rounded cursor-pointer ${isFileMenuOpen ? 'bg-gray-700 text-white' : 'hover:bg-gray-700'}`}
+                    >
+                        File
+                    </span>
+                    {isFileMenuOpen && (
+                        <div className="absolute top-full left-0 mt-1 w-48 bg-[#2d2d2d] border border-[#444] rounded shadow-xl z-50 flex flex-col py-1">
+                            <button
+                                onClick={handleImportClick}
+                                className="text-left px-4 py-2 hover:bg-purple-600 hover:text-white transition-colors"
+                            >
+                                Import Database...
+                            </button>
+                            <button
+                                onClick={handleExportClick}
+                                className="text-left px-4 py-2 hover:bg-purple-600 hover:text-white transition-colors"
+                            >
+                                Export Database
+                            </button>
+                        </div>
+                    )}
+                </div>
                 <span className="hover:bg-gray-700 px-2 py-0.5 rounded cursor-pointer">Edit</span>
                 <span className="hover:bg-gray-700 px-2 py-0.5 rounded cursor-pointer">View</span>
                 <span className="hover:bg-gray-700 px-2 py-0.5 rounded cursor-pointer">Tools</span>
