@@ -33,9 +33,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             // Allow saving empty if explicit? checking context.
         }
 
-        if (!isAutoSave) {
-            console.log(`[Editor] Force saving ID: ${id}, Content Len: ${content.length}`);
-        } else {
+        if (isAutoSave) {
             setSaving(true);
         }
 
@@ -60,16 +58,14 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             });
 
             if (res.ok) {
-                console.log(`[Editor] Save Success for ${id}. Dispatching Update Event.`);
                 // Notify app AFTER successful save (fixes stale thumbs)
                 window.dispatchEvent(new CustomEvent('journal-entry-updated'));
                 isDirtyRef.current = false;
-            } else {
-                console.error(`[Editor] Save Failed: ${res.status}`);
             }
 
         } catch (err) {
-            console.error("[Editor] Network/Save Error", err);
+            // minimal error logging
+            if (isAutoSave) setSaving(false);
         } finally {
             if (isAutoSave) setSaving(false);
         }
@@ -83,7 +79,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         if (contentRef.current !== content) {
             contentRef.current = content;
             if (!isDirtyRef.current) {
-                console.log("[Editor] Marked Dirty");
                 isDirtyRef.current = true;
             }
         }
@@ -112,8 +107,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             const idToSave = entryIdRef.current;
             const contentToSave = contentRef.current;
             const wasDirty = isDirtyRef.current;
-
-            console.log(`[Editor] Navigation Cleanup Check. Dirty: ${wasDirty}, ID: ${idToSave}`);
 
             if (wasDirty && idToSave) {
                 performSave(idToSave, contentToSave, false);

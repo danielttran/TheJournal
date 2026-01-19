@@ -44,7 +44,7 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
                         setEntries(data);
                     }
                 } catch (e) {
-                    console.error("Failed to refresh grid", e);
+                    // Fail silently
                 }
             };
 

@@ -440,7 +440,6 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                     </div>
                     <span className="font-medium truncate max-w-[150px] text-text-primary">{title}</span>
                 </div>
-                <Link href="/dashboard" className="p-1 hover:bg-bg-hover rounded block"><ChevronLeft className="w-5 h-5 text-text-muted" /></Link>
             </div>
 
             {/* Content Switcher */}

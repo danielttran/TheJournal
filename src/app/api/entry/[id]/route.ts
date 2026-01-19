@@ -44,11 +44,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const entryId = parseInt(id, 10);
 
-        // Debug logging
-        console.log(`[API] Entry Update Request for ID: ${id}, Method: ${req.method}`);
-
         const body = await req.json();
-        console.log(`[API] Body received. Title: ${body.title}, Content size: ${JSON.stringify(body.content).length}`);
 
         // 1. Validation
         const result = UpdateSchema.safeParse(body);
