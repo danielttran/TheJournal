@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const categoryId = searchParams.get('categoryId');
@@ -12,7 +14,7 @@ export async function GET(req: NextRequest) {
 
     try {
         const entries = db.prepare(`
-            SELECT EntryID, Title, ParentEntryID, EntryType, SortOrder, Icon
+            SELECT EntryID, Title, ParentEntryID, EntryType, SortOrder, Icon, IsExpanded
             FROM Entry 
             WHERE CategoryID = ?
             ORDER BY SortOrder ASC

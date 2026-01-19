@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from 'react';
 import { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
@@ -18,10 +19,38 @@ interface EntryGridProps {
     entries: any[];
     onEntryClick?: (entry: any) => void;
     title?: string;
+    dataUrl?: string; // URL to fetch fresh data
 }
 
-export default function EntryGrid({ entries, onEntryClick, title }: EntryGridProps) {
+export default function EntryGrid({ entries: initialEntries, onEntryClick, title, dataUrl }: EntryGridProps) {
     const router = useRouter();
+    const [entries, setEntries] = useState(initialEntries);
+
+    useEffect(() => {
+        setEntries(initialEntries);
+    }, [initialEntries]);
+
+    useEffect(() => {
+        if (!dataUrl) return;
+
+        const handleUpdate = async () => {
+            try {
+                // Add timestamp to prevent caching
+                const url = dataUrl.includes('?') ? `${dataUrl}&t=${Date.now()}` : `${dataUrl}?t=${Date.now()}`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const data = await res.json();
+                    setEntries(data);
+                }
+            } catch (e) {
+                console.error("Failed to refresh grid", e);
+            }
+        };
+
+        window.addEventListener('journal-entry-updated', handleUpdate);
+        return () => window.removeEventListener('journal-entry-updated', handleUpdate);
+    }, [dataUrl]);
+
     const handleEntryClick = (entry: any) => {
         if (onEntryClick) {
             onEntryClick(entry);

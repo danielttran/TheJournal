@@ -35,7 +35,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const categoryId = parseInt(id, 10);
         const body = await req.json();
-        const { name, icon } = body;
+        const { name, icon, viewSettings } = body;
 
         // Construct dynamic update
         const updates: string[] = [];
@@ -43,6 +43,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         if (name !== undefined) { updates.push("Name = ?"); values.push(name); }
         if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
+        if (viewSettings !== undefined) { updates.push("ViewSettings = ?"); values.push(JSON.stringify(viewSettings)); }
 
         if (updates.length === 0) return NextResponse.json({ success: true }); // Nothing to update
 

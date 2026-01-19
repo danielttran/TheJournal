@@ -26,6 +26,17 @@ class DBManager {
                 if (!entryCols.some(c => c.name === 'Icon')) {
                     this.instance.prepare("ALTER TABLE Entry ADD COLUMN Icon TEXT").run();
                 }
+
+                // Migration for IsExpanded in Entry (Notebook Tree State)
+                if (!entryCols.some(c => c.name === 'IsExpanded')) {
+                    this.instance.prepare("ALTER TABLE Entry ADD COLUMN IsExpanded BOOLEAN DEFAULT 0").run();
+                }
+
+                // Migration for ViewSettings in Category (Journal Tree State)
+                if (!cols.some(c => c.name === 'ViewSettings')) {
+                    this.instance.prepare("ALTER TABLE Category ADD COLUMN ViewSettings TEXT").run();
+                }
+
             } catch (e) { console.error("Migration failed", e); }
         }
         return this.instance;

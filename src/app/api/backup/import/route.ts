@@ -47,9 +47,9 @@ export async function POST(req: NextRequest) {
 
             for (const cat of importedCats) {
                 const newCat = db.prepare(`
-                    INSERT INTO main.Category (UserID, Name, Color, IsPrivate, Type)
-                    VALUES (?, ?, ?, ?, ?)
-                 `).run(userId, cat.Name, cat.Color, cat.IsPrivate, cat.Type || 'Journal');
+                    INSERT INTO main.Category (UserID, Name, Color, IsPrivate, Type, Icon, ViewSettings, SortOrder)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 `).run(userId, cat.Name, cat.Color, cat.IsPrivate, cat.Type || 'Journal', cat.Icon, cat.ViewSettings, cat.SortOrder || 0);
 
                 idMap.set(cat.CategoryID, newCat.lastInsertRowid as number);
             }
@@ -63,9 +63,9 @@ export async function POST(req: NextRequest) {
                 if (!newCatId) continue; // Orphaned entry
 
                 const newEntry = db.prepare(`
-                    INSERT INTO main.Entry (CategoryID, Title, PreviewText, IsLocked, CreatedDate, ModifiedDate, EntryType, SortOrder)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(
+                    INSERT INTO main.Entry(CategoryID, Title, PreviewText, IsLocked, CreatedDate, ModifiedDate, EntryType, SortOrder, Icon, IsExpanded)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        `).run(
                     newCatId,
                     entry.Title,
                     entry.PreviewText,
@@ -73,7 +73,9 @@ export async function POST(req: NextRequest) {
                     entry.CreatedDate,
                     entry.ModifiedDate,
                     entry.EntryType || 'Page',
-                    entry.SortOrder || 0
+                    entry.SortOrder || 0,
+                    entry.Icon,
+                    entry.IsExpanded ? 1 : 0
                 );
 
                 entryIdMap.set(entry.EntryID, newEntry.lastInsertRowid as number);
@@ -86,9 +88,9 @@ export async function POST(req: NextRequest) {
                 if (!newEntryId) continue;
 
                 db.prepare(`
-                    INSERT INTO main.EntryContent (EntryID, QuillDelta, HtmlContent)
-                    VALUES (?, ?, ?)
-                 `).run(newEntryId, content.QuillDelta, content.HtmlContent);
+                    INSERT INTO main.EntryContent(EntryID, QuillDelta, HtmlContent)
+                    VALUES(?, ?, ?)
+                        `).run(newEntryId, content.QuillDelta, content.HtmlContent);
             }
 
             // E. Fix ParentEntryID (Hierarchy)

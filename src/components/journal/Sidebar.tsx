@@ -36,6 +36,7 @@ interface SidebarProps {
     userId: string;
     title: string;
     type: string;
+    viewSettings?: string;
 }
 
 interface Entry {
@@ -45,13 +46,14 @@ interface Entry {
     EntryType: 'Page' | 'Section';
     SortOrder: number;
     Icon?: string;
+    IsExpanded?: boolean;
     children?: Entry[];
 }
 
 // ---------------------------
-// Sortable Notebook Item
+// Sortable Notebook Item (Updated)
 // ---------------------------
-const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection, selectedId, isOverlay, onContextMenu }: {
+const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection, selectedId, isOverlay, onContextMenu, onRename, onToggleExpand }: {
     entry: Entry,
     level: number,
     onSelect: (id: number, type: 'Page' | 'Section') => void,
@@ -59,29 +61,53 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
     onAddSection: (parentId: number) => void,
     selectedId: number | null,
     isOverlay?: boolean,
-    onContextMenu: (e: React.MouseEvent, entryId: number) => void
+    onContextMenu: (e: React.MouseEvent, entryId: number) => void,
+    onRename: (id: number, newTitle: string) => void,
+    onToggleExpand: (id: number, expanded: boolean) => void
 }) => {
-    const [isOpen, setIsOpen] = useState(true);
+    const [isOpen, setIsOpen] = useState(entry.IsExpanded || false);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editTitle, setEditTitle] = useState(entry.Title);
     const isSelected = selectedId === entry.EntryID;
     const hasChildren = entry.children && entry.children.length > 0;
+    const inputRef = useRef<HTMLInputElement>(null);
 
-    const {
-        attributes,
-        listeners,
-        setNodeRef,
-        transform,
-        transition,
-        isDragging
-    } = useSortable({
-        id: entry.EntryID,
-        data: { type: 'Entry', entry }
-    });
+    // Sync expanded state from props (Server/API truth)
+    useEffect(() => {
+        setIsOpen(!!entry.IsExpanded);
+    }, [entry.IsExpanded]);
 
-    const style = {
-        transform: CSS.Translate.toString(transform),
-        transition,
-        paddingLeft: `${level * 12 + 8}px`,
-        opacity: isDragging ? 0.3 : 1,
+    // Auto-focus input
+    useEffect(() => {
+        if (isEditing && inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, [isEditing]);
+
+    const handleExpandToggle = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        const newState = !isOpen;
+        setIsOpen(newState);
+        onToggleExpand(entry.EntryID, newState);
+    };
+
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: entry.EntryID, data: { type: 'Entry', entry } });
+    const style = { transform: CSS.Translate.toString(transform), transition, paddingLeft: `${level * 12 + 8}px`, opacity: isDragging ? 0.3 : 1 };
+
+    const handleSubmitRename = () => {
+        if (editTitle.trim() !== entry.Title) {
+            onRename(entry.EntryID, editTitle);
+        }
+        setIsEditing(false);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') handleSubmitRename();
+        if (e.key === 'Escape') {
+            setEditTitle(entry.Title);
+            setIsEditing(false);
+        }
     };
 
     const DisplayIcon = () => {
@@ -90,94 +116,62 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
         return <File className="w-4 h-4 mr-2 text-blue-400" />;
     };
 
-    if (isOverlay) {
-        return (
-            <div
-                className={`
-                    flex items-center justify-between px-2 py-1.5 rounded cursor-grabbing bg-gray-800 text-white shadow-lg border border-gray-700
-                `}
-                style={{ paddingLeft: `${level * 12 + 8}px` }}
-            >
-                <div className="flex items-center overflow-hidden">
-                    <GripVertical className="w-3 h-3 mr-1 text-gray-500" />
-                    <DisplayIcon />
-                    <span className="truncate">{entry.Title || 'Untitled'}</span>
-                </div>
-            </div>
-        );
-    }
+    if (isOverlay) return (<div className="flex items-center justify-between px-2 py-1.5 rounded bg-gray-800 text-white shadow-lg border border-gray-700" style={{ paddingLeft: `${level * 12 + 8}px` }}><div className="flex items-center overflow-hidden"><GripVertical className="w-3 h-3 mr-1 text-gray-500" /><DisplayIcon /><span className="truncate">{entry.Title || 'Untitled'}</span></div></div>);
 
     return (
         <div ref={setNodeRef} style={style} {...attributes}>
             <div
-                className={`
-                    group flex items-center justify-between px-2 py-1.5 rounded cursor-pointer text-sm select-none
-                    ${isSelected ? 'bg-purple-900/40 text-purple-200' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-300'}
-                `}
+                className={`group flex items-center justify-between px-2 py-1.5 rounded cursor-pointer text-sm select-none ${isSelected ? 'bg-purple-900/40 text-purple-200' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-300'}`}
                 onClick={(e) => {
                     e.stopPropagation();
-                    if (entry.EntryType === 'Section') {
-                        setIsOpen(!isOpen);
-                        onSelect(entry.EntryID, 'Section');
-                    }
+                    if (entry.EntryType === 'Section') onSelect(entry.EntryID, 'Section');
                     else onSelect(entry.EntryID, 'Page');
+                }}
+                onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    if (entry.EntryType === 'Section') {
+                        setIsEditing(true);
+                        setEditTitle(entry.Title);
+                    }
                 }}
                 onContextMenu={(e) => onContextMenu(e, entry.EntryID)}
             >
                 <div className="flex items-center overflow-hidden flex-1">
-                    <div {...listeners} className="cursor-grab hover:text-white mr-1 active:cursor-grabbing" onClick={e => e.stopPropagation()}>
-                        <GripVertical className="w-3 h-3 text-gray-600 hover:text-gray-400" />
-                    </div>
+                    <div {...listeners} className="cursor-grab hover:text-white mr-1 active:cursor-grabbing" onClick={e => e.stopPropagation()}><GripVertical className="w-3 h-3 text-gray-600 hover:text-gray-400" /></div>
 
+                    {/* Arrow for Expansion */}
                     <span
-                        className={`mr-1 p-0.5 rounded hover:bg-gray-700/50 ${entry.EntryType !== 'Section' && 'invisible'}`}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setIsOpen(!isOpen);
-                        }}
+                        className={`mr-1 p-0.5 rounded hover:bg-gray-700/50 cursor-pointer ${entry.EntryType !== 'Section' && 'invisible'}`}
+                        onClick={handleExpandToggle}
                     >
-                        {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRightIcon className="w-3 h-3" />}
+                        <ChevronRightIcon className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                     </span>
 
                     <DisplayIcon />
-                    <span className="truncate">{entry.Title || 'Untitled'}</span>
-                </div>
 
-                {/* Hover Actions */}
-                <div className="hidden group-hover:flex items-center space-x-1">
-                    {entry.EntryType === 'Section' && (
-                        <>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); onAddPage(entry.EntryID); }}
-                                className="p-0.5 hover:bg-gray-700 rounded text-gray-500 hover:text-white" title="Add Page"
-                            >
-                                <File className="w-3 h-3" />
-                            </button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); onAddSection(entry.EntryID); }}
-                                className="p-0.5 hover:bg-gray-700 rounded text-gray-500 hover:text-white" title="Add Section"
-                            >
-                                <Folder className="w-3 h-3" />
-                            </button>
-                        </>
+                    {isEditing ? (
+                        <input
+                            ref={inputRef}
+                            value={editTitle}
+                            onChange={e => setEditTitle(e.target.value)}
+                            onBlur={handleSubmitRename}
+                            onKeyDown={handleKeyDown}
+                            onClick={e => e.stopPropagation()}
+                            className="bg-gray-900 text-white border border-blue-500 rounded px-1 py-0.5 text-xs w-full focus:outline-none"
+                        />
+                    ) : (
+                        <span className="truncate">{entry.Title || 'Untitled'}</span>
                     )}
                 </div>
+                <div className="hidden group-hover:flex items-center space-x-1">
+                    {entry.EntryType === 'Section' && (<><button onClick={(e) => { e.stopPropagation(); onAddPage(entry.EntryID); }} className="p-0.5 hover:bg-gray-700 rounded text-gray-500 hover:text-white"><File className="w-3 h-3" /></button><button onClick={(e) => { e.stopPropagation(); onAddSection(entry.EntryID); }} className="p-0.5 hover:bg-gray-700 rounded text-gray-500 hover:text-white"><Folder className="w-3 h-3" /></button></>)}
+                </div>
             </div>
-
             {hasChildren && isOpen && (
                 <div className="flex flex-col">
                     <SortableContext items={entry.children!.map(c => c.EntryID)} strategy={verticalListSortingStrategy}>
                         {entry.children!.map(child => (
-                            <SortableNotebookItem
-                                key={child.EntryID}
-                                entry={child}
-                                level={level + 1}
-                                onSelect={onSelect}
-                                onAddPage={onAddPage}
-                                onAddSection={onAddSection}
-                                selectedId={selectedId}
-                                onContextMenu={onContextMenu}
-                            />
+                            <SortableNotebookItem key={child.EntryID} entry={child} level={level + 1} onSelect={onSelect} onAddPage={onAddPage} onAddSection={onAddSection} selectedId={selectedId} onContextMenu={onContextMenu} onRename={onRename} onToggleExpand={onToggleExpand} />
                         ))}
                     </SortableContext>
                 </div>
@@ -189,9 +183,52 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
 // ---------------------------
 // Main Sidebar Component
 // ---------------------------
-export default function Sidebar({ categoryId, userId, title, type }: SidebarProps) {
+export default function Sidebar({ categoryId, userId, title, type, viewSettings }: SidebarProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
+
+    // Journal Expanded State (Persistent)
+    const [journalExpanded, setJournalExpanded] = useState<Record<string, boolean>>(() => {
+        try {
+            return viewSettings ? JSON.parse(viewSettings) : {};
+        } catch { return {}; }
+    });
+
+    const updateJournalExpansion = async (newExpanded: Record<string, boolean>) => {
+        setJournalExpanded(newExpanded);
+        // Persist
+        try {
+            await fetch(`/api/category/${categoryId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ viewSettings: newExpanded })
+            });
+        } catch (e) { console.error(e); }
+    };
+
+    const toggleJournalNode = (key: string) => {
+        const newState = { ...journalExpanded, [key]: !journalExpanded[key] };
+        updateJournalExpansion(newState);
+    };
+
+    const handleNotebookExpandToggle = async (id: number, expanded: boolean) => {
+        try {
+            await fetch(`/api/entry/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ isExpanded: expanded, userId })
+            });
+            // Optimization: Don't strictly need to fetchPages here if local state handles it, 
+            // but fetching ensures consistency.
+            // fetchPages(); 
+            // Better: update local state in Sidebar? But tree is deep. 
+            // Let's rely on recursive setPages logic update or just individual update?
+            // Since we passed fetchPages on Update, actually let's NOT fetchPages to avoid UI jump. 
+            // Updates will come on next load. BUT user wants persist.
+            // The item component handles local UI state. The API handles persistence.
+        } catch (e) { console.error(e); }
+    };
+
 
     // Journal Mode
     const urlDate = searchParams.get('date');
@@ -247,7 +284,7 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
 
     const fetchPages = async () => {
         try {
-            const res = await fetch(`/api/entry?categoryId=${categoryId}`);
+            const res = await fetch(`/api/entry?categoryId=${categoryId}&t=${Date.now()}`);
             const data = await res.json();
             if (Array.isArray(data)) setPages(buildTree(data));
         } catch (e) { console.error(e); }
@@ -294,6 +331,18 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
 
         setContextMenu(prev => ({ ...prev, visible: false }));
         setShowEmojiPicker(false);
+    };
+
+    const handleRename = async (id: number, newTitle: string) => {
+        try {
+            await fetch(`/api/entry/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: newTitle, userId })
+            }); // Optimistic update possible, but fetching is safer
+            if (type === 'Notebook') fetchPages();
+            else fetchJournalEntries();
+        } catch (e) { console.error(e); }
     };
 
     // ... (Date/Journal Logic same as before)
@@ -419,46 +468,62 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
                     </div>
                     {/* Journal Tree */}
                     <div className="flex-1 overflow-y-auto p-2">
-                        {Object.keys(groupedEntries).sort((a, b) => a.localeCompare(b)).map(year => (
-                            <details key={year} open className="group mb-2">
-                                <summary className="flex items-center cursor-pointer text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 px-2 mt-2 select-none hover:text-gray-300 outline-none">
-                                    <span className="mr-1 group-open:rotate-90 transition-transform text-gray-600 inline-block w-3">▸</span>{year}
-                                </summary>
-                                {Object.keys(groupedEntries[year]).map(month => (
-                                    <div key={month} className="pl-2">
-                                        <details open className="group/month">
-                                            <summary
-                                                className="flex items-center cursor-pointer text-sm text-gray-400 hover:text-white py-1 px-2 rounded hover:bg-gray-800 select-none outline-none"
-                                                onClick={(e) => {
-                                                    const monthKey = groupedEntries[year][month].key;
-                                                    router.push(`?month=${monthKey}`);
-                                                }}
-                                            >
-                                                <span className="mr-2 text-[10px] group-open/month:rotate-90 transition-transform inline-block w-3 text-gray-500">▸</span>{month}
-                                            </summary>
-                                            <div className="pl-6 space-y-0.5 mt-1 border-l border-gray-800 ml-3">
-                                                {groupedEntries[year][month].entries.sort((a: any, b: any) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime()).map((entry: any) => {
-                                                    const displayTitle = entry.Title && entry.Title !== 'Untitled' ? ` - ${entry.Title}` : '';
-                                                    return (
-                                                        <div
-                                                            key={entry.EntryID}
-                                                            onClick={() => onDateClick(new Date(entry.CreatedDate))}
-                                                            onContextMenu={(e) => handleContextMenu(e, entry.EntryID)}
-                                                            className={`px-2 py-1 rounded cursor-pointer text-sm truncate transition-colors flex items-center ${isSameDay(new Date(entry.CreatedDate), selectedDate) ? 'bg-purple-900/40 text-purple-200' : 'text-gray-400 hover:bg-gray-800'}`}
-                                                        >
-                                                            {entry.Icon && <span className="mr-2 text-xs">{entry.Icon}</span>}
-                                                            <span className="truncate">
-                                                                {format(new Date(entry.CreatedDate), 'd')} ({format(new Date(entry.CreatedDate), 'EEE')}){displayTitle}
-                                                            </span>
-                                                        </div>
-                                                    )
-                                                })}
-                                            </div>
-                                        </details>
+                        {Object.keys(groupedEntries).sort((a, b) => a.localeCompare(b)).map(year => {
+                            const isYearOpen = journalExpanded[year] !== false; // Default Open if undefined? Or default closed. Let's say default Open.
+                            // If user never toggled, it's undefined. If I want default open: use !== false. 
+                            return (
+                                <div key={year} className="mb-2">
+                                    <div className="flex items-center cursor-pointer text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 px-2 mt-2 select-none hover:text-gray-300" onClick={() => toggleJournalNode(year)}>
+                                        <ChevronRightIcon className={`mr-1 w-3 h-3 transition-transform text-gray-600 ${isYearOpen ? 'rotate-90' : ''}`} />
+                                        {year}
                                     </div>
-                                ))}
-                            </details>
-                        ))}
+                                    {isYearOpen && Object.keys(groupedEntries[year]).map(month => {
+                                        const monthKey = groupedEntries[year][month].key;
+                                        const isMonthOpen = journalExpanded[monthKey] !== false; // Default Open
+                                        return (
+                                            <div key={month} className="pl-2">
+                                                <div className="group/month">
+                                                    <div className="flex items-center text-sm text-gray-400 hover:text-white py-1 px-2 rounded hover:bg-gray-800 select-none outline-none">
+                                                        <span
+                                                            className="cursor-pointer p-0.5 rounded hover:bg-gray-700/50 mr-1"
+                                                            onClick={(e) => { e.stopPropagation(); toggleJournalNode(monthKey); }}
+                                                        >
+                                                            <ChevronRightIcon className={`w-3 h-3 transition-transform text-gray-500 ${isMonthOpen ? 'rotate-90' : ''}`} />
+                                                        </span>
+                                                        <span
+                                                            className="flex-1 cursor-pointer"
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                router.push(`?month=${monthKey}`);
+                                                            }}
+                                                        >
+                                                            {month}
+                                                        </span>
+                                                    </div>
+                                                    {isMonthOpen && (
+                                                        <div className="pl-6 space-y-0.5 mt-1 border-l border-gray-800 ml-3">
+                                                            {groupedEntries[year][month].entries.sort((a: any, b: any) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime()).map((entry: any) => (
+                                                                <div
+                                                                    key={entry.EntryID}
+                                                                    onClick={() => onDateClick(new Date(entry.CreatedDate))}
+                                                                    onContextMenu={(e) => handleContextMenu(e, entry.EntryID)}
+                                                                    className={`px-2 py-1 rounded cursor-pointer text-sm truncate transition-colors flex items-center ${isSameDay(new Date(entry.CreatedDate), selectedDate) ? 'bg-purple-900/40 text-purple-200' : 'text-gray-400 hover:bg-gray-800'}`}
+                                                                >
+                                                                    {entry.Icon && <span className="mr-2 text-xs">{entry.Icon}</span>}
+                                                                    <span className="truncate">
+                                                                        {format(new Date(entry.CreatedDate), 'd')} ({format(new Date(entry.CreatedDate), 'EEE')}){entry.Title && entry.Title !== 'Untitled' ? ` - ${entry.Title}` : ''}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })}
                     </div>
                 </>
             ) : (
@@ -476,12 +541,22 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
                             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                                 <SortableContext items={rootIds} strategy={verticalListSortingStrategy}>
                                     {pages.map(entry => (
-                                        <SortableNotebookItem key={entry.EntryID} entry={entry} level={0} onSelect={(id, type) => router.push(`?${type === 'Section' ? 'section' : 'entry'}=${id}`)} onAddPage={(pid) => onCreateEntry(pid, 'Page')} onAddSection={(pid) => onCreateEntry(pid, 'Section')} selectedId={selectedId} onContextMenu={handleContextMenu} />
+                                        <SortableNotebookItem
+                                            key={entry.EntryID}
+                                            entry={entry}
+                                            level={0}
+                                            onSelect={(id, type) => router.push(`?${type === 'Section' ? 'section' : 'entry'}=${id}`)}
+                                            onAddPage={(pid) => onCreateEntry(pid, 'Page')}
+                                            onAddSection={(pid) => onCreateEntry(pid, 'Section')}
+                                            selectedId={selectedId}
+                                            onContextMenu={handleContextMenu}
+                                            onRename={handleRename}
+                                            onToggleExpand={handleNotebookExpandToggle}
+                                        />
                                     ))}
                                 </SortableContext>
-                                <DragOverlay dropAnimation={dropAnimation}>
-                                    {activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddSection={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} /> : null}
-                                </DragOverlay>
+                                {/* DragOverlay also needs update, passing dummy onRename */}
+                                <DragOverlay dropAnimation={dropAnimation}>{activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddSection={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} onRename={() => { }} onToggleExpand={() => { }} /> : null}</DragOverlay>
                             </DndContext>
                             {pages.length === 0 && <div className="text-center py-4 text-gray-600 text-sm">Empty notebook</div>}
                         </div>

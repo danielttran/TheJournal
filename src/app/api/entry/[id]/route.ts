@@ -13,6 +13,7 @@ const UpdateSchema = z.object({
     parentEntryId: z.number().nullable().optional(),
     isLocked: z.boolean().optional(),
     entryType: z.enum(['Page', 'Section']).optional(),
+    isExpanded: z.boolean().optional(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -50,7 +51,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ error: result.error.errors }, { status: 400 });
         }
 
-        const { content, html, title, preview, userId, icon, sortOrder, parentEntryId, isLocked, entryType } = result.data;
+        const { content, html, title, preview, userId, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded } = result.data;
 
         // 2. Security Check
         const entry = db.prepare(`
@@ -91,6 +92,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         if (parentEntryId !== undefined) { updates.push("ParentEntryID = ?"); values.push(parentEntryId); }
         if (isLocked !== undefined) { updates.push("IsLocked = ?"); values.push(isLocked ? 1 : 0); }
         if (entryType !== undefined) { updates.push("EntryType = ?"); values.push(entryType); }
+        if (isExpanded !== undefined) { updates.push("IsExpanded = ?"); values.push(isExpanded ? 1 : 0); }
 
         if (updates.length > 0) {
             values.push(entryId);

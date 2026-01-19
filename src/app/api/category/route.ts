@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     const userId = userIdCookie.value;
 
     try {
-        const categories = db.prepare('SELECT * FROM Category WHERE UserID = ?').all(userId);
+        const categories = db.prepare('SELECT * FROM Category WHERE UserID = ? ORDER BY SortOrder ASC').all(userId);
         return NextResponse.json(categories);
     } catch (error) {
         return NextResponse.json({ error: "Failed to fetch categories" }, { status: 500 });

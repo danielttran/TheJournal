@@ -4,22 +4,31 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic'; // Prevent caching
 
 export async function GET(req: NextRequest) {
-    const { searchParams } = new URL(req.url);
-    const categoryId = searchParams.get('categoryId');
-
-    if (!categoryId) {
-        return NextResponse.json({ error: "Missing categoryId" }, { status: 400 });
-    }
-
     try {
-        // Fetch CreatedDate of all entries in this category
-        // simple query, we will process hierarchy on client or here. Client is often easier for UI state.
-        const entries = db.prepare(`
-            SELECT EntryID, Title, CreatedDate, Icon, PreviewText
+        const { searchParams } = new URL(req.url);
+        const categoryId = searchParams.get('categoryId');
+        const monthParam = searchParams.get('month'); // YYYY-MM
+
+        let query = `
+            SELECT EntryID, Title, CreatedDate, EntryType, Icon, PreviewText
             FROM Entry 
-            WHERE CategoryID = ?
-            ORDER BY CreatedDate DESC
-        `).all(categoryId);
+            WHERE 1=1
+        `;
+        const params: any[] = [];
+
+        if (categoryId) {
+            query += ` AND CategoryID = ?`;
+            params.push(categoryId);
+        }
+
+        if (monthParam) {
+            query += ` AND strftime('%Y-%m', CreatedDate) = ?`;
+            params.push(monthParam);
+        }
+
+        query += ` ORDER BY CreatedDate DESC`; // Journal usually DESC? Or ASC? Sidebar is grouped. Grid usually ASC (Calendar order)? The SQL in page.tsx was ASC. 
+
+        const entries = db.prepare(query).all(...params) as any[];
 
         return NextResponse.json(entries);
     } catch (error) {

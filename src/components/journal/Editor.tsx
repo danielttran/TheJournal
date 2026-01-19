@@ -69,16 +69,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         return () => clearTimeout(timer);
     }, [value, entryId, userId]);
 
-    // Initial Load & Unmount Save Logic
+    // Initial Load
     useEffect(() => {
-        // If we are switching FROM an entry, save it immediately
-        const previousEntryId = entryIdRef.current;
-        const previousValue = valueRef.current;
-
-        if (previousEntryId && previousValue) {
-            saveContent(previousEntryId, previousValue);
-        }
-
         const fetchEntry = async () => {
             setValue('');
             setEntryId(null);
@@ -123,6 +115,35 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         };
         fetchEntry();
     }, [categoryId, userId, selectedDate, urlEntryId]);
+
+    // Unmount / Change Save Logic
+    useEffect(() => {
+        return () => {
+            if (entryIdRef.current && valueRef.current) {
+                // Use Beacon or sync XHR if possible for unmount reliability?
+                // But fetch usually works in modern browsers if not cancelled.
+                saveContent(entryIdRef.current, valueRef.current);
+            }
+        };
+    }, []); // Run on unmount only? 
+    // Actually, we need to save when switching entries too.
+    // The previous logic saved when dependencies changed.
+
+    // Let's split it:
+    // 1. Save on ID change (switching entries)
+    useEffect(() => {
+        const currentId = entryIdRef.current;
+        const val = valueRef.current;
+        return () => {
+            // When this effect cleans up (before running next, or on unmount),
+            // We check if we need to save.
+            // IMPORTANT: entryIdRef matches the ID *before* the change.
+            if (currentId && val) {
+                saveContent(currentId, val);
+            }
+        }
+    }, [urlEntryId, selectedDate]); // When these change, we are effectively 'unmounting' the current entry context
+
 
     // Modules for custom toolbar
     const modules = {

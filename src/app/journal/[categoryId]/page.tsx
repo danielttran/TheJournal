@@ -29,10 +29,12 @@ export default async function JournalPage({ params, searchParams }: {
     // Grid View Logic
     let gridEntries: any[] | null = null;
     let gridTitle = "";
+    let dataUrl = "";
 
     if (sp.section) {
         const sectionId = typeof sp.section === 'string' ? sp.section : sp.section[0];
         // Fetch children of this section
+        dataUrl = `/api/entry/children?parentId=${sectionId}`;
         gridEntries = db.prepare(`
             SELECT EntryID, Title, CreatedDate, Icon, PreviewText, EntryType
             FROM Entry 
@@ -47,8 +49,7 @@ export default async function JournalPage({ params, searchParams }: {
     } else if (sp.month) {
         const monthKey = typeof sp.month === 'string' ? sp.month : sp.month[0]; // "YYYY-MM"
         // Fetch entries for this month
-        // SQLite doesn't have format function in all versions, using strftime
-        // strftime('%Y-%m', CreatedDate) = ?
+        dataUrl = `/api/entry/dates?categoryId=${categoryId}&month=${monthKey}`;
         gridEntries = db.prepare(`
             SELECT EntryID, Title, CreatedDate, Icon, PreviewText
             FROM Entry 
@@ -65,10 +66,10 @@ export default async function JournalPage({ params, searchParams }: {
 
     return (
         <div className="flex h-screen bg-gray-900 text-gray-100 overflow-hidden font-sans">
-            <Sidebar categoryId={categoryId} userId={userId} title={category.Name} type={category.Type} />
+            <Sidebar categoryId={categoryId} userId={userId} title={category.Name} type={category.Type} viewSettings={category.ViewSettings} />
             <main className="flex-1 flex flex-col h-full relative">
                 {gridEntries ? (
-                    <EntryGrid entries={gridEntries} title={gridTitle} />
+                    <EntryGrid entries={gridEntries} title={gridTitle} dataUrl={dataUrl} />
                 ) : (
                     <Editor categoryId={categoryId} userId={userId} />
                 )}
