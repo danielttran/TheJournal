@@ -35,9 +35,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const categoryId = parseInt(id, 10);
         const body = await req.json();
-        const { name } = body;
+        const { name, icon } = body;
 
-        if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+        // Construct dynamic update
+        const updates: string[] = [];
+        const values: any[] = [];
+
+        if (name !== undefined) { updates.push("Name = ?"); values.push(name); }
+        if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
+
+        if (updates.length === 0) return NextResponse.json({ success: true }); // Nothing to update
 
         const { cookies } = require("next/headers");
         const cookieStore = await cookies();
@@ -45,8 +52,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const userId = parseInt(userIdCookie.value, 10);
 
-        const result = db.prepare('UPDATE Category SET Name = ? WHERE CategoryID = ? AND UserID = ?')
-            .run(name, categoryId, userId);
+        values.push(categoryId, userId);
+
+        const result = db.prepare(`UPDATE Category SET ${updates.join(", ")} WHERE CategoryID = ? AND UserID = ?`)
+            .run(...values);
 
         if (result.changes === 0) {
             return NextResponse.json({ error: "Category not found" }, { status: 404 });

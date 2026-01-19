@@ -3,11 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 const UpdateSchema = z.object({
-    content: z.any(), // JSON object (Quill Delta)
+    content: z.any().optional(), // JSON object (Quill Delta) - OPTIONAL for metadata-only updates
     html: z.string().optional(),
     title: z.string().optional(),
     preview: z.string().optional(),
     userId: z.number().or(z.string().transform(val => parseInt(val, 10))),
+    icon: z.string().optional(),
+    sortOrder: z.number().optional(),
+    parentEntryId: z.number().nullable().optional(),
+    isLocked: z.boolean().optional(),
+    entryType: z.enum(['Page', 'Section']).optional(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -16,7 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const entryId = parseInt(id, 10);
 
         const entry = db.prepare(`
-            SELECT e.EntryID, e.Title, ec.HtmlContent, ec.QuillDelta 
+            SELECT e.EntryID, e.Title, ec.HtmlContent, ec.QuillDelta, e.Icon
             FROM Entry e
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
             WHERE e.EntryID = ?
@@ -38,10 +43,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const entryId = parseInt(id, 10);
         const body = await req.json();
+        console.log("PUT Body:", body, "EntryID:", entryId);
 
-        const { content, html, title, preview, userId } = UpdateSchema.parse(body);
+        // 1. Validation
+        const result = UpdateSchema.safeParse(body);
+        if (!result.success) {
+            console.error("Validation Error:", result.error);
+            return NextResponse.json({ error: result.error.errors }, { status: 400 });
+        }
 
-        // Security check: Ensure entry belongs to user via Category
+        const { content, html, title, preview, userId, icon, sortOrder, parentEntryId, isLocked, entryType } = result.data;
+        console.log("Parsed Data:", { icon, title, sortOrder, content: content ? 'Present' : 'None' });
+
+        // 2. Security Check
         const entry = db.prepare(`
             SELECT 1 FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
@@ -52,49 +66,43 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
         }
 
-        // Update Content
-        const deltaString = JSON.stringify(content);
+        // 3. Update Content (if provided)
+        if (content !== undefined) {
+            const deltaString = JSON.stringify(content);
+            const updateContent = db.prepare(`
+                UPDATE EntryContent 
+                SET QuillDelta = ?, HtmlContent = ? 
+                WHERE EntryID = ?
+            `).run(deltaString, html || '', entryId);
 
-        const updateContent = db.prepare(`
-            UPDATE EntryContent 
-            SET QuillDelta = ?, HtmlContent = ? 
-            WHERE EntryID = ?
-        `).run(deltaString, html || '', entryId);
-
-        // If row doesn't exist in EntryContent (unexpected but possible if manually deleted), insert it
-        if (updateContent.changes === 0) {
-            db.prepare(`
-                INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent) 
-                VALUES (?, ?, ?)
-            `).run(entryId, deltaString, html || '');
+            if (updateContent.changes === 0) {
+                db.prepare(`
+                    INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent) 
+                    VALUES (?, ?, ?)
+                `).run(entryId, deltaString, html || '');
+            }
         }
 
-        // Update Metadata if provided
-        if (title || preview) {
-            const updates = [];
-            const values = [];
+        // 4. Update Metadata
+        const updates: string[] = [];
+        const values: any[] = [];
 
-            if (title !== undefined) {
-                updates.push("Title = ?");
-                values.push(title);
-            }
-            if (preview !== undefined) {
-                updates.push("PreviewText = ?");
-                values.push(preview);
-            }
+        if (title !== undefined) { updates.push("Title = ?"); values.push(title); }
+        if (preview !== undefined) { updates.push("PreviewText = ?"); values.push(preview); }
+        if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
+        if (sortOrder !== undefined) { updates.push("SortOrder = ?"); values.push(sortOrder); }
+        if (parentEntryId !== undefined) { updates.push("ParentEntryID = ?"); values.push(parentEntryId); }
+        if (isLocked !== undefined) { updates.push("IsLocked = ?"); values.push(isLocked ? 1 : 0); }
+        if (entryType !== undefined) { updates.push("EntryType = ?"); values.push(entryType); }
 
-            // Explicitly verify triggered update of ModifiedDate, 
-            // but the Trigger in schema should handle it. 
-            // We can just trust the schema trigger.
+        console.log("Updates array:", updates, "Values:", values);
 
+        if (updates.length > 0) {
             values.push(entryId);
-
-            db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
-        } else {
-            // Even if only content changed, we might want to touch the Entry ModifiedDate
-            // The Schema Trigger (UpdateEntryTimestamp) is "AFTER UPDATE ON Entry". 
-            // Updating EntryContent does NOT trigger it automatically unless we propagate it.
-            // Let's manually touch Entry.
+            const runResult = db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
+            console.log("Update Run Result:", runResult);
+        } else if (content !== undefined) {
+            // If ONLY content changed, touch Entry timestamp
             db.prepare(`UPDATE Entry SET ModifiedDate = CURRENT_TIMESTAMP WHERE EntryID = ?`).run(entryId);
         }
 
@@ -102,9 +110,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     } catch (error) {
         console.error("Error updating entry:", error);
-        if (error instanceof z.ZodError) {
-            return NextResponse.json({ error: error.errors }, { status: 400 });
-        }
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }

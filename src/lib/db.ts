@@ -8,7 +8,7 @@ class DBManager {
 
     getConnection() {
         if (!this.instance) {
-            this.instance = new Database(dbPath, { verbose: console.log });
+            this.instance = new Database(dbPath);
             this.instance.pragma('journal_mode = WAL');
             this.instance.pragma('foreign_keys = ON');
 
@@ -16,8 +16,15 @@ class DBManager {
             try {
                 const cols = this.instance.prepare("PRAGMA table_info(Category)").all() as any[];
                 if (!cols.some(c => c.name === 'SortOrder')) {
-                    console.log("Migrating: Adding SortOrder to Category...");
                     this.instance.prepare("ALTER TABLE Category ADD COLUMN SortOrder REAL DEFAULT 0").run();
+                }
+                if (!cols.some(c => c.name === 'Icon')) {
+                    this.instance.prepare("ALTER TABLE Category ADD COLUMN Icon TEXT").run();
+                }
+
+                const entryCols = this.instance.prepare("PRAGMA table_info(Entry)").all() as any[];
+                if (!entryCols.some(c => c.name === 'Icon')) {
+                    this.instance.prepare("ALTER TABLE Entry ADD COLUMN Icon TEXT").run();
                 }
             } catch (e) { console.error("Migration failed", e); }
         }

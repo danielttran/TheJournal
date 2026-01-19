@@ -12,7 +12,12 @@ export async function GET(req: NextRequest) {
     try {
         // Fetch CreatedDate of all entries in this category
         // simple query, we will process hierarchy on client or here. Client is often easier for UI state.
-        const entries = db.prepare('SELECT CreatedDate FROM Entry WHERE CategoryID = ? ORDER BY CreatedDate DESC').all(categoryId);
+        const entries = db.prepare(`
+            SELECT EntryID, Title, CreatedDate, Icon 
+            FROM Entry 
+            WHERE CategoryID = ?
+            ORDER BY CreatedDate DESC
+        `).all(categoryId);
 
         // Return raw list of dates (or objects with ID if needed, but calendar logic uses date string primarily)
         // Let's return { date: string, id: number, title: string } to be useful

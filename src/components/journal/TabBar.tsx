@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Plus, X, Book, FileText } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import {
     DndContext,
     closestCenter,
@@ -21,18 +22,22 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+// Dynamic import for Emoji Picker
+const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
+
 interface Category {
     CategoryID: number;
     Name: string;
     Type: 'Journal' | 'Notebook';
     Color: string;
     SortOrder?: number;
+    Icon?: string;
 }
 
 // ---------------------------
 // Sortable Tab Component
 // ---------------------------
-function SortableTab({ category, isActive, onClick, onDelete, onRename }: any) {
+function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconChange }: any) {
     const {
         attributes,
         listeners,
@@ -44,6 +49,8 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename }: any) {
 
     const [isEditing, setIsEditing] = useState(false);
     const [editName, setEditName] = useState(category.Name);
+    const [showPicker, setShowPicker] = useState(false);
+    const pickerRef = useRef<HTMLDivElement>(null);
 
     const style = {
         transform: CSS.Transform.toString(transform),
@@ -51,10 +58,19 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename }: any) {
         opacity: isDragging ? 0.5 : 1,
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') {
-            handleSave();
+    // Close picker when clicking outside
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+                setShowPicker(false);
+            }
         }
+        if (showPicker) document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [showPicker]);
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') handleSave();
     };
 
     const handleSave = () => {
@@ -62,6 +78,23 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename }: any) {
         if (editName.trim() !== category.Name) {
             onRename(category.CategoryID, editName);
         }
+    };
+
+    const togglePicker = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setShowPicker(!showPicker);
+    }
+
+    const onEmojiClick = (emojiData: any, event: MouseEvent) => {
+        event.stopPropagation();
+        onIconChange(category.CategoryID, emojiData.emoji);
+        setShowPicker(false);
+    }
+
+    // Default Icon if none set
+    const DisplayIcon = () => {
+        if (category.Icon) return <span className="mr-2 text-base leading-none">{category.Icon}</span>;
+        return category.Type === 'Notebook' ? <FileText size={14} className="mr-2 opacity-70" /> : <Book size={14} className="mr-2 opacity-70" />;
     };
 
     if (isEditing) {
@@ -77,7 +110,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename }: any) {
                     }
                 `}
             >
-                {category.Type === 'Notebook' ? <FileText size={14} /> : <Book size={14} />}
+                <DisplayIcon />
                 <input
                     autoFocus
                     value={editName}
@@ -103,14 +136,17 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename }: any) {
                 setIsEditing(true);
             }}
             className={`
-                group flex items-center min-w-[120px] max-w-[200px] h-9 px-3 rounded-t-lg text-sm cursor-pointer select-none transition-colors
+                relative group flex items-center min-w-[120px] max-w-[200px] h-9 px-3 rounded-t-lg text-sm cursor-pointer select-none transition-colors
                 ${isActive
                     ? 'bg-[#111827] text-white border-t-2 border-purple-500'
                     : 'bg-[#2d2d2d] text-gray-400 hover:bg-[#333]'
                 }
             `}
         >
-            {category.Type === 'Journal' ? <Book className="w-3.5 h-3.5 mr-2 opacity-70" /> : <FileText className="w-3.5 h-3.5 mr-2 opacity-70" />}
+            <div onClick={togglePicker} className="hover:bg-white/10 rounded p-0.5 cursor-pointer flex items-center justify-center">
+                <DisplayIcon />
+            </div>
+
             <span className="truncate flex-1">{category.Name}</span>
             <button
                 onClick={(e) => { e.stopPropagation(); onDelete(category.CategoryID); }}
@@ -118,6 +154,30 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename }: any) {
             >
                 <X size={12} />
             </button>
+
+            {/* Modal Portal for Emoji Picker */}
+            {showPicker && (
+                <div
+                    className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4 cursor-default"
+                    onMouseDown={(e) => { e.stopPropagation(); setShowPicker(false); }}
+                >
+                    <div
+                        className="bg-[#2d2d2d] rounded-xl shadow-2xl border border-gray-700 overflow-hidden"
+                        onMouseDown={e => e.stopPropagation()}
+                    >
+                        <div className="p-2 border-b border-gray-700 flex justify-between items-center bg-[#252525]">
+                            <span className="text-sm font-semibold pl-2 text-white">Select Icon</span>
+                            <button onClick={() => setShowPicker(false)} className="p-1 hover:bg-red-500/20 hover:text-red-400 rounded text-gray-400"><X size={16} /></button>
+                        </div>
+                        <EmojiPicker
+                            onEmojiClick={onEmojiClick}
+                            width={350}
+                            height={450}
+                            theme={"dark" as any}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -195,6 +255,15 @@ export default function TabBar({ userId }: { userId: string }) {
         });
     };
 
+    const handleIconChange = async (id: number, newIcon: string) => {
+        setTabs(prev => prev.map(c => c.CategoryID === id ? { ...c, Icon: newIcon } : c));
+        await fetch(`/api/category/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ icon: newIcon })
+        });
+    };
+
     const handleCreateTab = async () => {
         try {
             const res = await fetch('/api/category', {
@@ -224,7 +293,6 @@ export default function TabBar({ userId }: { userId: string }) {
     const handleImportClick = () => { fileInputRef.current?.click(); setIsFileMenuOpen(false); };
     const handleExportClick = () => { window.open('/api/backup/export', '_blank'); setIsFileMenuOpen(false); };
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        // ... (Same as before)
         const file = e.target.files?.[0];
         if (!file) return;
         if (!confirm("Overwrite data?")) return;
@@ -270,6 +338,7 @@ export default function TabBar({ userId }: { userId: string }) {
                                 onClick={() => router.push(`/journal/${tab.CategoryID}`)}
                                 onDelete={deleteTab}
                                 onRename={handleRename}
+                                onIconChange={handleIconChange}
                             />
                         ))}
                     </SortableContext>
