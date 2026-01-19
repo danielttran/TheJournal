@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
+import { ThemeToggle } from '../ThemeToggle';
 import { useRouter, usePathname } from 'next/navigation';
 import { Plus, X, Book, FileText } from 'lucide-react';
 import dynamic from 'next/dynamic';
@@ -105,8 +106,8 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                 className={`
                     group flex items-center gap-2 px-3 py-1 min-w-[120px] max-w-[200px] h-9 rounded-t-lg text-sm font-medium transition-all select-none
                     ${isActive
-                        ? 'bg-[#1e1e1e] text-white border-t-2 border-purple-500'
-                        : 'bg-[#2d2d2d] text-gray-400'
+                        ? 'bg-bg-app text-text-primary border-t-2 border-accent-primary'
+                        : 'bg-bg-card text-text-secondary'
                     }
                 `}
             >
@@ -118,7 +119,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                     onKeyDown={handleKeyDown}
                     onBlur={handleSave}
                     onClick={(e) => e.stopPropagation()}
-                    className="bg-transparent border-none outline-none w-full min-w-0 text-white"
+                    className="bg-transparent border-none outline-none w-full min-w-0 text-text-primary"
                 />
             </div>
         )
@@ -138,19 +139,19 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
             className={`
                 relative group flex items-center min-w-[120px] max-w-[200px] h-9 px-3 rounded-t-lg text-sm cursor-pointer select-none transition-colors
                 ${isActive
-                    ? 'bg-[#111827] text-white border-t-2 border-purple-500'
-                    : 'bg-[#2d2d2d] text-gray-400 hover:bg-[#333]'
+                    ? 'bg-bg-app text-text-primary border-t-2 border-accent-primary'
+                    : 'bg-bg-card text-text-secondary hover:bg-bg-hover'
                 }
             `}
         >
-            <div onClick={togglePicker} className="hover:bg-white/10 rounded p-0.5 cursor-pointer flex items-center justify-center">
+            <div onClick={togglePicker} className="hover:bg-bg-active/50 rounded p-0.5 cursor-pointer flex items-center justify-center">
                 <DisplayIcon />
             </div>
 
             <span className="truncate flex-1">{category.Name}</span>
             <button
                 onClick={(e) => { e.stopPropagation(); onDelete(category.CategoryID); }}
-                className={`p-0.5 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2`}
+                className={`p-0.5 rounded hover:bg-red-500/20 text-text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2`}
             >
                 <X size={12} />
             </button>
@@ -162,12 +163,12 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                     onMouseDown={(e) => { e.stopPropagation(); setShowPicker(false); }}
                 >
                     <div
-                        className="bg-[#2d2d2d] rounded-xl shadow-2xl border border-gray-700 overflow-hidden"
+                        className="bg-bg-card rounded-xl shadow-2xl border border-border-primary overflow-hidden"
                         onMouseDown={e => e.stopPropagation()}
                     >
-                        <div className="p-2 border-b border-gray-700 flex justify-between items-center bg-[#252525]">
-                            <span className="text-sm font-semibold pl-2 text-white">Select Icon</span>
-                            <button onClick={() => setShowPicker(false)} className="p-1 hover:bg-red-500/20 hover:text-red-400 rounded text-gray-400"><X size={16} /></button>
+                        <div className="p-2 border-b border-border-primary flex justify-between items-center bg-bg-active">
+                            <span className="text-sm font-semibold pl-2 text-text-primary">Select Icon</span>
+                            <button onClick={() => setShowPicker(false)} className="p-1 hover:bg-red-500/20 hover:text-red-400 rounded text-text-muted"><X size={16} /></button>
                         </div>
                         <EmojiPicker
                             onEmojiClick={onEmojiClick}
@@ -306,28 +307,32 @@ export default function TabBar({ userId }: { userId: string }) {
     const activeId = pathname.split('/')[2];
 
     return (
-        <div className="flex flex-col w-full bg-[#1e1e1e] border-b border-[#333]">
+        <div className="flex flex-col w-full bg-bg-sidebar border-b border-border-primary transition-colors duration-200">
             {/* FILE MENU & HEADER */}
-            <div className="flex items-center px-4 py-1 space-x-4 bg-[#2d2d2d] text-xs text-gray-300 select-none relative">
-                <div className="w-6 h-6 bg-purple-600 rounded flex items-center justify-center font-bold text-white mr-2">J</div>
+            <div className="flex items-center px-4 py-1 space-x-4 bg-bg-card text-xs text-text-secondary select-none relative transition-colors duration-200">
+                <div className="w-6 h-6 bg-accent-primary rounded flex items-center justify-center font-bold text-white mr-2">J</div>
                 <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite" onChange={handleFileChange} />
 
                 {/* File Dropdown */}
                 <div className="relative">
-                    <span onClick={() => setIsFileMenuOpen(!isFileMenuOpen)} className="px-2 py-0.5 rounded cursor-pointer hover:bg-gray-700">File</span>
+                    <span onClick={() => setIsFileMenuOpen(!isFileMenuOpen)} className="px-2 py-0.5 rounded cursor-pointer hover:bg-bg-hover">File</span>
                     {isFileMenuOpen && (
-                        <div className="absolute top-full left-0 mt-1 w-48 bg-[#2d2d2d] border border-[#444] rounded shadow-xl z-50 flex flex-col py-1">
-                            <button onClick={handleImportClick} className="text-left px-4 py-2 hover:bg-purple-600">Import DB...</button>
-                            <button onClick={handleExportClick} className="text-left px-4 py-2 hover:bg-purple-600">Export DB</button>
+                        <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
+                            <button onClick={handleImportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Import DB...</button>
+                            <button onClick={handleExportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Export DB</button>
                         </div>
                     )}
                 </div>
-                <span className="hover:bg-gray-700 px-2 py-0.5 rounded cursor-pointer">Edit</span>
-                <span className="hover:bg-gray-700 px-2 py-0.5 rounded cursor-pointer">View</span>
+                <span className="hover:bg-bg-hover px-2 py-0.5 rounded cursor-pointer hidden sm:block">Edit</span>
+                <span className="hover:bg-bg-hover px-2 py-0.5 rounded cursor-pointer hidden sm:block">View</span>
+
+                <div className="ml-auto">
+                    <ThemeToggle />
+                </div>
             </div>
 
             {/* TAB STRIP (Sortable) */}
-            <div className="flex items-center px-2 pt-2 space-x-1 overflow-x-auto no-scrollbar bg-[#1e1e1e]">
+            <div className="flex items-center px-2 pt-2 space-x-1 overflow-x-auto no-scrollbar bg-bg-sidebar">
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <SortableContext items={tabs.map(c => c.CategoryID)} strategy={horizontalListSortingStrategy}>
                         {tabs.map((tab) => (
@@ -344,7 +349,7 @@ export default function TabBar({ userId }: { userId: string }) {
                     </SortableContext>
                 </DndContext>
 
-                <button onClick={() => setIsModalOpen(true)} className="h-8 w-8 flex items-center justify-center text-gray-400 hover:bg-[#333] rounded">
+                <button onClick={() => setIsModalOpen(true)} className="h-8 w-8 flex items-center justify-center text-text-muted hover:bg-bg-hover rounded">
                     <Plus className="w-5 h-5" />
                 </button>
             </div>
@@ -352,17 +357,17 @@ export default function TabBar({ userId }: { userId: string }) {
             {/* MODAL (Compact) */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-                    <div className="bg-[#2d2d2d] p-6 rounded-lg w-80 border border-[#444]">
-                        <h3 className="text-white mb-4 font-bold">New Tab</h3>
-                        <input className="w-full bg-[#1e1e1e] border border-[#444] p-2 text-white mb-4 rounded"
+                    <div className="bg-bg-card p-6 rounded-lg w-80 border border-border-primary">
+                        <h3 className="text-text-primary mb-4 font-bold">New Tab</h3>
+                        <input className="w-full bg-bg-active border border-border-primary p-2 text-text-primary mb-4 rounded"
                             placeholder="Name" value={newTabName} onChange={e => setNewTabName(e.target.value)} autoFocus />
                         <div className="flex gap-2 mb-4">
-                            <button onClick={() => setNewTabType('Journal')} className={`flex-1 p-2 border rounded ${newTabType === 'Journal' ? 'bg-purple-900 border-purple-500' : 'border-[#444] text-gray-400'}`}>Journal</button>
-                            <button onClick={() => setNewTabType('Notebook')} className={`flex-1 p-2 border rounded ${newTabType === 'Notebook' ? 'bg-purple-900 border-purple-500' : 'border-[#444] text-gray-400'}`}>Notebook</button>
+                            <button onClick={() => setNewTabType('Journal')} className={`flex-1 p-2 border rounded ${newTabType === 'Journal' ? 'bg-accent-secondary border-accent-primary text-accent-primary' : 'border-border-primary text-text-secondary'}`}>Journal</button>
+                            <button onClick={() => setNewTabType('Notebook')} className={`flex-1 p-2 border rounded ${newTabType === 'Notebook' ? 'bg-accent-secondary border-accent-primary text-accent-primary' : 'border-border-primary text-text-secondary'}`}>Notebook</button>
                         </div>
                         <div className="flex justify-end gap-2">
-                            <button onClick={() => setIsModalOpen(false)} className="px-3 py-1 text-gray-400">Cancel</button>
-                            <button onClick={handleCreateTab} disabled={!newTabName} className="px-3 py-1 bg-purple-600 text-white rounded">Create</button>
+                            <button onClick={() => setIsModalOpen(false)} className="px-3 py-1 text-text-muted hover:text-text-primary">Cancel</button>
+                            <button onClick={handleCreateTab} disabled={!newTabName} className="px-3 py-1 bg-accent-primary text-white rounded hover:bg-opacity-90">Create</button>
                         </div>
                     </div>
                 </div>

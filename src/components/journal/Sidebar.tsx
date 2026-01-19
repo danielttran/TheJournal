@@ -31,6 +31,7 @@ import { CSS } from '@dnd-kit/utilities';
 
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
+
 interface SidebarProps {
     categoryId: string;
     userId: string;
@@ -116,12 +117,12 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
         return <File className="w-4 h-4 mr-2 text-blue-400" />;
     };
 
-    if (isOverlay) return (<div className="flex items-center justify-between px-2 py-1.5 rounded bg-gray-800 text-white shadow-lg border border-gray-700" style={{ paddingLeft: `${level * 12 + 8}px` }}><div className="flex items-center overflow-hidden"><GripVertical className="w-3 h-3 mr-1 text-gray-500" /><DisplayIcon /><span className="truncate">{entry.Title || 'Untitled'}</span></div></div>);
+    if (isOverlay) return (<div className="flex items-center justify-between px-2 py-1.5 rounded bg-bg-card text-text-primary shadow-lg border border-border-primary" style={{ paddingLeft: `${level * 12 + 8}px` }}><div className="flex items-center overflow-hidden"><GripVertical className="w-3 h-3 mr-1 text-text-muted" /><DisplayIcon /><span className="truncate">{entry.Title || 'Untitled'}</span></div></div>);
 
     return (
         <div ref={setNodeRef} style={style} {...attributes}>
             <div
-                className={`group flex items-center justify-between px-2 py-1.5 rounded cursor-pointer text-sm select-none ${isSelected ? 'bg-purple-900/40 text-purple-200' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-300'}`}
+                className={`group flex items-center justify-between px-2 py-1.5 rounded cursor-pointer text-sm select-none ${isSelected ? 'bg-accent-primary/20 text-accent-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}
                 onClick={(e) => {
                     e.stopPropagation();
                     if (entry.EntryType === 'Section') onSelect(entry.EntryID, 'Section');
@@ -137,14 +138,14 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
                 onContextMenu={(e) => onContextMenu(e, entry.EntryID)}
             >
                 <div className="flex items-center overflow-hidden flex-1">
-                    <div {...listeners} className="cursor-grab hover:text-white mr-1 active:cursor-grabbing" onClick={e => e.stopPropagation()}><GripVertical className="w-3 h-3 text-gray-600 hover:text-gray-400" /></div>
+                    <div {...listeners} className="cursor-grab hover:text-text-primary mr-1 active:cursor-grabbing" onClick={e => e.stopPropagation()}><GripVertical className="w-3 h-3 text-text-muted hover:text-text-secondary" /></div>
 
                     {/* Arrow for Expansion */}
                     <span
-                        className={`mr-1 p-0.5 rounded hover:bg-gray-700/50 cursor-pointer ${entry.EntryType !== 'Section' && 'invisible'}`}
+                        className={`mr-1 p-0.5 rounded hover:bg-bg-active cursor-pointer ${entry.EntryType !== 'Section' && 'invisible'}`}
                         onClick={handleExpandToggle}
                     >
-                        <ChevronRightIcon className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                        <ChevronRightIcon className={`w-3 h-3 transition-transform text-text-muted ${isOpen ? 'rotate-90' : ''}`} />
                     </span>
 
                     <DisplayIcon />
@@ -157,14 +158,14 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
                             onBlur={handleSubmitRename}
                             onKeyDown={handleKeyDown}
                             onClick={e => e.stopPropagation()}
-                            className="bg-gray-900 text-white border border-blue-500 rounded px-1 py-0.5 text-xs w-full focus:outline-none"
+                            className="bg-bg-active text-text-primary border border-accent-primary rounded px-1 py-0.5 text-xs w-full focus:outline-none"
                         />
                     ) : (
                         <span className="truncate">{entry.Title || 'Untitled'}</span>
                     )}
                 </div>
                 <div className="hidden group-hover:flex items-center space-x-1">
-                    {entry.EntryType === 'Section' && (<><button onClick={(e) => { e.stopPropagation(); onAddPage(entry.EntryID); }} className="p-0.5 hover:bg-gray-700 rounded text-gray-500 hover:text-white"><File className="w-3 h-3" /></button><button onClick={(e) => { e.stopPropagation(); onAddSection(entry.EntryID); }} className="p-0.5 hover:bg-gray-700 rounded text-gray-500 hover:text-white"><Folder className="w-3 h-3" /></button></>)}
+                    {entry.EntryType === 'Section' && (<><button onClick={(e) => { e.stopPropagation(); onAddPage(entry.EntryID); }} className="p-0.5 hover:bg-bg-active rounded text-text-muted hover:text-text-primary"><File className="w-3 h-3" /></button><button onClick={(e) => { e.stopPropagation(); onAddSection(entry.EntryID); }} className="p-0.5 hover:bg-bg-active rounded text-text-muted hover:text-text-primary"><Folder className="w-3 h-3" /></button></>)}
                 </div>
             </div>
             {hasChildren && isOpen && (
@@ -423,31 +424,31 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
 
     return (
-        <div className="w-80 bg-gray-950 border-r border-gray-800 flex flex-col h-full flex-shrink-0 relative">
+        <div className="w-80 bg-bg-sidebar border-r border-border-primary flex flex-col h-full flex-shrink-0 relative transition-colors duration-200">
             {/* Header */}
-            <div className="p-4 flex items-center justify-between border-b border-gray-800">
+            <div className="p-4 flex items-center justify-between border-b border-border-primary">
                 <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
+                    <div className="w-8 h-8 bg-accent-primary rounded-lg flex items-center justify-center">
                         {type === 'Journal' ? <Book className="text-white w-4 h-4" /> : <FileText className="text-white w-4 h-4" />}
                     </div>
-                    <span className="font-medium truncate max-w-[150px]">{title}</span>
+                    <span className="font-medium truncate max-w-[150px] text-text-primary">{title}</span>
                 </div>
-                <Link href="/dashboard" className="p-1 hover:bg-gray-800 rounded"><ChevronLeft className="w-5 h-5 text-gray-400" /></Link>
+                <Link href="/dashboard" className="p-1 hover:bg-bg-hover rounded block"><ChevronLeft className="w-5 h-5 text-text-muted" /></Link>
             </div>
 
             {/* Content Switcher */}
             {type === 'Journal' ? (
                 <>
                     {/* Calendar Widget */}
-                    <div className="p-4 border-b border-gray-800">
+                    <div className="p-4 border-b border-border-primary">
                         <div className="flex items-center justify-between mb-4">
-                            <h3 className="font-semibold">{format(currentMonth, 'MMMM yyyy')}</h3>
+                            <h3 className="font-semibold text-text-primary">{format(currentMonth, 'MMMM yyyy')}</h3>
                             <div className="flex space-x-1">
-                                <button onClick={prevMonth} className="p-1 hover:bg-gray-800 rounded"><ChevronLeft className="w-4 h-4" /></button>
-                                <button onClick={nextMonth} className="p-1 hover:bg-gray-800 rounded"><ChevronRight className="w-4 h-4" /></button>
+                                <button onClick={prevMonth} className="p-1 hover:bg-bg-hover rounded text-text-secondary"><ChevronLeft className="w-4 h-4" /></button>
+                                <button onClick={nextMonth} className="p-1 hover:bg-bg-hover rounded text-text-secondary"><ChevronRight className="w-4 h-4" /></button>
                             </div>
                         </div>
-                        <div className="grid grid-cols-7 gap-1 text-center text-xs text-gray-500 mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+                        <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
                         <div className="grid grid-cols-7 gap-1 text-sm">
                             {calendarDays.map((day, i) => {
                                 const isSelected = isSameDay(day, selectedDate);
@@ -457,7 +458,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                     <div
                                         key={i}
                                         onClick={() => onDateClick(day)}
-                                        className={`p-1 rounded cursor-pointer flex items-center justify-center h-8 w-8 mx-auto ${!isCurrentMonth ? 'text-gray-700' : ''} ${isSelected ? 'bg-blue-600 text-white font-bold' : 'hover:bg-gray-800 text-gray-400'}`}
+                                        className={`p-1 rounded cursor-pointer flex items-center justify-center h-8 w-8 mx-auto ${!isCurrentMonth ? 'text-text-muted opacity-50' : ''} ${isSelected ? 'bg-accent-primary text-white font-bold' : 'hover:bg-bg-hover text-text-secondary'}`}
                                         title={entryForDay?.Title || ""}
                                     >
                                         {entryForDay?.Icon ? <span className="text-base leading-none">{entryForDay.Icon}</span> : format(day, 'd')}
@@ -473,8 +474,8 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                             // If user never toggled, it's undefined. If I want default open: use !== false. 
                             return (
                                 <div key={year} className="mb-2">
-                                    <div className="flex items-center cursor-pointer text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 px-2 mt-2 select-none hover:text-gray-300" onClick={() => toggleJournalNode(year)}>
-                                        <ChevronRightIcon className={`mr-1 w-3 h-3 transition-transform text-gray-600 ${isYearOpen ? 'rotate-90' : ''}`} />
+                                    <div className="flex items-center cursor-pointer text-xs font-semibold text-text-muted uppercase tracking-wider mb-1 px-2 mt-2 select-none hover:text-text-secondary" onClick={() => toggleJournalNode(year)}>
+                                        <ChevronRightIcon className={`mr-1 w-3 h-3 transition-transform text-text-muted ${isYearOpen ? 'rotate-90' : ''}`} />
                                         {year}
                                     </div>
                                     {isYearOpen && Object.keys(groupedEntries[year]).map(month => {
@@ -483,12 +484,12 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                         return (
                                             <div key={month} className="pl-2">
                                                 <div className="group/month">
-                                                    <div className="flex items-center text-sm text-gray-400 hover:text-white py-1 px-2 rounded hover:bg-gray-800 select-none outline-none">
+                                                    <div className="flex items-center text-sm text-text-secondary hover:text-text-primary py-1 px-2 rounded hover:bg-bg-hover select-none outline-none">
                                                         <span
-                                                            className="cursor-pointer p-0.5 rounded hover:bg-gray-700/50 mr-1"
+                                                            className="cursor-pointer p-0.5 rounded hover:bg-bg-active mr-1"
                                                             onClick={(e) => { e.stopPropagation(); toggleJournalNode(monthKey); }}
                                                         >
-                                                            <ChevronRightIcon className={`w-3 h-3 transition-transform text-gray-500 ${isMonthOpen ? 'rotate-90' : ''}`} />
+                                                            <ChevronRightIcon className={`w-3 h-3 transition-transform text-text-muted ${isMonthOpen ? 'rotate-90' : ''}`} />
                                                         </span>
                                                         <span
                                                             className="flex-1 cursor-pointer"
@@ -501,13 +502,13 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                                         </span>
                                                     </div>
                                                     {isMonthOpen && (
-                                                        <div className="pl-6 space-y-0.5 mt-1 border-l border-gray-800 ml-3">
+                                                        <div className="pl-6 space-y-0.5 mt-1 border-l border-border-primary ml-3">
                                                             {groupedEntries[year][month].entries.sort((a: any, b: any) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime()).map((entry: any) => (
                                                                 <div
                                                                     key={entry.EntryID}
                                                                     onClick={() => onDateClick(new Date(entry.CreatedDate))}
                                                                     onContextMenu={(e) => handleContextMenu(e, entry.EntryID)}
-                                                                    className={`px-2 py-1 rounded cursor-pointer text-sm truncate transition-colors flex items-center ${isSameDay(new Date(entry.CreatedDate), selectedDate) ? 'bg-purple-900/40 text-purple-200' : 'text-gray-400 hover:bg-gray-800'}`}
+                                                                    className={`px-2 py-1 rounded cursor-pointer text-sm truncate transition-colors flex items-center ${isSameDay(new Date(entry.CreatedDate), selectedDate) ? 'bg-accent-primary/20 text-accent-primary' : 'text-text-secondary hover:bg-bg-hover'}`}
                                                                 >
                                                                     {entry.Icon && <span className="mr-2 text-xs">{entry.Icon}</span>}
                                                                     <span className="truncate">
@@ -531,10 +532,10 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                     {/* Notebook Tree */}
                     <div className="flex-1 overflow-y-auto p-2 pb-20">
                         <div className="flex items-center justify-between px-2 mb-2">
-                            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Notebook</span>
+                            <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Notebook</span>
                             <div className="flex space-x-1">
-                                <button onClick={() => onCreateEntry(null, 'Page')} className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white"><File className="w-3 h-3" /></button>
-                                <button onClick={() => onCreateEntry(null, 'Section')} className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white"><Folder className="w-3 h-3" /></button>
+                                <button onClick={() => onCreateEntry(null, 'Page')} className="p-1 hover:bg-bg-hover rounded text-text-muted hover:text-text-primary"><File className="w-3 h-3" /></button>
+                                <button onClick={() => onCreateEntry(null, 'Section')} className="p-1 hover:bg-bg-hover rounded text-text-muted hover:text-text-primary"><Folder className="w-3 h-3" /></button>
                             </div>
                         </div>
                         <div className="space-y-0.5">
@@ -558,26 +559,26 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                 {/* DragOverlay also needs update, passing dummy onRename */}
                                 <DragOverlay dropAnimation={dropAnimation}>{activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddSection={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} onRename={() => { }} onToggleExpand={() => { }} /> : null}</DragOverlay>
                             </DndContext>
-                            {pages.length === 0 && <div className="text-center py-4 text-gray-600 text-sm">Empty notebook</div>}
+                            {pages.length === 0 && <div className="text-center py-4 text-text-muted text-sm">Empty notebook</div>}
                         </div>
                     </div>
                 </>
             )}
 
             {/* Footer */}
-            <div className="p-4 border-t border-gray-800 text-xs text-gray-500">
+            <div className="p-4 border-t border-border-primary text-xs text-text-muted">
                 <span>{type} Mode</span>
             </div>
 
             {/* Context Menu */}
             {contextMenu.visible && (
                 <div
-                    className="fixed z-50 bg-[#2d2d2d] border border-[#444] rounded shadow-xl py-1 min-w-[160px]"
+                    className="fixed z-50 bg-bg-card border border-border-primary rounded shadow-xl py-1 min-w-[160px]"
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                     onClick={(e) => e.stopPropagation()}
                 >
                     <button
-                        className="w-full text-left px-4 py-2 hover:bg-[#3d3d3d] text-gray-200 text-sm flex items-center"
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center"
                         onClick={(e) => {
                             e.stopPropagation();
                             setContextMenu({ ...contextMenu, visible: false });
@@ -595,10 +596,10 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                     className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4"
                     onClick={() => setShowEmojiPicker(false)}
                 >
-                    <div onClick={e => e.stopPropagation()} className="bg-[#2d2d2d] rounded-xl shadow-2xl border border-gray-700 overflow-hidden">
-                        <div className="p-2 border-b border-gray-700 flex justify-between items-center bg-[#252525]">
-                            <span className="text-sm font-semibold pl-2">Select Icon</span>
-                            <button onClick={() => setShowEmojiPicker(false)} className="p-1 hover:bg-red-500/20 hover:text-red-400 rounded"><X size={16} /></button>
+                    <div onClick={e => e.stopPropagation()} className="bg-bg-card rounded-xl shadow-2xl border border-border-primary overflow-hidden">
+                        <div className="p-2 border-b border-border-primary flex justify-between items-center bg-bg-active">
+                            <span className="text-sm font-semibold pl-2 text-text-primary">Select Icon</span>
+                            <button onClick={() => setShowEmojiPicker(false)} className="p-1 hover:bg-red-500/20 hover:text-red-400 rounded text-text-muted"><X size={16} /></button>
                         </div>
                         <EmojiPicker
                             onEmojiClick={(data) => handleIconChange(contextMenu.entryId!, data.emoji)}

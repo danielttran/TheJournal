@@ -157,9 +157,9 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     };
 
     return (
-        <div className="flex flex-col h-full bg-gray-900">
+        <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
             {/* Top Toolbar Status Only */}
-            <div className="h-8 border-b border-gray-800 flex items-center justify-end px-4 bg-gray-900 absolute top-0 right-0 z-50 pointer-events-none">
+            <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
                 {/* Status Indicator floating */}
                 <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
                     <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
@@ -181,13 +181,14 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             </div>
 
             <style jsx global>{`
-                /* Custom overrides to match the dark theme aesthetics */
+                /* Custom overrides to match the theme aesthetics */
                 .ql-toolbar {
                     border: none !important;
-                    border-bottom: 1px solid #1f2937 !important;
-                    background: #111827;
-                    color: #fff;
+                    border-bottom: 1px solid var(--border-primary) !important;
+                    background: var(--bg-card);
+                    color: var(--text-primary);
                     padding: 12px 24px !important;
+                    transition: background-color 0.2s, border-color 0.2s;
                 }
                 .ql-container {
                     border: none !important;
@@ -201,23 +202,35 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     flex: 1;
                     overflow-y: auto;
                     padding: 2rem 4rem !important; /* Spacious padding */
-                    color: #d1d5db;
+                    color: var(--text-primary);
+                }
+                .ql-editor.ql-blank::before {
+                    color: var(--text-muted) !important;
+                    opacity: 0.6;
+                    font-style: italic;
+                }
+                .ql-editor:focus.ql-blank::before {
+                    display: none !important;
                 }
                 .ql-editor p {
                      margin-bottom: 0.8em;
                      line-height: 1.6;
                 }
                 .ql-stroke {
-                    stroke: #9ca3af !important;
-                    fill: none !important; /* Ensure stroke doesn't have fill */
+                    stroke: var(--text-secondary) !important;
+                    fill: none !important; 
                 }
                 .ql-fill {
-                    fill: #9ca3af !important;
-                    stroke: none !important; /* Ensure fill doesn't have stroke */
+                    fill: var(--text-secondary) !important;
+                    stroke: none !important; 
                 }
-                /* Specific SVGs might need specific targeting, but general rule helps */
                 .ql-picker {
-                    color: #9ca3af;
+                    color: var(--text-secondary) !important;
+                }
+                .ql-picker-options {
+                    background-color: var(--bg-card) !important;
+                    border: 1px solid var(--border-primary) !important;
+                    color: var(--text-primary) !important;
                 }
                 .quill {
                     height: 100%;

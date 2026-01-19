@@ -89,37 +89,39 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
     }
 
     return (
-        <div className="p-8 h-full overflow-y-auto bg-gray-50 dark:bg-gray-950">
-            {title && <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-gray-200">{title}</h2>}
+        <div className="p-8 h-full overflow-y-auto bg-bg-app transition-colors duration-200">
+            {title && <h2 className="text-2xl font-bold mb-6 text-text-primary">{title}</h2>}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {entries.map((entry) => (
                     <div
                         key={entry.EntryID}
                         onClick={() => handleEntryClick(entry)}
-                        className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5 cursor-pointer hover:shadow-lg hover:border-blue-500 transition-all duration-200 group flex flex-col h-48"
+                        className="bg-bg-card border border-border-primary rounded-xl p-5 cursor-pointer hover:shadow-lg hover:border-accent-primary transition-all duration-200 group flex flex-col h-48"
                     >
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center space-x-2 overflow-hidden">
                                 {entry.Icon && <span className="text-xl leading-none">{entry.Icon}</span>}
-                                <h3 className="font-semibold text-lg truncate text-gray-800 dark:text-gray-200 group-hover:text-blue-500 transition-colors">
+                                <h3 className="font-semibold text-lg truncate text-text-primary group-hover:text-accent-primary transition-colors">
                                     {entry.Title || "Untitled"}
                                 </h3>
                             </div>
                             {entry.CreatedDate && (
-                                <span className="text-xs text-gray-400 whitespace-nowrap ml-2">
+                                <span className="text-xs text-text-muted whitespace-nowrap ml-2">
                                     {format(new Date(entry.CreatedDate), 'MMM d, yyyy')}
                                 </span>
                             )}
                         </div>
 
                         <div className="flex-1 overflow-hidden relative">
-                            <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-4 leading-relaxed">
+                            <p className="text-sm text-text-secondary line-clamp-4 leading-relaxed">
                                 {entry.PreviewText || (
-                                    <span className="italic text-gray-400 opacity-60">No additional text...</span>
+                                    <span className="italic text-text-muted opacity-60">No additional text...</span>
                                 )}
                             </p>
-                            {/* Gradient fade at bottom of text */}
-                            <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white dark:from-gray-900 to-transparent pointer-events-none"></div>
+                            {/* Gradient fade at bottom of text - using CSS variable for from-color is tricky in tailwind gradient-to-t, 
+                                but we can try from-bg-card if we defined it as a color, but it's defined as a var. 
+                                Tailwind JIT should support `from-[var(--bg-card)]` */}
+                            <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[var(--bg-card)] to-transparent pointer-events-none"></div>
                         </div>
                     </div>
                 ))}

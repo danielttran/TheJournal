@@ -1,28 +1,34 @@
 "use client";
 
-import { useTheme } from "next-themes";
+import * as React from "react";
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useTheme } from "next-themes";
 
 export function ThemeToggle() {
-    const { resolvedTheme, setTheme } = useTheme();
-    const [mounted, setMounted] = useState(false);
+    const { theme, setTheme } = useTheme();
+    const [mounted, setMounted] = React.useState(false);
 
-    useEffect(() => {
+    React.useEffect(() => {
         setMounted(true);
     }, []);
 
     if (!mounted) {
-        return <div className="w-10 h-10" />; // Placeholder to prevent layout shift
+        return (
+            <button className="w-8 h-8 flex items-center justify-center rounded p-1 text-text-secondary hover:bg-bg-hover">
+                <span className="sr-only">Toggle theme</span>
+            </button>
+        );
     }
 
     return (
         <button
-            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-            className="p-2 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-700 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            aria-label="Toggle Theme"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="w-8 h-8 flex items-center justify-center rounded p-1 text-text-secondary hover:bg-bg-hover transition-colors"
+            title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
         >
-            {resolvedTheme === "dark" ? <Moon size={20} /> : <Sun size={20} />}
+            <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+            <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+            <span className="sr-only">Toggle theme</span>
         </button>
     );
 }
