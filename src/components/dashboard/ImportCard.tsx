@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 
 export default function ImportCard() {
@@ -24,11 +24,15 @@ export default function ImportCard() {
                 method: 'POST',
                 body: formData
             });
+            const data = await res.json();
+
             if (res.ok) {
+                console.log("Import Logs:", data.logs);
                 alert("Import successful. Reloading...");
                 window.location.reload();
             } else {
-                alert("Import failed.");
+                console.error("Import Failed Logs:", data.logs);
+                alert("Import failed: " + (data.error || "Unknown error") + "\n\nLog:\n" + (data.logs || []).join('\n'));
             }
         } catch (err) {
             console.error(err);

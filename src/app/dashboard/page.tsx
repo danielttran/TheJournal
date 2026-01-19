@@ -29,6 +29,24 @@ export default async function DashboardPage() {
 
     const categories = db.prepare('SELECT * FROM Category WHERE UserID = ?').all(userId) as any[];
 
+    // DIAGNOSTIC LOGGING
+    try {
+        const allCats = db.prepare('SELECT Count(*) as count FROM Category').get() as any;
+        const userCats = db.prepare('SELECT Count(*) as count FROM Category WHERE UserID = ?').get(userId) as any;
+        const allEntries = db.prepare('SELECT Count(*) as count FROM Entry').get() as any;
+        const lastCat = db.prepare('SELECT * FROM Category ORDER BY CategoryID DESC LIMIT 1').get();
+
+        console.log("--- DASHBOARD DIAGNOSTICS ---");
+        console.log(`Current UserID: ${userId}`);
+        console.log(`Total Categories in DB: ${allCats.count}`);
+        console.log(`Categories for User ${userId}: ${userCats.count}`);
+        console.log(`Total Entries in DB: ${allEntries.count}`);
+        console.log("Last Category in DB:", lastCat);
+        console.log("-----------------------------");
+    } catch (e) {
+        console.error("Diagnostics failed", e);
+    }
+
     if (categories.length > 0) {
         // Redirect to the first one for now, or show list
         // For keeping it simple as per request flow:
