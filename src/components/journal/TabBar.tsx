@@ -101,6 +101,27 @@ export default function TabBar({ userId }: { userId: string }) {
         }
     };
 
+    const deleteTab = async (id: number) => {
+        try {
+            const res = await fetch(`/api/category/${id}`, {
+                method: 'DELETE'
+            });
+            if (res.ok) {
+                const newTabs = tabs.filter(t => t.CategoryID !== id);
+                setTabs(newTabs);
+                if (String(id) === activeId) {
+                    if (newTabs.length > 0) {
+                        router.push(`/journal/${newTabs[0].CategoryID}`);
+                    } else {
+                        router.push('/dashboard');
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Failed to delete tab", error);
+        }
+    };
+
     // Extract active CategoryID from pathname
     const activeId = pathname.split('/')[2];
 
@@ -164,7 +185,15 @@ export default function TabBar({ userId }: { userId: string }) {
                         >
                             {tab.Type === 'Journal' ? <Book className="w-3.5 h-3.5 mr-2 opacity-70" /> : <FileText className="w-3.5 h-3.5 mr-2 opacity-70" />}
                             <span className="truncate flex-1">{tab.Name}</span>
-                            <span className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-600 rounded ml-2">
+                            <span
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm(`Are you sure you want to delete "${tab.Name}"? This cannot be undone.`)) {
+                                        deleteTab(tab.CategoryID);
+                                    }
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-600 rounded ml-2 hover:text-red-400"
+                            >
                                 <X className="w-3 h-3" />
                             </span>
                         </div>

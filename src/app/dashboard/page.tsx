@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { Book, Notebook } from 'lucide-react';
+import ImportCard from '@/components/dashboard/ImportCard';
 
 async function getUser() {
     const userIdCookie = (await cookies()).get("userId");
@@ -10,10 +11,10 @@ async function getUser() {
     return userIdCookie.value;
 }
 
-async function createInitialCategory(userId: string, type: 'journal' | 'notebook', name: string) {
+async function createInitialCategory(userId: string, type: 'Journal' | 'Notebook', name: string) {
     "use server";
-    const stmt = db.prepare('INSERT INTO Category (UserID, Name, IsPrivate) VALUES (?, ?, ?)');
-    const info = stmt.run(userId, name, 1);
+    const stmt = db.prepare('INSERT INTO Category (UserID, Name, Type, IsPrivate) VALUES (?, ?, ?, ?)');
+    const info = stmt.run(userId, name, type, 1);
     const categoryId = info.lastInsertRowid;
 
     redirect(`/journal/${categoryId}`);
@@ -39,15 +40,15 @@ export default async function DashboardPage() {
             <h1 className="text-3xl font-bold mb-8">Welcome to TheJournal</h1>
             <p className="text-gray-500 mb-12 text-lg">How would you like to start?</p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl">
                 {/* Journal Option */}
                 <form action={async () => {
                     "use server";
-                    await createInitialCategory(userId, 'journal', 'My Journal');
+                    await createInitialCategory(userId, 'Journal', 'My Journal');
                 }}
                     className="group cursor-pointer">
                     <button type="submit" className="w-full h-full text-left">
-                        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-8 hover:shadow-2xl hover:border-blue-500 dark:hover:border-blue-500 transition-all duration-300">
+                        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-8 hover:shadow-2xl hover:border-blue-500 dark:hover:border-blue-500 transition-all duration-300 h-full">
                             <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                                 <Book className="w-8 h-8 text-blue-600 dark:text-blue-400" />
                             </div>
@@ -62,11 +63,11 @@ export default async function DashboardPage() {
                 {/* Notebook Option */}
                 <form action={async () => {
                     "use server";
-                    await createInitialCategory(userId, 'notebook', 'My Notebook');
+                    await createInitialCategory(userId, 'Notebook', 'My Notebook');
                 }}
                     className="group cursor-pointer">
                     <button type="submit" className="w-full h-full text-left">
-                        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-8 hover:shadow-2xl hover:border-purple-500 dark:hover:border-purple-500 transition-all duration-300">
+                        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-8 hover:shadow-2xl hover:border-purple-500 dark:hover:border-purple-500 transition-all duration-300 h-full">
                             <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                                 <Notebook className="w-8 h-8 text-purple-600 dark:text-purple-400" />
                             </div>
@@ -77,6 +78,9 @@ export default async function DashboardPage() {
                         </div>
                     </button>
                 </form>
+
+                {/* Import Option */}
+                <ImportCard />
             </div>
         </div>
     );
