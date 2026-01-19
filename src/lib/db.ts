@@ -10,6 +10,16 @@ class DBManager {
         if (!this.instance) {
             this.instance = new Database(dbPath, { verbose: console.log });
             this.instance.pragma('journal_mode = WAL');
+            this.instance.pragma('foreign_keys = ON');
+
+            // Auto-migration for SortOrder
+            try {
+                const cols = this.instance.prepare("PRAGMA table_info(Category)").all() as any[];
+                if (!cols.some(c => c.name === 'SortOrder')) {
+                    console.log("Migrating: Adding SortOrder to Category...");
+                    this.instance.prepare("ALTER TABLE Category ADD COLUMN SortOrder REAL DEFAULT 0").run();
+                }
+            } catch (e) { console.error("Migration failed", e); }
         }
         return this.instance;
     }

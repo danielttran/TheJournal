@@ -29,3 +29,32 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }
+
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    try {
+        const { id } = await params;
+        const categoryId = parseInt(id, 10);
+        const body = await req.json();
+        const { name } = body;
+
+        if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+
+        const { cookies } = require("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = parseInt(userIdCookie.value, 10);
+
+        const result = db.prepare('UPDATE Category SET Name = ? WHERE CategoryID = ? AND UserID = ?')
+            .run(name, categoryId, userId);
+
+        if (result.changes === 0) {
+            return NextResponse.json({ error: "Category not found" }, { status: 404 });
+        }
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error("Update category error", error);
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    }
+}
