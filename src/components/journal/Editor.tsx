@@ -36,6 +36,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             tempDiv.innerHTML = content;
             const plainText = tempDiv.textContent || tempDiv.innerText || '';
             const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
+            // Limit preview to ~200 chars
+            const derivedPreview = plainText.substring(0, 200);
 
             await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
@@ -44,7 +46,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     userId,
                     content: { ops: [{ insert: content }] },
                     html: content,
-                    title: derivedTitle
+                    title: derivedTitle,
+                    preview: derivedPreview
                 })
             });
         } catch (err) {

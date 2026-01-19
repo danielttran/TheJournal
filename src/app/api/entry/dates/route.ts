@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
         // Fetch CreatedDate of all entries in this category
         // simple query, we will process hierarchy on client or here. Client is often easier for UI state.
         const entries = db.prepare(`
-            SELECT EntryID, Title, CreatedDate, Icon 
+            SELECT EntryID, Title, CreatedDate, Icon, PreviewText
             FROM Entry 
             WHERE CategoryID = ?
             ORDER BY CreatedDate DESC

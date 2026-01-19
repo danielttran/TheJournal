@@ -54,7 +54,7 @@ interface Entry {
 const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection, selectedId, isOverlay, onContextMenu }: {
     entry: Entry,
     level: number,
-    onSelect: (id: number) => void,
+    onSelect: (id: number, type: 'Page' | 'Section') => void,
     onAddPage: (parentId: number) => void,
     onAddSection: (parentId: number) => void,
     selectedId: number | null,
@@ -116,8 +116,11 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
                 `}
                 onClick={(e) => {
                     e.stopPropagation();
-                    if (entry.EntryType === 'Section') setIsOpen(!isOpen);
-                    else onSelect(entry.EntryID);
+                    if (entry.EntryType === 'Section') {
+                        setIsOpen(!isOpen);
+                        onSelect(entry.EntryID, 'Section');
+                    }
+                    else onSelect(entry.EntryID, 'Page');
                 }}
                 onContextMenu={(e) => onContextMenu(e, entry.EntryID)}
             >
@@ -193,6 +196,11 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
     // Journal Mode
     const urlDate = searchParams.get('date');
     const urlEntryId = searchParams.get('entry') ? parseInt(searchParams.get('entry')!, 10) : null;
+    const urlSectionId = searchParams.get('section') ? parseInt(searchParams.get('section')!, 10) : null;
+
+    // Combine for highlighting
+    const selectedId = urlEntryId || urlSectionId;
+
     const selectedDate = urlDate ? (() => {
         const [y, m, d] = urlDate.split('-').map(Number);
         return new Date(y, m - 1, d);
@@ -301,9 +309,10 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
         if (isNaN(date.getTime())) return acc;
         const year = format(date, 'yyyy');
         const month = format(date, 'MMMM');
+        const monthKey = format(date, 'yyyy-MM');
         if (!acc[year]) acc[year] = {};
-        if (!acc[year][month]) acc[year][month] = [];
-        acc[year][month].push(entry);
+        if (!acc[year][month]) acc[year][month] = { entries: [], key: monthKey };
+        acc[year][month].entries.push(entry);
         return acc;
     }, {});
 
@@ -418,11 +427,17 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
                                 {Object.keys(groupedEntries[year]).map(month => (
                                     <div key={month} className="pl-2">
                                         <details open className="group/month">
-                                            <summary className="flex items-center cursor-pointer text-sm text-gray-400 hover:text-white py-1 px-2 rounded hover:bg-gray-800 select-none outline-none">
+                                            <summary
+                                                className="flex items-center cursor-pointer text-sm text-gray-400 hover:text-white py-1 px-2 rounded hover:bg-gray-800 select-none outline-none"
+                                                onClick={(e) => {
+                                                    const monthKey = groupedEntries[year][month].key;
+                                                    router.push(`?month=${monthKey}`);
+                                                }}
+                                            >
                                                 <span className="mr-2 text-[10px] group-open/month:rotate-90 transition-transform inline-block w-3 text-gray-500">▸</span>{month}
                                             </summary>
                                             <div className="pl-6 space-y-0.5 mt-1 border-l border-gray-800 ml-3">
-                                                {groupedEntries[year][month].sort((a: any, b: any) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime()).map((entry: any) => {
+                                                {groupedEntries[year][month].entries.sort((a: any, b: any) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime()).map((entry: any) => {
                                                     const displayTitle = entry.Title && entry.Title !== 'Untitled' ? ` - ${entry.Title}` : '';
                                                     return (
                                                         <div
@@ -461,7 +476,7 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
                             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                                 <SortableContext items={rootIds} strategy={verticalListSortingStrategy}>
                                     {pages.map(entry => (
-                                        <SortableNotebookItem key={entry.EntryID} entry={entry} level={0} onSelect={(id) => router.push(`?entry=${id}`)} onAddPage={(pid) => onCreateEntry(pid, 'Page')} onAddSection={(pid) => onCreateEntry(pid, 'Section')} selectedId={urlEntryId} onContextMenu={handleContextMenu} />
+                                        <SortableNotebookItem key={entry.EntryID} entry={entry} level={0} onSelect={(id, type) => router.push(`?${type === 'Section' ? 'section' : 'entry'}=${id}`)} onAddPage={(pid) => onCreateEntry(pid, 'Page')} onAddSection={(pid) => onCreateEntry(pid, 'Section')} selectedId={selectedId} onContextMenu={handleContextMenu} />
                                     ))}
                                 </SortableContext>
                                 <DragOverlay dropAnimation={dropAnimation}>

@@ -9,8 +9,14 @@ async function getCategory(categoryId: string, userId: string): Promise<any> {
     return category;
 }
 
-export default async function JournalPage({ params }: { params: Promise<{ categoryId: string }> }) {
+import EntryGrid from '@/components/journal/EntryGrid'; // Add import
+
+export default async function JournalPage({ params, searchParams }: {
+    params: Promise<{ categoryId: string }>,
+    searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
     const { categoryId } = await params;
+    const sp = await searchParams;
 
     // Check Auth
     const userIdCookie = (await cookies()).get("userId");
@@ -20,11 +26,52 @@ export default async function JournalPage({ params }: { params: Promise<{ catego
     const category = await getCategory(categoryId, userId);
     if (!category) redirect("/dashboard");
 
+    // Grid View Logic
+    let gridEntries: any[] | null = null;
+    let gridTitle = "";
+
+    if (sp.section) {
+        const sectionId = typeof sp.section === 'string' ? sp.section : sp.section[0];
+        // Fetch children of this section
+        gridEntries = db.prepare(`
+            SELECT EntryID, Title, CreatedDate, Icon, PreviewText, EntryType
+            FROM Entry 
+            WHERE ParentEntryID = ?
+            ORDER BY SortOrder ASC, CreatedDate DESC
+        `).all(sectionId) as any[];
+
+        // Get Section Title for header
+        const section = db.prepare('SELECT Title FROM Entry WHERE EntryID = ?').get(sectionId) as any;
+        gridTitle = section ? section.Title : "Section";
+
+    } else if (sp.month) {
+        const monthKey = typeof sp.month === 'string' ? sp.month : sp.month[0]; // "YYYY-MM"
+        // Fetch entries for this month
+        // SQLite doesn't have format function in all versions, using strftime
+        // strftime('%Y-%m', CreatedDate) = ?
+        gridEntries = db.prepare(`
+            SELECT EntryID, Title, CreatedDate, Icon, PreviewText
+            FROM Entry 
+            WHERE CategoryID = ? AND strftime('%Y-%m', CreatedDate) = ?
+            ORDER BY CreatedDate ASC
+        `).all(categoryId, monthKey) as any[];
+
+        // Format title "January 2026"
+        // We can do it in JS
+        const [y, m] = monthKey.split('-');
+        const d = new Date(parseInt(y), parseInt(m) - 1);
+        gridTitle = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    }
+
     return (
         <div className="flex h-screen bg-gray-900 text-gray-100 overflow-hidden font-sans">
             <Sidebar categoryId={categoryId} userId={userId} title={category.Name} type={category.Type} />
             <main className="flex-1 flex flex-col h-full relative">
-                <Editor categoryId={categoryId} userId={userId} />
+                {gridEntries ? (
+                    <EntryGrid entries={gridEntries} title={gridTitle} />
+                ) : (
+                    <Editor categoryId={categoryId} userId={userId} />
+                )}
             </main>
         </div>
     );
