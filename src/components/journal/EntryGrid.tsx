@@ -34,17 +34,22 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
         if (!dataUrl) return;
 
         const handleUpdate = async () => {
-            try {
-                // Add timestamp to prevent caching
-                const url = dataUrl.includes('?') ? `${dataUrl}&t=${Date.now()}` : `${dataUrl}?t=${Date.now()}`;
-                const res = await fetch(url);
-                if (res.ok) {
-                    const data = await res.json();
-                    setEntries(data);
+            const fetchGrid = async () => {
+                try {
+                    // Add timestamp to prevent caching
+                    const url = dataUrl.includes('?') ? `${dataUrl}&t=${Date.now()}` : `${dataUrl}?t=${Date.now()}`;
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        const data = await res.json();
+                        setEntries(data);
+                    }
+                } catch (e) {
+                    console.error("Failed to refresh grid", e);
                 }
-            } catch (e) {
-                console.error("Failed to refresh grid", e);
-            }
+            };
+
+            fetchGrid(); // Immediate
+            setTimeout(fetchGrid, 300); // Retry logic
         };
 
         window.addEventListener('journal-entry-updated', handleUpdate);

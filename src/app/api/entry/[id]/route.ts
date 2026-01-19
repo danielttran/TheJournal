@@ -43,7 +43,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     try {
         const { id } = await params;
         const entryId = parseInt(id, 10);
+
+        // Debug logging
+        console.log(`[API] Entry Update Request for ID: ${id}, Method: ${req.method}`);
+
         const body = await req.json();
+        console.log(`[API] Body received. Title: ${body.title}, Content size: ${JSON.stringify(body.content).length}`);
 
         // 1. Validation
         const result = UpdateSchema.safeParse(body);
@@ -64,43 +69,48 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
         }
 
-        // 3. Update Content (if provided)
-        if (content !== undefined) {
-            const deltaString = JSON.stringify(content);
-            const updateContent = db.prepare(`
-                UPDATE EntryContent 
-                SET QuillDelta = ?, HtmlContent = ? 
-                WHERE EntryID = ?
-            `).run(deltaString, html || '', entryId);
+        // Wrap in transaction
+        const updateTransaction = db.transaction(() => {
+            // 3. Update Content (if provided)
+            if (content !== undefined) {
+                const deltaString = JSON.stringify(content);
+                const updateContent = db.prepare(`
+                    UPDATE EntryContent 
+                    SET QuillDelta = ?, HtmlContent = ? 
+                    WHERE EntryID = ?
+                `).run(deltaString, html || '', entryId);
 
-            if (updateContent.changes === 0) {
-                db.prepare(`
-                    INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent) 
-                    VALUES (?, ?, ?)
-                `).run(entryId, deltaString, html || '');
+                if (updateContent.changes === 0) {
+                    db.prepare(`
+                        INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent) 
+                        VALUES (?, ?, ?)
+                    `).run(entryId, deltaString, html || '');
+                }
             }
-        }
 
-        // 4. Update Metadata
-        const updates: string[] = [];
-        const values: any[] = [];
+            // 4. Update Metadata
+            const updates: string[] = [];
+            const values: any[] = [];
 
-        if (title !== undefined) { updates.push("Title = ?"); values.push(title); }
-        if (preview !== undefined) { updates.push("PreviewText = ?"); values.push(preview); }
-        if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
-        if (sortOrder !== undefined) { updates.push("SortOrder = ?"); values.push(sortOrder); }
-        if (parentEntryId !== undefined) { updates.push("ParentEntryID = ?"); values.push(parentEntryId); }
-        if (isLocked !== undefined) { updates.push("IsLocked = ?"); values.push(isLocked ? 1 : 0); }
-        if (entryType !== undefined) { updates.push("EntryType = ?"); values.push(entryType); }
-        if (isExpanded !== undefined) { updates.push("IsExpanded = ?"); values.push(isExpanded ? 1 : 0); }
+            if (title !== undefined) { updates.push("Title = ?"); values.push(title); }
+            if (preview !== undefined) { updates.push("PreviewText = ?"); values.push(preview); }
+            if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
+            if (sortOrder !== undefined) { updates.push("SortOrder = ?"); values.push(sortOrder); }
+            if (parentEntryId !== undefined) { updates.push("ParentEntryID = ?"); values.push(parentEntryId); }
+            if (isLocked !== undefined) { updates.push("IsLocked = ?"); values.push(isLocked ? 1 : 0); }
+            if (entryType !== undefined) { updates.push("EntryType = ?"); values.push(entryType); }
+            if (isExpanded !== undefined) { updates.push("IsExpanded = ?"); values.push(isExpanded ? 1 : 0); }
 
-        if (updates.length > 0) {
-            values.push(entryId);
-            db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
-        } else if (content !== undefined) {
-            // If ONLY content changed, touch Entry timestamp
-            db.prepare(`UPDATE Entry SET ModifiedDate = CURRENT_TIMESTAMP WHERE EntryID = ?`).run(entryId);
-        }
+            if (updates.length > 0) {
+                values.push(entryId);
+                db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
+            } else if (content !== undefined) {
+                // If ONLY content changed, touch Entry timestamp
+                db.prepare(`UPDATE Entry SET ModifiedDate = CURRENT_TIMESTAMP WHERE EntryID = ?`).run(entryId);
+            }
+        });
+
+        updateTransaction();
 
         return NextResponse.json({ success: true });
 
@@ -108,4 +118,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         console.error("Error updating entry:", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
+}
+
+// Alias POST to PUT for sendBeacon support
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    return PUT(req, { params });
 }

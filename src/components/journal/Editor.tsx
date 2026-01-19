@@ -14,34 +14,42 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const selectedDate = urlDate || new Date().toISOString().split('T')[0];
     const urlEntryId = searchParams.get('entry') ? parseInt(searchParams.get('entry')!, 10) : null;
 
-    const [value, setValue] = useState(''); // HTML/Content
+    const [value, setValue] = useState('');
     const [entryId, setEntryId] = useState<number | null>(null);
     const [saving, setSaving] = useState(false);
-    const valueRef = useRef(value); // Tracking for unmount save
-    const entryIdRef = useRef(entryId); // Tracking for unmount save
 
-    useEffect(() => {
-        valueRef.current = value;
-    }, [value]);
+    // Refs for Data Safety (The "Truth" outside React render cycle)
+    const contentRef = useRef('');
+    const entryIdRef = useRef<number | null>(null);
+    const isDirtyRef = useRef(false);
 
-    useEffect(() => {
-        entryIdRef.current = entryId;
-    }, [entryId]);
+    // Sync refs with state
+    useEffect(() => { entryIdRef.current = entryId; }, [entryId]);
 
-    // Save Function
-    const saveContent = async (id: number, content: string) => {
-        setSaving(true);
+    // Core Save Function - The "Cannot Fail" Logic
+    const performSave = async (id: number, content: string, isAutoSave = false) => {
+        // Validation precaution
+        if (!content && !isAutoSave) {
+            // Allow saving empty if explicit? checking context.
+        }
+
+        if (!isAutoSave) {
+            console.log(`[Editor] Force saving ID: ${id}, Content Len: ${content.length}`);
+        } else {
+            setSaving(true);
+        }
+
         try {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = content;
             const plainText = tempDiv.textContent || tempDiv.innerText || '';
             const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
-            // Limit preview to ~200 chars
             const derivedPreview = plainText.substring(0, 200);
 
-            await fetch(`/api/entry/${id}`, {
+            const res = await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
+                keepalive: true, // Critical for navigation survival
                 body: JSON.stringify({
                     userId,
                     content: { ops: [{ insert: content }] },
@@ -50,102 +58,115 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     preview: derivedPreview
                 })
             });
+
+            if (res.ok) {
+                console.log(`[Editor] Save Success for ${id}. Dispatching Update Event.`);
+                // Notify app AFTER successful save (fixes stale thumbs)
+                window.dispatchEvent(new CustomEvent('journal-entry-updated'));
+                isDirtyRef.current = false;
+            } else {
+                console.error(`[Editor] Save Failed: ${res.status}`);
+            }
+
         } catch (err) {
-            console.error("Failed to save", err);
+            console.error("[Editor] Network/Save Error", err);
         } finally {
-            setSaving(false);
-            window.dispatchEvent(new CustomEvent('journal-entry-updated'));
+            if (isAutoSave) setSaving(false);
         }
     };
 
-    // Debounce Save Logic
+    // 1. Text Change Handler
+    const handleChange = (content: string) => {
+        setValue(content);
+        // Only mark dirty if it actually changed meaningfully? 
+        // For now, any change is dirty.
+        if (contentRef.current !== content) {
+            contentRef.current = content;
+            if (!isDirtyRef.current) {
+                console.log("[Editor] Marked Dirty");
+                isDirtyRef.current = true;
+            }
+        }
+    };
+
+    // 2. Auto-Save Timer (Debounce)
     useEffect(() => {
-        if (!entryId || !value) return;
-
         const timer = setTimeout(() => {
-            saveContent(entryId, value);
-        }, 1500);
-
+            if (isDirtyRef.current && entryIdRef.current) {
+                performSave(entryIdRef.current, contentRef.current, true);
+            }
+        }, 1000);
         return () => clearTimeout(timer);
-    }, [value, entryId, userId]);
+    }, [value]);
 
-    // Initial Load
+    // 3. Navigation / Unmount Safety Net
+    // We capture the ID in a local variable to ensure we save the RIGHT entry on unmount
+    useEffect(() => {
+        // Capture the ACTIVE ID when this effect is mounted (which is for a specific entry context)
+        // Wait, dependencies are [urlEntryId, selectedDate].
+        // This effect runs whenever navigation targets change.
+
+        return () => {
+            // Cleanup runs BEFORE the next effect cycle.
+            // We check the mutable refs.
+            const idToSave = entryIdRef.current;
+            const contentToSave = contentRef.current;
+            const wasDirty = isDirtyRef.current;
+
+            console.log(`[Editor] Navigation Cleanup Check. Dirty: ${wasDirty}, ID: ${idToSave}`);
+
+            if (wasDirty && idToSave) {
+                performSave(idToSave, contentToSave, false);
+            }
+        };
+    }, [urlEntryId, selectedDate]);
+
+    // Initial Load Logic
     useEffect(() => {
         const fetchEntry = async () => {
-            setValue('');
-            setEntryId(null);
+            // ... Logic to load entry ...
+            // Important: We must not clear ref if we are about to save it?
+            // No, the PREVIOUS effect cleanup ran first. So it's safe to reset here.
 
-            // Prioritize URL Entry ID (Notebook Mode)
-            if (urlEntryId) {
-                try {
+            // Temporary local vars to prevent race conditions with state
+            let loadedId: number | null = null;
+            let loadedContent = '';
+
+            try {
+                // ... fetch logic ...
+                if (urlEntryId) {
                     const res = await fetch(`/api/entry/${urlEntryId}`);
                     if (res.ok) {
                         const data = await res.json();
-                        if (data.EntryID) {
-                            setEntryId(data.EntryID);
-                            if (data.HtmlContent) setValue(data.HtmlContent);
-                        }
+                        loadedId = data.EntryID;
+                        loadedContent = data.HtmlContent || '';
                     }
-                } catch (e) {
-                    console.error(e);
-                }
-                return;
-            }
-
-            try {
-                const res = await fetch('/api/entry/by-date', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        date: selectedDate,
-                        categoryId,
-                        userId
-                    })
-                });
-                const data = await res.json();
-                if (data.id) {
-                    setEntryId(data.id);
-                    if (data.html) setValue(data.html);
                 } else {
-                    setValue('');
+                    const res = await fetch('/api/entry/by-date', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ date: selectedDate, categoryId, userId })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        loadedId = data.id;
+                        loadedContent = data.html || '';
+                    }
                 }
             } catch (err) {
-                console.error("Failed to load entry", err);
+                console.error("Failed to load", err);
             }
+
+            // Batch updates
+            setValue(loadedContent);
+            setEntryId(loadedId); // This triggers the ref update effect
+            contentRef.current = loadedContent;
+            isDirtyRef.current = false;
         };
         fetchEntry();
     }, [categoryId, userId, selectedDate, urlEntryId]);
 
-    // Unmount / Change Save Logic
-    useEffect(() => {
-        return () => {
-            if (entryIdRef.current && valueRef.current) {
-                // Use Beacon or sync XHR if possible for unmount reliability?
-                // But fetch usually works in modern browsers if not cancelled.
-                saveContent(entryIdRef.current, valueRef.current);
-            }
-        };
-    }, []); // Run on unmount only? 
-    // Actually, we need to save when switching entries too.
-    // The previous logic saved when dependencies changed.
-
-    // Let's split it:
-    // 1. Save on ID change (switching entries)
-    useEffect(() => {
-        const currentId = entryIdRef.current;
-        const val = valueRef.current;
-        return () => {
-            // When this effect cleans up (before running next, or on unmount),
-            // We check if we need to save.
-            // IMPORTANT: entryIdRef matches the ID *before* the change.
-            if (currentId && val) {
-                saveContent(currentId, val);
-            }
-        }
-    }, [urlEntryId, selectedDate]); // When these change, we are effectively 'unmounting' the current entry context
-
-
-    // Modules for custom toolbar
+    // Toolbar Modules
     const modules = {
         toolbar: [
             [{ 'header': [1, 2, false] }],
@@ -158,22 +179,19 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     return (
         <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
-            {/* Top Toolbar Status Only */}
             <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
-                {/* Status Indicator floating */}
                 <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
                     <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
                     {saving ? 'Saving...' : 'Saved'}
                 </span>
             </div>
 
-            {/* Editor Area - Toolbar will be injected by Quill at top */}
             <div className="flex-1 overflow-hidden relative flex flex-col">
                 <ReactQuill
-                    key={entryId || 'empty'}
+                    key={entryId || 'loading'}
                     theme="snow"
                     value={value}
-                    onChange={setValue}
+                    onChange={handleChange}
                     modules={modules}
                     className="flex-1 flex flex-col bg-transparent border-none"
                     placeholder="Start writing..."

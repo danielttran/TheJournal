@@ -267,8 +267,15 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         else if (type === 'Journal') fetchJournalEntries();
 
         const handleUpdate = () => {
+            // Immediate fetch (fast)
             if (type === 'Notebook') fetchPages();
             if (type === 'Journal') fetchJournalEntries();
+
+            // Delayed fetch (catch race conditions)
+            setTimeout(() => {
+                if (type === 'Notebook') fetchPages();
+                if (type === 'Journal') fetchJournalEntries();
+            }, 300);
         };
         window.addEventListener('journal-entry-updated', handleUpdate);
 
