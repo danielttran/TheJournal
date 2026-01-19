@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = 'force-dynamic'; // Prevent caching
+
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const categoryId = searchParams.get('categoryId');
@@ -19,16 +21,7 @@ export async function GET(req: NextRequest) {
             ORDER BY CreatedDate DESC
         `).all(categoryId);
 
-        // Return raw list of dates (or objects with ID if needed, but calendar logic uses date string primarily)
-        // Let's return { date: string, id: number, title: string } to be useful
-        const detailedEntries = db.prepare(`
-            SELECT EntryID, Title, CreatedDate 
-            FROM Entry 
-            WHERE CategoryID = ? 
-            ORDER BY CreatedDate DESC
-        `).all(categoryId);
-
-        return NextResponse.json(detailedEntries);
+        return NextResponse.json(entries);
     } catch (error) {
         console.error("Failed to fetch entry dates", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

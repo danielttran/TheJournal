@@ -43,17 +43,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const entryId = parseInt(id, 10);
         const body = await req.json();
-        console.log("PUT Body:", body, "EntryID:", entryId);
 
         // 1. Validation
         const result = UpdateSchema.safeParse(body);
         if (!result.success) {
-            console.error("Validation Error:", result.error);
             return NextResponse.json({ error: result.error.errors }, { status: 400 });
         }
 
         const { content, html, title, preview, userId, icon, sortOrder, parentEntryId, isLocked, entryType } = result.data;
-        console.log("Parsed Data:", { icon, title, sortOrder, content: content ? 'Present' : 'None' });
 
         // 2. Security Check
         const entry = db.prepare(`
@@ -95,12 +92,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         if (isLocked !== undefined) { updates.push("IsLocked = ?"); values.push(isLocked ? 1 : 0); }
         if (entryType !== undefined) { updates.push("EntryType = ?"); values.push(entryType); }
 
-        console.log("Updates array:", updates, "Values:", values);
-
         if (updates.length > 0) {
             values.push(entryId);
-            const runResult = db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
-            console.log("Update Run Result:", runResult);
+            db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
         } else if (content !== undefined) {
             // If ONLY content changed, touch Entry timestamp
             db.prepare(`UPDATE Entry SET ModifiedDate = CURRENT_TIMESTAMP WHERE EntryID = ?`).run(entryId);

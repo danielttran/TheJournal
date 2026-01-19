@@ -276,13 +276,11 @@ export default function Sidebar({ categoryId, userId, title, type }: SidebarProp
     };
 
     const handleIconChange = async (entryId: number, icon: string) => {
-        console.log("Changing icon for", entryId, "to", icon, "User:", userId);
         const res = await fetch(`/api/entry/${entryId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ icon: icon, userId })
         });
-        console.log("Icon update response:", res.status);
         if (type === 'Journal') fetchJournalEntries();
         else fetchPages();
 
