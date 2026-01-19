@@ -6,12 +6,14 @@ const CreateEntrySchema = z.object({
     categoryId: z.number().or(z.string().transform(val => parseInt(val, 10))),
     userId: z.number().or(z.string().transform(val => parseInt(val, 10))),
     title: z.string().optional().default('Untitled Page'),
+    parentEntryId: z.number().optional().nullable(),
+    entryType: z.enum(['Page', 'Section']).optional().default('Page'),
 });
 
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { categoryId, userId, title } = CreateEntrySchema.parse(body);
+        const { categoryId, userId, title, parentEntryId, entryType } = CreateEntrySchema.parse(body);
 
         // Security check: Ensure category belongs to user
         const category = db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
@@ -22,9 +24,9 @@ export async function POST(req: NextRequest) {
 
         // Create new Entry
         const result = db.prepare(`
-            INSERT INTO Entry (CategoryID, Title, PreviewText) 
-            VALUES (?, ?, ?)
-        `).run(categoryId, title, 'Start writing...');
+            INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType) 
+            VALUES (?, ?, ?, ?, ?)
+        `).run(categoryId, title, 'Start writing...', parentEntryId || null, entryType);
 
         const newEntryId = result.lastInsertRowid;
 
@@ -36,9 +38,11 @@ export async function POST(req: NextRequest) {
         `).run(newEntryId, initialDelta, '');
 
         return NextResponse.json({
-            id: newEntryId, // Normalized to lowercase id for frontend consistency if needed, but keeping EntryID pattern is fine.
+            id: newEntryId,
             EntryID: newEntryId,
-            Title: title
+            Title: title,
+            ParentEntryID: parentEntryId,
+            EntryType: entryType
         });
 
     } catch (error) {

@@ -10,6 +10,29 @@ const UpdateSchema = z.object({
     userId: z.number().or(z.string().transform(val => parseInt(val, 10))),
 });
 
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    try {
+        const { id } = await params;
+        const entryId = parseInt(id, 10);
+
+        const entry = db.prepare(`
+            SELECT e.EntryID, e.Title, ec.HtmlContent, ec.QuillDelta 
+            FROM Entry e
+            LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
+            WHERE e.EntryID = ?
+        `).get(entryId);
+
+        if (!entry) {
+            return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+        }
+
+        return NextResponse.json(entry);
+    } catch (error) {
+        console.error("Error fetching entry:", error);
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    }
+}
+
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { id } = await params;

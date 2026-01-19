@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        const entries = db.prepare('SELECT EntryID, Title, CreatedDate FROM Entry WHERE CategoryID = ? ORDER BY CreatedDate DESC').all(categoryId);
+        const entries = db.prepare('SELECT EntryID, Title, CreatedDate, ParentEntryID, EntryType, SortOrder FROM Entry WHERE CategoryID = ? ORDER BY SortOrder ASC, Title ASC').all(categoryId);
         return NextResponse.json(entries);
     } catch (error) {
         return NextResponse.json({ error: "Failed to fetch entries" }, { status: 500 });

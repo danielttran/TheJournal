@@ -1,64 +1,101 @@
 "use client";
 
 import dynamic from 'next/dynamic';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import 'react-quill-new/dist/quill.snow.css'; // Add css for snow theme
+import { useSearchParams } from 'next/navigation';
 
 // Dynamic import to avoid SSR issues with Quill
 const ReactQuill = dynamic(() => import('react-quill-new'), { ssr: false });
-
-import { useSearchParams } from 'next/navigation';
 
 export default function Editor({ categoryId, userId }: { categoryId: string, userId: string }) {
     const searchParams = useSearchParams();
     const urlDate = searchParams.get('date');
     const selectedDate = urlDate || new Date().toISOString().split('T')[0];
+    const urlEntryId = searchParams.get('entry') ? parseInt(searchParams.get('entry')!, 10) : null;
 
     const [value, setValue] = useState(''); // HTML/Content
     const [entryId, setEntryId] = useState<number | null>(null);
-    const [title, setTitle] = useState('');
     const [saving, setSaving] = useState(false);
-    const [lastSaved, setLastSaved] = useState<Date | null>(null);
+    const valueRef = useRef(value); // Tracking for unmount save
+    const entryIdRef = useRef(entryId); // Tracking for unmount save
+
+    useEffect(() => {
+        valueRef.current = value;
+    }, [value]);
+
+    useEffect(() => {
+        entryIdRef.current = entryId;
+    }, [entryId]);
+
+    // Save Function
+    const saveContent = async (id: number, content: string) => {
+        setSaving(true);
+        try {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            const plainText = tempDiv.textContent || tempDiv.innerText || '';
+            const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
+
+            await fetch(`/api/entry/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId,
+                    content: { ops: [{ insert: content }] },
+                    html: content,
+                    title: derivedTitle
+                })
+            });
+        } catch (err) {
+            console.error("Failed to save", err);
+        } finally {
+            setSaving(false);
+            window.dispatchEvent(new CustomEvent('journal-entry-updated'));
+        }
+    };
 
     // Debounce Save Logic
     useEffect(() => {
         if (!entryId || !value) return;
 
-        const timer = setTimeout(async () => {
-            setSaving(true);
-            try {
-                // Extract first line as title (simplified logic: remove HTML tags)
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = value;
-                const plainText = tempDiv.textContent || tempDiv.innerText || '';
-                const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
-
-                await fetch(`/api/entry/${entryId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        userId,
-                        content: { ops: [{ insert: value }] }, // Mock Delta
-                        html: value,
-                        title: derivedTitle
-                    })
-                });
-                setLastSaved(new Date());
-            } catch (err) {
-                console.error("Failed to save", err);
-            } finally {
-                setSaving(false);
-            }
-        }, 1500); // 1.5s debounce
+        const timer = setTimeout(() => {
+            saveContent(entryId, value);
+        }, 1500);
 
         return () => clearTimeout(timer);
-    }, [value, entryId, userId]); // Removed 'title' dependency
+    }, [value, entryId, userId]);
 
-    // Initial Load (Get Entry for selectedDate)
+    // Initial Load & Unmount Save Logic
     useEffect(() => {
+        // If we are switching FROM an entry, save it immediately
+        const previousEntryId = entryIdRef.current;
+        const previousValue = valueRef.current;
+
+        if (previousEntryId && previousValue) {
+            saveContent(previousEntryId, previousValue);
+        }
+
         const fetchEntry = async () => {
             setValue('');
             setEntryId(null);
+
+            // Prioritize URL Entry ID (Notebook Mode)
+            if (urlEntryId) {
+                try {
+                    const res = await fetch(`/api/entry/${urlEntryId}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.EntryID) {
+                            setEntryId(data.EntryID);
+                            if (data.HtmlContent) setValue(data.HtmlContent);
+                        }
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+                return;
+            }
 
             try {
                 const res = await fetch('/api/entry/by-date', {
@@ -82,7 +119,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             }
         };
         fetchEntry();
-    }, [categoryId, userId, selectedDate]);
+    }, [categoryId, userId, selectedDate, urlEntryId]);
 
     // Modules for custom toolbar
     const modules = {
@@ -109,6 +146,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             {/* Editor Area - Toolbar will be injected by Quill at top */}
             <div className="flex-1 overflow-hidden relative flex flex-col">
                 <ReactQuill
+                    key={entryId || 'empty'}
                     theme="snow"
                     value={value}
                     onChange={setValue}
@@ -147,9 +185,15 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 }
                 .ql-stroke {
                     stroke: #9ca3af !important;
+                    fill: none !important; /* Ensure stroke doesn't have fill */
                 }
                 .ql-fill {
                     fill: #9ca3af !important;
+                    stroke: none !important; /* Ensure fill doesn't have stroke */
+                }
+                /* Specific SVGs might need specific targeting, but general rule helps */
+                .ql-picker {
+                    color: #9ca3af;
                 }
                 .quill {
                     height: 100%;
