@@ -27,12 +27,10 @@ export default function ImportCard() {
             const data = await res.json();
 
             if (res.ok) {
-                console.log("Import Logs:", data.logs);
                 alert("Import successful. Reloading...");
                 window.location.reload();
             } else {
-                console.error("Import Failed Logs:", data.logs);
-                alert("Import failed: " + (data.error || "Unknown error") + "\n\nLog:\n" + (data.logs || []).join('\n'));
+                alert("Import failed: " + (data.error || "Unknown error"));
             }
         } catch (err) {
             console.error(err);
