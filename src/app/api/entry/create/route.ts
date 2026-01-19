@@ -1,0 +1,51 @@
+import { db } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+
+const CreateEntrySchema = z.object({
+    categoryId: z.number().or(z.string().transform(val => parseInt(val, 10))),
+    userId: z.number().or(z.string().transform(val => parseInt(val, 10))),
+    title: z.string().optional().default('Untitled Page'),
+});
+
+export async function POST(req: NextRequest) {
+    try {
+        const body = await req.json();
+        const { categoryId, userId, title } = CreateEntrySchema.parse(body);
+
+        // Security check: Ensure category belongs to user
+        const category = db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
+
+        if (!category) {
+            return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 403 });
+        }
+
+        // Create new Entry
+        const result = db.prepare(`
+            INSERT INTO Entry (CategoryID, Title, PreviewText) 
+            VALUES (?, ?, ?)
+        `).run(categoryId, title, 'Start writing...');
+
+        const newEntryId = result.lastInsertRowid;
+
+        // Create empty Content
+        const initialDelta = JSON.stringify({ ops: [{ insert: "\n" }] });
+        db.prepare(`
+            INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent) 
+            VALUES (?, ?, ?)
+        `).run(newEntryId, initialDelta, '');
+
+        return NextResponse.json({
+            id: newEntryId, // Normalized to lowercase id for frontend consistency if needed, but keeping EntryID pattern is fine.
+            EntryID: newEntryId,
+            Title: title
+        });
+
+    } catch (error) {
+        console.error("Error creating entry:", error);
+        if (error instanceof z.ZodError) {
+            return NextResponse.json({ error: error.errors }, { status: 400 });
+        }
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    }
+}

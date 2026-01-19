@@ -31,6 +31,7 @@ CREATE TABLE "Category" (
     "CategoryID" INTEGER PRIMARY KEY AUTOINCREMENT,
     "UserID" INTEGER NOT NULL,
     "Name" TEXT NOT NULL,
+    "Type" TEXT DEFAULT 'Journal' CHECK(Type IN ('Journal', 'Notebook')), -- Distinguish between Date-based Journal and Page-based Notebook
     "Color" TEXT DEFAULT '#FFFFFF', -- e.g., for UI tagging
     "IsPrivate" BOOLEAN DEFAULT 1,
     FOREIGN KEY("UserID") REFERENCES "User"("UserID") ON DELETE CASCADE

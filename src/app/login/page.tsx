@@ -1,10 +1,17 @@
-// @ts-ignore
+"use client";
+
 import { login } from "@/app/actions";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotebookPen } from "lucide-react";
 import Link from "next/link";
+import { useActionState } from "react";
+import { useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
+    const [state, action, isPending] = useActionState(login, null);
+    const searchParams = useSearchParams();
+    const registered = searchParams.get("registered");
+
     return (
         <main className="min-h-screen flex items-center justify-center relative overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-950 dark:to-gray-900 transition-colors duration-500">
             {/* Background Decorative Elements */}
@@ -30,7 +37,18 @@ export default function LoginPage() {
                     </p>
                 </div>
 
-                <form action={login} className="space-y-6">
+                <form action={action} className="space-y-6">
+                    {registered && (
+                        <div className="p-3 bg-green-100 border border-green-200 text-green-700 rounded-lg text-sm text-center font-medium">
+                            Account created! Please sign in.
+                        </div>
+                    )}
+                    {state?.message && (
+                        <div className="p-3 bg-red-100 border border-red-200 text-red-700 rounded-lg text-sm text-center">
+                            {state.message}
+                        </div>
+                    )}
+
                     <div className="space-y-2">
                         <label className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">Username</label>
                         <input
@@ -40,6 +58,7 @@ export default function LoginPage() {
                             required
                             className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
                         />
+                        {state?.errors?.username && <p className="text-red-500 text-xs ml-1">{state.errors.username}</p>}
                     </div>
 
                     <div className="space-y-2">
@@ -51,20 +70,24 @@ export default function LoginPage() {
                             required
                             className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
                         />
+                        {state?.errors?.password && <p className="text-red-500 text-xs ml-1">{state.errors.password}</p>}
                     </div>
 
-                    <button
-                        type="submit"
-                        className="w-full py-3.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 transform hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
-                    >
-                        Sign In
-                    </button>
+                    <div className="space-y-4">
+                        <button
+                            type="submit"
+                            disabled={isPending}
+                            className="w-full py-3.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/40 transform hover:-translate-y-0.5 transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isPending ? "Processing..." : "Sign In"}
+                        </button>
+                    </div>
                 </form>
 
                 <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
                     Don't have an account?{" "}
-                    <Link href="#" className="font-medium text-blue-600 dark:text-blue-400 hover:underline">
-                        Create one
+                    <Link href="/register" className="font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                        Create Account
                     </Link>
                 </div>
             </div>
