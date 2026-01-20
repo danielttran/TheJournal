@@ -84,6 +84,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
     };
 
     const togglePicker = (e: React.MouseEvent) => {
+        if (!isActive) return;
         e.stopPropagation();
         setShowPicker(!showPicker);
     }
