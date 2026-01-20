@@ -86,7 +86,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
             // 4. Update Metadata
             const updates: string[] = [];
-            const values: any[] = [];
+            const values: (string | number | null)[] = [];
 
             if (title !== undefined) { updates.push("Title = ?"); values.push(title); }
             if (preview !== undefined) { updates.push("PreviewText = ?"); values.push(preview); }

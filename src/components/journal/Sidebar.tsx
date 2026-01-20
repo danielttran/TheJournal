@@ -242,7 +242,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     const [pages, setPages] = useState<Entry[]>([]);
     const [activeDragId, setActiveDragId] = useState<number | null>(null);
     const [activeDragItem, setActiveDragItem] = useState<Entry | null>(null);
-    const [journalEntries, setJournalEntries] = useState<any[]>([]);
+    const [journalEntries, setJournalEntries] = useState<Entry[]>([]);
 
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; entryId: number | null }>({
@@ -311,7 +311,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         try {
             const res = await fetch(`/api/entry/dates?categoryId=${categoryId}&t=${Date.now()}`); // Bust cache
             const data = await res.json();
-            if (Array.isArray(data)) setJournalEntries(data);
+            if (Array.isArray(data)) setJournalEntries(data as Entry[]);
         } catch (e) { /* silence */ }
     };
 
@@ -453,7 +453,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                             {calendarDays.map((day, i) => {
                                 const isSelected = isSameDay(day, selectedDate);
                                 const isCurrentMonth = isSameMonth(day, currentMonth);
-                                const entryForDay = journalEntries.find(e => isSameDay(new Date(e.CreatedDate), day));
+                                const entryForDay = journalEntries.find(e => e.CreatedDate && isSameDay(new Date(e.CreatedDate), day));
                                 return (
                                     <div
                                         key={i}

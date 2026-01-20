@@ -10,7 +10,7 @@ const FormSchema = z.object({
     password: z.string().min(1),
 });
 
-export async function login(prevState: any, formData: FormData) {
+export async function login(prevState: unknown, formData: FormData) {
     const username = formData.get("username");
     const password = formData.get("password");
 
@@ -79,7 +79,7 @@ const RegisterSchema = z.object({
     path: ["confirmPassword"],
 });
 
-export async function register(prevState: any, formData: FormData) {
+export async function register(prevState: unknown, formData: FormData) {
     const username = formData.get("username");
     const password = formData.get("password");
     const confirmPassword = formData.get("confirmPassword");

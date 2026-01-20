@@ -11,7 +11,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         // We'll mimic the generic check.
         // But since we don't have the userID passed easily here without cookies(), let's do safe fetch.
 
-        const { cookies } = require("next/headers");
+        const { cookies } = await import("next/headers");
         const cookieStore = await cookies();
         const userIdCookie = cookieStore.get("userId");
         if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -39,7 +39,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         // Construct dynamic update
         const updates: string[] = [];
-        const values: any[] = [];
+        const values: (string | number)[] = [];
 
         if (name !== undefined) { updates.push("Name = ?"); values.push(name); }
         if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
@@ -47,7 +47,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         if (updates.length === 0) return NextResponse.json({ success: true }); // Nothing to update
 
-        const { cookies } = require("next/headers");
+        const { cookies } = await import("next/headers");
         const cookieStore = await cookies();
         const userIdCookie = cookieStore.get("userId");
         if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

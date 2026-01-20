@@ -15,7 +15,8 @@ class DBManager {
 
             // Auto-migration for SortOrder
             try {
-                const cols = this.instance.prepare("PRAGMA table_info(Category)").all() as any[];
+                interface TableInfo { name: string; }
+                const cols = this.instance.prepare("PRAGMA table_info(Category)").all() as TableInfo[];
                 if (!cols.some(c => c.name === 'SortOrder')) {
                     this.instance.prepare("ALTER TABLE Category ADD COLUMN SortOrder REAL DEFAULT 0").run();
                 }
@@ -23,7 +24,7 @@ class DBManager {
                     this.instance.prepare("ALTER TABLE Category ADD COLUMN Icon TEXT").run();
                 }
 
-                const entryCols = this.instance.prepare("PRAGMA table_info(Entry)").all() as any[];
+                const entryCols = this.instance.prepare("PRAGMA table_info(Entry)").all() as TableInfo[];
                 if (!entryCols.some(c => c.name === 'Icon')) {
                     this.instance.prepare("ALTER TABLE Entry ADD COLUMN Icon TEXT").run();
                 }
@@ -61,6 +62,7 @@ if (process.env.NODE_ENV !== 'production') globalForDb.dbManager = dbManager;
 export const db = new Proxy({}, {
     get: (target, prop) => {
         const connection = dbManager.getConnection();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const value = (connection as any)[prop];
 
         // If the property is a function, bind it to the connection

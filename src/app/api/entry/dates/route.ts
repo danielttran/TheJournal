@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
+import { Entry } from "@/lib/types";
 
 export const dynamic = 'force-dynamic'; // Prevent caching
 
@@ -14,7 +15,7 @@ export async function GET(req: NextRequest) {
             FROM Entry 
             WHERE 1=1
         `;
-        const params: any[] = [];
+        const params: (string | number)[] = [];
 
         if (categoryId) {
             query += ` AND CategoryID = ?`;
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
 
         query += ` ORDER BY CreatedDate DESC`; // Journal usually DESC? Or ASC? Sidebar is grouped. Grid usually ASC (Calendar order)? The SQL in page.tsx was ASC. 
 
-        const entries = db.prepare(query).all(...params) as any[];
+        const entries = db.prepare(query).all(...params) as Entry[];
 
         return NextResponse.json(entries);
     } catch (error) {
