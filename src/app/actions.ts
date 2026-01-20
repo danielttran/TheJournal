@@ -47,7 +47,7 @@ export async function login(prevState: any, formData: FormData) {
         }
 
         // Success
-        console.log('User logged in successfully:', user.Username);
+        // Success logic here (silent)
 
         // Set cookie
         // Note: In a real app, use a secure session ID or JWT properly signed.
@@ -61,7 +61,7 @@ export async function login(prevState: any, formData: FormData) {
         if ((error as any).digest?.startsWith('NEXT_REDIRECT')) {
             throw error;
         }
-        console.error("Login error:", error);
+        /* silence */
         return {
             message: "Database error: " + (error as Error).message,
         };
@@ -113,7 +113,7 @@ export async function register(prevState: any, formData: FormData) {
         const stmt = db.prepare('INSERT INTO User (Username, PasswordHash, Salt, Iterations) VALUES (?, ?, ?, ?)');
         const info = stmt.run(validUsername, hash, salt, iterations);
 
-        console.log('Created new user ID:', info.lastInsertRowid);
+        // Success logic here (silent)
 
         // NO auto-login (no cookie set)
 
@@ -122,7 +122,7 @@ export async function register(prevState: any, formData: FormData) {
         if ((error as any).digest?.startsWith('NEXT_REDIRECT')) {
             throw error;
         }
-        console.error("Registration error:", error);
+        /* silence */
         return {
             message: "Database error: " + (error as Error).message,
         };

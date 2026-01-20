@@ -87,7 +87,7 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
 
     if (!entries || entries.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <div className="flex flex-col items-center justify-center h-full text-text-muted">
                 <p className="text-lg">No entries found.</p>
             </div>
         );

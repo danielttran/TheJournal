@@ -212,9 +212,7 @@ export default function TabBar({ userId }: { userId: string }) {
                 const sorted = data.sort((a, b) => (a.SortOrder || 0) - (b.SortOrder || 0));
                 setTabs(sorted);
             }
-        } catch (error) {
-            console.error("Failed to load tabs", error);
-        }
+        } catch (error) { /* silence */ }
     };
 
     // Drag and Drop Sensors
@@ -243,7 +241,7 @@ export default function TabBar({ userId }: { userId: string }) {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ updates })
-            }).catch(console.error);
+            }).catch(() => { /* silence */ });
         }
     };
 
@@ -279,7 +277,7 @@ export default function TabBar({ userId }: { userId: string }) {
                 setNewTabName('');
                 router.push(`/journal/${newCat.id}`);
             }
-        } catch (error) { console.error(error); }
+        } catch (error) { /* silence */ }
     };
 
     const deleteTab = async (id: number) => {

@@ -37,7 +37,7 @@ class DBManager {
                     this.instance.prepare("ALTER TABLE Category ADD COLUMN ViewSettings TEXT").run();
                 }
 
-            } catch (e) { console.error("Migration failed", e); }
+            } catch (e) { /* silent migrate */ }
         }
         return this.instance;
     }

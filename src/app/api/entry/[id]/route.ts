@@ -34,7 +34,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         return NextResponse.json(entry);
     } catch (error) {
-        console.error("Error fetching entry:", error);
+        /* silence */
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }
@@ -111,7 +111,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         return NextResponse.json({ success: true });
 
     } catch (error) {
-        console.error("Error updating entry:", error);
+        /* silence */
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }

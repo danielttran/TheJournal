@@ -204,7 +204,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ viewSettings: newExpanded })
             });
-        } catch (e) { console.error(e); }
+        } catch (e) { /* silence */ }
     };
 
     const toggleJournalNode = (key: string) => {
@@ -227,7 +227,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             // Since we passed fetchPages on Update, actually let's NOT fetchPages to avoid UI jump. 
             // Updates will come on next load. BUT user wants persist.
             // The item component handles local UI state. The API handles persistence.
-        } catch (e) { console.error(e); }
+        } catch (e) { /* silence */ }
     };
 
 
@@ -295,7 +295,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             const res = await fetch(`/api/entry?categoryId=${categoryId}&t=${Date.now()}`);
             const data = await res.json();
             if (Array.isArray(data)) setPages(buildTree(data));
-        } catch (e) { console.error(e); }
+        } catch (e) { /* silence */ }
     };
 
     const buildTree = (entries: any[]) => {
@@ -319,7 +319,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             const res = await fetch(`/api/entry/dates?categoryId=${categoryId}&t=${Date.now()}`); // Bust cache
             const data = await res.json();
             if (Array.isArray(data)) setJournalEntries(data);
-        } catch (e) { console.error(e); }
+        } catch (e) { /* silence */ }
     };
 
     const handleContextMenu = (e: React.MouseEvent, entryId: number) => {
@@ -350,7 +350,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             }); // Optimistic update possible, but fetching is safer
             if (type === 'Notebook') fetchPages();
             else fetchJournalEntries();
-        } catch (e) { console.error(e); }
+        } catch (e) { /* silence */ }
     };
 
     // ... (Date/Journal Logic same as before)
@@ -418,7 +418,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         try {
             await fetch('/api/entry/move', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entryId: activeId, parentId: newParentId, sortOrder: newSortOrder }) });
             fetchPages();
-        } catch (err) { console.error(err); }
+        } catch (err) { /* silence */ }
     };
     const rootIds = useMemo(() => pages.map(p => p.EntryID), [pages]);
     const dropAnimation: DropAnimation = { sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0.5' } } }) };

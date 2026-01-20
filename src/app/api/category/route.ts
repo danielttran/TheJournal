@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ id: result.lastInsertRowid, name, type });
     } catch (error) {
-        console.error("Create category error", error);
+        /* silence */
         if (error instanceof z.ZodError) {
             return NextResponse.json({ error: error.issues }, { status: 400 });
         }

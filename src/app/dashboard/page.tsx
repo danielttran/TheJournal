@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import { Book, Notebook } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import ImportCard from '@/components/dashboard/ImportCard';
 
 async function getUser() {
@@ -29,24 +30,6 @@ export default async function DashboardPage() {
 
     const categories = db.prepare('SELECT * FROM Category WHERE UserID = ?').all(userId) as any[];
 
-    // DIAGNOSTIC LOGGING
-    try {
-        const allCats = db.prepare('SELECT Count(*) as count FROM Category').get() as any;
-        const userCats = db.prepare('SELECT Count(*) as count FROM Category WHERE UserID = ?').get(userId) as any;
-        const allEntries = db.prepare('SELECT Count(*) as count FROM Entry').get() as any;
-        const lastCat = db.prepare('SELECT * FROM Category ORDER BY CategoryID DESC LIMIT 1').get();
-
-        console.log("--- DASHBOARD DIAGNOSTICS ---");
-        console.log(`Current UserID: ${userId}`);
-        console.log(`Total Categories in DB: ${allCats.count}`);
-        console.log(`Categories for User ${userId}: ${userCats.count}`);
-        console.log(`Total Entries in DB: ${allEntries.count}`);
-        console.log("Last Category in DB:", lastCat);
-        console.log("-----------------------------");
-    } catch (e) {
-        console.error("Diagnostics failed", e);
-    }
-
     if (categories.length > 0) {
         // Redirect to the first one for now, or show list
         // For keeping it simple as per request flow:
@@ -54,9 +37,13 @@ export default async function DashboardPage() {
     }
 
     return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 p-8">
+        <div className="min-h-screen flex flex-col items-center justify-center bg-bg-app text-text-primary p-8 relative">
+            <div className="absolute top-4 right-4 group">
+                <ThemeToggle />
+            </div>
+
             <h1 className="text-3xl font-bold mb-8">Welcome to TheJournal</h1>
-            <p className="text-gray-500 mb-12 text-lg">How would you like to start?</p>
+            <p className="text-text-secondary mb-12 text-lg">How would you like to start?</p>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl">
                 {/* Journal Option */}
@@ -66,12 +53,12 @@ export default async function DashboardPage() {
                 }}
                     className="group cursor-pointer">
                     <button type="submit" className="w-full h-full text-left">
-                        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-8 hover:shadow-2xl hover:border-blue-500 dark:hover:border-blue-500 transition-all duration-300 h-full">
-                            <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                                <Book className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                        <div className="bg-bg-card border border-border-primary rounded-3xl p-8 hover:shadow-2xl hover:border-accent-primary transition-all duration-300 h-full">
+                            <div className="w-16 h-16 bg-accent-secondary/30 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                                <Book className="w-8 h-8 text-accent-primary" />
                             </div>
                             <h2 className="text-2xl font-semibold mb-2">Create a Journal</h2>
-                            <p className="text-gray-500 dark:text-gray-400">
+                            <p className="text-text-secondary">
                                 A daily log of your thoughts, ideas, and memories. Organized by date.
                             </p>
                         </div>
@@ -85,12 +72,12 @@ export default async function DashboardPage() {
                 }}
                     className="group cursor-pointer">
                     <button type="submit" className="w-full h-full text-left">
-                        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-8 hover:shadow-2xl hover:border-purple-500 dark:hover:border-purple-500 transition-all duration-300 h-full">
-                            <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                                <Notebook className="w-8 h-8 text-purple-600 dark:text-purple-400" />
+                        <div className="bg-bg-card border border-border-primary rounded-3xl p-8 hover:shadow-2xl hover:border-accent-primary transition-all duration-300 h-full">
+                            <div className="w-16 h-16 bg-accent-secondary/30 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                                <Notebook className="w-8 h-8 text-accent-primary" />
                             </div>
                             <h2 className="text-2xl font-semibold mb-2">Create a Notebook</h2>
-                            <p className="text-gray-500 dark:text-gray-400">
+                            <p className="text-text-secondary">
                                 A collection of pages for projects, study notes, or planning.
                             </p>
                         </div>

@@ -50,12 +50,12 @@ export default function ImportCard() {
                 accept=".db,.sqlite"
                 onChange={handleFileChange}
             />
-            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-3xl p-8 hover:shadow-2xl hover:border-green-500 dark:hover:border-green-500 transition-all duration-300 h-full">
-                <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                    <Upload className="w-8 h-8 text-green-600 dark:text-green-400" />
+            <div className="bg-bg-card border border-border-primary rounded-3xl p-8 hover:shadow-2xl hover:border-accent-primary transition-all duration-300 h-full">
+                <div className="w-16 h-16 bg-accent-secondary/30 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                    <Upload className="w-8 h-8 text-accent-primary" />
                 </div>
                 <h2 className="text-2xl font-semibold mb-2">Import Backup</h2>
-                <p className="text-gray-500 dark:text-gray-400">
+                <p className="text-text-secondary">
                     Restore your journal from an existing database file (.db or .sqlite).
                 </p>
             </div>
