@@ -1,4 +1,5 @@
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from "crypto";
+import { cookies } from "next/headers";
 
 const ITERATIONS = 600000;
 const KEYLEN = 64;
@@ -23,4 +24,11 @@ export function verifyPassword(password: string, hash: string, salt: string, ite
     const originalHashBuff = Buffer.from(hash, 'hex');
 
     return timingSafeEqual(derivedHashBuff, originalHashBuff);
+}
+
+export async function getSessionUserId(): Promise<number | null> {
+    const cookieStore = await cookies();
+    const userIdCookie = cookieStore.get("userId");
+    if (!userIdCookie) return null;
+    return parseInt(userIdCookie.value, 10);
 }

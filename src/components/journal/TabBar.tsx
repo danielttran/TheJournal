@@ -27,19 +27,21 @@ import { CSS } from '@dnd-kit/utilities';
 // Dynamic import for Emoji Picker
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
-interface Category {
-    CategoryID: number;
-    Name: string;
-    Type: 'Journal' | 'Notebook';
-    Color: string;
-    SortOrder?: number;
-    Icon?: string;
-}
+import { Category } from '@/lib/types';
 
 // ---------------------------
 // Sortable Tab Component
 // ---------------------------
-function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconChange }: any) {
+interface SortableTabProps {
+    category: Category;
+    isActive: boolean;
+    onClick: () => void;
+    onDelete: (id: number) => void;
+    onRename: (id: number, name: string) => void;
+    onIconChange: (id: number, icon: string) => void;
+}
+
+function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconChange }: SortableTabProps) {
     const {
         attributes,
         listeners,
@@ -89,7 +91,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
         setShowPicker(!showPicker);
     }
 
-    const onEmojiClick = (emojiData: any, event: MouseEvent) => {
+    const onEmojiClick = (emojiData: { emoji: string }, event: MouseEvent) => {
         event.stopPropagation();
         onIconChange(category.CategoryID, emojiData.emoji);
         setShowPicker(false);

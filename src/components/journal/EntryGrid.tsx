@@ -6,18 +6,12 @@ import { format } from "date-fns";
 import { useRouter } from "next/navigation";
 // removed import { Entry } from "@/lib/types"; 
 
-interface Entry {
-    EntryID: number;
-    Title: string;
-    CreatedDate?: string;
-    Icon?: string;
-    PreviewText?: string;
-}
+import { Entry } from "@/lib/types";
 
 
 interface EntryGridProps {
-    entries: any[];
-    onEntryClick?: (entry: any) => void;
+    entries: Entry[];
+    onEntryClick?: (entry: Entry) => void;
     title?: string;
     dataUrl?: string; // URL to fetch fresh data
 }
@@ -56,7 +50,7 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
         return () => window.removeEventListener('journal-entry-updated', handleUpdate);
     }, [dataUrl]);
 
-    const handleEntryClick = (entry: any) => {
+    const handleEntryClick = (entry: Entry) => {
         if (onEntryClick) {
             onEntryClick(entry);
         } else {

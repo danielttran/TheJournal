@@ -41,16 +41,7 @@ interface SidebarProps {
     viewSettings?: string;
 }
 
-interface Entry {
-    EntryID: number;
-    Title: string;
-    ParentEntryID: number | null;
-    EntryType: 'Page' | 'Section';
-    SortOrder: number;
-    Icon?: string;
-    IsExpanded?: boolean;
-    children?: Entry[];
-}
+import { Entry } from '@/lib/types';
 
 // ---------------------------
 // Sortable Notebook Item (Updated)
@@ -300,7 +291,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         } catch (e) { /* silence */ }
     };
 
-    const buildTree = (entries: any[]) => {
+    const buildTree = (entries: Entry[]) => {
         const map = new Map<number, Entry>();
         const roots: Entry[] = [];
         entries.forEach(e => map.set(e.EntryID, { ...e, children: [] }));
@@ -363,7 +354,8 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
     const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
 
-    const groupedEntries = journalEntries.reduce((acc: any, entry: any) => {
+    const groupedEntries = journalEntries.reduce((acc: Record<string, Record<string, { entries: Entry[], key: string }>>, entry: Entry) => {
+        if (!entry.CreatedDate) return acc;
         const date = new Date(entry.CreatedDate);
         if (isNaN(date.getTime())) return acc;
         const year = format(date, 'yyyy');
@@ -511,16 +503,16 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                                     </div>
                                                     {isMonthOpen && (
                                                         <div className="pl-6 space-y-0.5 mt-1 border-l border-border-primary ml-3">
-                                                            {groupedEntries[year][month].entries.sort((a: any, b: any) => new Date(a.CreatedDate).getTime() - new Date(b.CreatedDate).getTime()).map((entry: any) => (
+                                                            {groupedEntries[year][month].entries.sort((a: Entry, b: Entry) => new Date(a.CreatedDate!).getTime() - new Date(b.CreatedDate!).getTime()).map((entry: Entry) => (
                                                                 <div
                                                                     key={entry.EntryID}
-                                                                    onClick={() => onDateClick(new Date(entry.CreatedDate))}
+                                                                    onClick={() => onDateClick(new Date(entry.CreatedDate!))}
                                                                     onContextMenu={(e) => handleContextMenu(e, entry.EntryID)}
-                                                                    className={`px-2 py-1 rounded cursor-pointer text-sm truncate transition-colors flex items-center ${isSameDay(new Date(entry.CreatedDate), selectedDate) ? 'bg-accent-primary/20 text-accent-primary' : 'text-text-secondary hover:bg-bg-hover'}`}
+                                                                    className={`px-2 py-1 rounded cursor-pointer text-sm truncate transition-colors flex items-center ${isSameDay(new Date(entry.CreatedDate!), selectedDate) ? 'bg-accent-primary/20 text-accent-primary' : 'text-text-secondary hover:bg-bg-hover'}`}
                                                                 >
                                                                     {entry.Icon && <span className="mr-2 text-xs">{entry.Icon}</span>}
                                                                     <span className="truncate">
-                                                                        {format(new Date(entry.CreatedDate), 'd')} ({format(new Date(entry.CreatedDate), 'EEE')}){entry.Title && entry.Title !== 'Untitled' ? ` - ${entry.Title}` : ''}
+                                                                        {format(new Date(entry.CreatedDate!), 'd')} ({format(new Date(entry.CreatedDate!), 'EEE')}){entry.Title && entry.Title !== 'Untitled' ? ` - ${entry.Title}` : ''}
                                                                     </span>
                                                                 </div>
                                                             ))}
