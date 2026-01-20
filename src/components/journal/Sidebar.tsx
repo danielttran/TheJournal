@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Search, Menu, Settings, Book, FileText, ChevronDown, ChevronRight as ChevronRightIcon, Plus, Folder, File, GripVertical, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Menu, Settings, Book, FileText, ChevronDown, ChevronRight as ChevronRightIcon, Plus, Folder, File, GripVertical, X, Trash } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -346,6 +346,20 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         } catch (e) { /* silence */ }
     };
 
+    const handleDelete = async (id: number) => {
+        if (!confirm("Are you sure you want to delete this entry?")) return;
+        try {
+            const res = await fetch(`/api/entry/${id}`, {
+                method: 'DELETE',
+            });
+            if (res.ok) {
+                if (type === 'Notebook') fetchPages();
+                else fetchJournalEntries();
+                setContextMenu(prev => ({ ...prev, visible: false }));
+            }
+        } catch (e) { /* silence */ }
+    };
+
     // ... (Date/Journal Logic same as before)
     const onDateClick = (day: Date) => {
         const dateStr = format(day, 'yyyy-MM-dd');
@@ -577,6 +591,15 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                     onClick={(e) => e.stopPropagation()}
                 >
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center hover:text-red-500"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(contextMenu.entryId!);
+                        }}
+                    >
+                        <Trash className="w-4 h-4 mr-2" /> Delete
+                    </button>
                     <button
                         className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center"
                         onClick={(e) => {
