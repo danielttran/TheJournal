@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { login } from "@/app/actions";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotebookPen } from "lucide-react";
@@ -7,7 +8,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginFormContent() {
     const [state, action, isPending] = useActionState(login, null);
     const searchParams = useSearchParams();
     const registered = searchParams.get("registered");
@@ -92,5 +93,17 @@ export default function LoginPage() {
                 </div>
             </div>
         </main>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+        }>
+            <LoginFormContent />
+        </Suspense>
     );
 }

@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import { join } from 'path';
 
-const dbPath = join(process.cwd(), 'journal.db');
+const dbPath = process.env.JOURNAL_DB_PATH || join(process.cwd(), 'journal.db');
+console.log('[DB] Using database at:', dbPath);
 
 class DBManager {
     private instance: Database.Database | null = null;
