@@ -51,7 +51,11 @@ class DBManager {
     }
 }
 
-export const dbManager = new DBManager();
+const globalForDb = global as unknown as { dbManager: DBManager | undefined };
+
+export const dbManager = globalForDb.dbManager ?? new DBManager();
+
+if (process.env.NODE_ENV !== 'production') globalForDb.dbManager = dbManager;
 
 // Proxy to ensure backward compatibility and auto-reopen
 export const db = new Proxy({}, {
