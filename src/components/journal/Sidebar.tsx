@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Search, Menu, Settings, Book, FileText, Chev
 import Link from 'next/link';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
 import dynamic from 'next/dynamic';
 import {
@@ -187,6 +188,7 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
 export default function Sidebar({ categoryId, userId, title, type, viewSettings }: SidebarProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { theme } = useTheme();
 
     // Journal Expanded State (Persistent)
     const [journalExpanded, setJournalExpanded] = useState<Record<string, boolean>>(() => {
@@ -611,7 +613,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                             onEmojiClick={(data) => handleIconChange(contextMenu.entryId!, data.emoji)}
                             width={350}
                             height={450}
-                            theme={"dark" as any}
+                            theme={theme === 'dark' ? 'dark' : 'light' as any}
                             searchDisabled={false}
                         />
                     </div>

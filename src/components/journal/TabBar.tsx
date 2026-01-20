@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ThemeToggle } from '../ThemeToggle';
 import { useRouter, usePathname } from 'next/navigation';
 import { Plus, X, Book, FileText } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import dynamic from 'next/dynamic';
 import {
     DndContext,
@@ -52,6 +53,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
     const [editName, setEditName] = useState(category.Name);
     const [showPicker, setShowPicker] = useState(false);
     const pickerRef = useRef<HTMLDivElement>(null);
+    const { theme } = useTheme();
 
     const style = {
         transform: CSS.Transform.toString(transform),
@@ -174,7 +176,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                             onEmojiClick={onEmojiClick}
                             width={350}
                             height={450}
-                            theme={"dark" as any}
+                            theme={theme === 'dark' ? 'dark' : 'light' as any}
                         />
                     </div>
                 </div>
@@ -197,11 +199,23 @@ export default function TabBar({ userId }: { userId: string }) {
     const [newTabType, setNewTabType] = useState<'Journal' | 'Notebook'>('Journal');
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const fileMenuRef = useRef<HTMLDivElement>(null);
 
     // Initial Load
     useEffect(() => {
         fetchTabs();
     }, []);
+
+    // Click away for File Menu
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (fileMenuRef.current && !fileMenuRef.current.contains(event.target as Node)) {
+                setIsFileMenuOpen(false);
+            }
+        }
+        if (isFileMenuOpen) document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [isFileMenuOpen]);
 
     const fetchTabs = async () => {
         try {
@@ -312,7 +326,7 @@ export default function TabBar({ userId }: { userId: string }) {
                 <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite" onChange={handleFileChange} />
 
                 {/* File Dropdown */}
-                <div className="relative">
+                <div className="relative" ref={fileMenuRef}>
                     <span onClick={() => setIsFileMenuOpen(!isFileMenuOpen)} className="px-2 py-0.5 rounded cursor-pointer hover:bg-bg-hover">File</span>
                     {isFileMenuOpen && (
                         <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
