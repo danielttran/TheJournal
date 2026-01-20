@@ -26,13 +26,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     // Sync refs with state
     useEffect(() => { entryIdRef.current = entryId; }, [entryId]);
 
-    // Core Save Function - The "Cannot Fail" Logic
-    const performSave = async (id: number, content: string, isAutoSave = false) => {
-        // Validation precaution
-        if (!content && !isAutoSave) {
-            // Allow saving empty if explicit? checking context.
-        }
-
+    // Core Save Function - The "Cannot Fail" Logic with Retry
+    const performSave = async (id: number, content: string, isAutoSave = false, retryCount = 0): Promise<boolean> => {
         if (isAutoSave) {
             setSaving(true);
         }
@@ -47,7 +42,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             const res = await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                keepalive: true, // Critical for navigation survival
+                keepalive: true,
                 body: JSON.stringify({
                     userId,
                     content: { ops: [{ insert: content }] },
@@ -58,24 +53,29 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             });
 
             if (res.ok) {
-                // Notify app AFTER successful save (fixes stale thumbs)
                 window.dispatchEvent(new CustomEvent('journal-entry-updated'));
                 isDirtyRef.current = false;
+                // Clear backup on successful save
+                localStorage.removeItem('editor_backup');
+                return true;
             }
+            throw new Error(`HTTP ${res.status}`);
 
         } catch (err) {
-            // minimal error logging
-            if (isAutoSave) setSaving(false);
+            // Retry with exponential backoff (max 3 retries)
+            if (retryCount < 3) {
+                await new Promise(r => setTimeout(r, 500 * Math.pow(2, retryCount)));
+                return performSave(id, content, isAutoSave, retryCount + 1);
+            }
+            return false;
         } finally {
             if (isAutoSave) setSaving(false);
         }
     };
 
-    // 1. Text Change Handler
+    // Text Change Handler
     const handleChange = (content: string) => {
         setValue(content);
-        // Only mark dirty if it actually changed meaningfully? 
-        // For now, any change is dirty.
         if (contentRef.current !== content) {
             contentRef.current = content;
             if (!isDirtyRef.current) {
@@ -84,7 +84,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         }
     };
 
-    // 2. Auto-Save Timer (Debounce)
+    // Auto-Save Timer (Debounce)
     useEffect(() => {
         const timer = setTimeout(() => {
             if (isDirtyRef.current && entryIdRef.current) {
@@ -94,16 +94,35 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         return () => clearTimeout(timer);
     }, [value]);
 
-    // 3. Navigation / Unmount Safety Net
-    // We capture the ID in a local variable to ensure we save the RIGHT entry on unmount
+    // LocalStorage Backup (Crash Recovery)
     useEffect(() => {
-        // Capture the ACTIVE ID when this effect is mounted (which is for a specific entry context)
-        // Wait, dependencies are [urlEntryId, selectedDate].
-        // This effect runs whenever navigation targets change.
+        const backupTimer = setInterval(() => {
+            if (entryIdRef.current && contentRef.current && isDirtyRef.current) {
+                localStorage.setItem('editor_backup', JSON.stringify({
+                    entryId: entryIdRef.current,
+                    content: contentRef.current,
+                    timestamp: Date.now()
+                }));
+            }
+        }, 5000);
+        return () => clearInterval(backupTimer);
+    }, []);
 
+    // beforeunload Warning (Accidental Close Protection)
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (isDirtyRef.current) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, []);
+
+    // Navigation / Unmount Safety Net
+    useEffect(() => {
         return () => {
-            // Cleanup runs BEFORE the next effect cycle.
-            // We check the mutable refs.
             const idToSave = entryIdRef.current;
             const contentToSave = contentRef.current;
             const wasDirty = isDirtyRef.current;
@@ -117,16 +136,10 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     // Initial Load Logic
     useEffect(() => {
         const fetchEntry = async () => {
-            // ... Logic to load entry ...
-            // Important: We must not clear ref if we are about to save it?
-            // No, the PREVIOUS effect cleanup ran first. So it's safe to reset here.
-
-            // Temporary local vars to prevent race conditions with state
             let loadedId: number | null = null;
             let loadedContent = '';
 
             try {
-                // ... fetch logic ...
                 if (urlEntryId) {
                     const res = await fetch(`/api/entry/${urlEntryId}`);
                     if (res.ok) {
@@ -147,14 +160,31 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     }
                 }
             } catch (err) {
-                console.error("Failed to load", err);
+                // Silent fail on load - entry will be empty
             }
 
-            // Batch updates
+            // Check for backup recovery
+            const backup = localStorage.getItem('editor_backup');
+            if (backup && loadedId) {
+                try {
+                    const backupData = JSON.parse(backup);
+                    // Only offer recovery if backup is for same entry and is recent (< 1 hour)
+                    if (backupData.entryId === loadedId &&
+                        Date.now() - backupData.timestamp < 3600000 &&
+                        backupData.content !== loadedContent) {
+                        // Silently use backup if it's newer (automatic recovery)
+                        loadedContent = backupData.content;
+                        isDirtyRef.current = true; // Mark as dirty to trigger save
+                    }
+                } catch (e) {
+                    localStorage.removeItem('editor_backup');
+                }
+            }
+
             setValue(loadedContent);
-            setEntryId(loadedId); // This triggers the ref update effect
+            setEntryId(loadedId);
             contentRef.current = loadedContent;
-            isDirtyRef.current = false;
+            if (!isDirtyRef.current) isDirtyRef.current = false;
         };
         fetchEntry();
     }, [categoryId, userId, selectedDate, urlEntryId]);

@@ -49,7 +49,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         // 1. Validation
         const result = UpdateSchema.safeParse(body);
         if (!result.success) {
-            return NextResponse.json({ error: result.error.errors }, { status: 400 });
+            return NextResponse.json({ error: result.error.issues }, { status: 400 });
         }
 
         const { content, html, title, preview, userId, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded } = result.data;
