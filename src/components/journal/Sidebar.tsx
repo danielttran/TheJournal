@@ -283,6 +283,61 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         };
     }, [categoryId, type]);
 
+    // Auto-select entry for notebooks (client-side to avoid flash)
+    useEffect(() => {
+        if (type === 'Notebook' && !urlEntryId && !urlSectionId && pages.length > 0) {
+            // Helper to find first page in tree
+            const findFirstPage = (entries: Entry[]): Entry | null => {
+                for (const entry of entries) {
+                    if (entry.EntryType === 'Page') return entry;
+                    if (entry.children && entry.children.length > 0) {
+                        const found = findFirstPage(entry.children);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            };
+
+            // Helper to check if entry exists in tree
+            const findEntryById = (id: number, entries: Entry[]): boolean => {
+                for (const entry of entries) {
+                    if (entry.EntryID === id) return true;
+                    if (entry.children && findEntryById(id, entry.children)) return true;
+                }
+                return false;
+            };
+
+            // Try to load last selected from ViewSettings
+            fetch(`/api/category/${categoryId}`)
+                .then(res => res.json())
+                .then(data => {
+                    let targetId: number | null = null;
+
+                    // Get from ViewSettings
+                    try {
+                        const viewSettings = data.ViewSettings ? JSON.parse(data.ViewSettings) : {};
+                        targetId = viewSettings.lastSelectedEntryId;
+
+                        // Verify entry still exists
+                        if (targetId && !findEntryById(targetId, pages)) {
+                            targetId = null;
+                        }
+                    } catch { /* ignore */ }
+
+                    // Fallback to first page
+                    if (!targetId) {
+                        const firstPage = findFirstPage(pages);
+                        targetId = firstPage?.EntryID || null;
+                    }
+
+                    if (targetId) {
+                        router.push(`?entry=${targetId}`, { scroll: false });
+                    }
+                })
+                .catch(() => { /* silent fail */ });
+        }
+    }, [type, urlEntryId, urlSectionId, pages, categoryId, router]);
+
     const fetchPages = async () => {
         try {
             const res = await fetch(`/api/entry?categoryId=${categoryId}&t=${Date.now()}`);
@@ -560,7 +615,20 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                             key={entry.EntryID}
                                             entry={entry}
                                             level={0}
-                                            onSelect={(id, type) => router.push(`?${type === 'Section' ? 'section' : 'entry'}=${id}`)}
+                                            onSelect={async (id, type) => {
+                                                router.push(`?${type === 'Section' ? 'section' : 'entry'}=${id}`);
+
+                                                // Save last selected entry for notebooks
+                                                if (type === 'Page') {
+                                                    try {
+                                                        await fetch(`/api/category/${categoryId}`, {
+                                                            method: 'PUT',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ lastSelectedEntryId: id })
+                                                        });
+                                                    } catch { /* silent fail */ }
+                                                }
+                                            }}
                                             onAddPage={(pid) => onCreateEntry(pid, 'Page')}
                                             onAddSection={(pid) => onCreateEntry(pid, 'Section')}
                                             selectedId={selectedId}

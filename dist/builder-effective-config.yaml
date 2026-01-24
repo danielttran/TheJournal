@@ -22,4 +22,8 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-electronVersion: 40.0.0
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: TheJournal
+npmRebuild: false
+electronVersion: 33.2.1

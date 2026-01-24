@@ -16,6 +16,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     const [value, setValue] = useState('');
     const [entryId, setEntryId] = useState<number | null>(null);
+    const [entryTitle, setEntryTitle] = useState<string>('');
     const [saving, setSaving] = useState(false);
 
     // Refs for Data Safety (The "Truth" outside React render cycle)
@@ -146,6 +147,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         const data = await res.json();
                         loadedId = data.EntryID;
                         loadedContent = data.HtmlContent || '';
+                        setEntryTitle(data.Title || 'Untitled Page');
                     }
                 } else {
                     const res = await fetch('/api/entry/by-date', {
@@ -157,6 +159,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         const data = await res.json();
                         loadedId = data.id;
                         loadedContent = data.html || '';
+                        setEntryTitle(''); // Clear title for journal entries
                     }
                 }
             } catch (err) {
@@ -202,12 +205,30 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     return (
         <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
-            <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
-                <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
-                    {saving ? 'Saving...' : 'Saved'}
-                </span>
-            </div>
+            {/* Entry Header - shows which note is selected */}
+            {urlEntryId && entryTitle && (
+                <div className="h-12 border-b border-border-primary flex items-center justify-between px-6 bg-bg-card transition-colors duration-200">
+                    <div className="flex items-center space-x-3">
+                        <span className="text-sm font-medium text-text-primary truncate">
+                            {entryTitle}
+                        </span>
+                    </div>
+                    <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
+                        {saving ? 'Saving...' : 'Saved'}
+                    </span>
+                </div>
+            )}
+
+            {/* Floating save indicator for journal mode */}
+            {!urlEntryId && (
+                <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
+                    <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
+                        {saving ? 'Saving...' : 'Saved'}
+                    </span>
+                </div>
+            )}
 
             <div className="flex-1 overflow-hidden relative flex flex-col">
                 <ReactQuill

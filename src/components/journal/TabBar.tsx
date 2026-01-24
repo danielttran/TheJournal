@@ -1,16 +1,15 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { ThemeToggle } from '../ThemeToggle';
 import { useRouter, usePathname } from 'next/navigation';
-import { Plus, X, Book, FileText } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import { X, Plus, GripVertical, Book, FileText } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import {
     DndContext,
     closestCenter,
-    KeyboardSensor,
     PointerSensor,
+    KeyboardSensor,
     useSensor,
     useSensors,
     DragEndEvent
@@ -194,15 +193,18 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
 export default function TabBar({ userId }: { userId: string }) {
     const router = useRouter();
     const pathname = usePathname();
+    const { setTheme, theme } = useTheme();
     const [tabs, setTabs] = useState<Category[]>([]);
 
     // UI State
-    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
     const [newTabName, setNewTabName] = useState('');
     const [newTabType, setNewTabType] = useState<'Journal' | 'Notebook'>('Journal');
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
+    const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const fileMenuRef = useRef<HTMLDivElement>(null);
+    const viewMenuRef = useRef<HTMLDivElement>(null);
 
     // Initial Load
     useEffect(() => {
@@ -215,10 +217,26 @@ export default function TabBar({ userId }: { userId: string }) {
             if (fileMenuRef.current && !fileMenuRef.current.contains(event.target as Node)) {
                 setIsFileMenuOpen(false);
             }
+            if (viewMenuRef.current && !viewMenuRef.current.contains(event.target as Node)) {
+                setIsViewMenuOpen(false);
+            }
         }
-        if (isFileMenuOpen) document.addEventListener("mousedown", handleClickOutside);
+        if (isFileMenuOpen || isViewMenuOpen) document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [isFileMenuOpen]);
+    }, [isFileMenuOpen, isViewMenuOpen]);
+
+    // Listen for Electron menu events
+    useEffect(() => {
+        if (window.electron) {
+            window.electron.onImportDB && window.electron.onImportDB((filePath: string) => {
+                handleFileImport(filePath);
+            });
+
+            window.electron.onExportDB && window.electron.onExportDB(() => {
+                handleExportClick();
+            });
+        }
+    }, []);
 
     const fetchTabs = async () => {
         try {
@@ -290,7 +308,7 @@ export default function TabBar({ userId }: { userId: string }) {
             const newCat = await res.json();
             if (newCat.id) {
                 setTabs([...tabs, { CategoryID: newCat.id, Name: newTabName, Type: newTabType, Color: '#fff', SortOrder: tabs.length }]);
-                setIsModalOpen(false);
+                setIsAddMenuOpen(false);
                 setNewTabName('');
                 router.push(`/journal/${newCat.id}`);
             }
@@ -306,6 +324,17 @@ export default function TabBar({ userId }: { userId: string }) {
     };
 
     // Other Handlers (File Menu)
+    const handleFileImport = async (filePath: string) => {
+        if (!confirm("Overwrite data?")) return;
+        const formData = new FormData();
+        const response = await fetch(filePath);
+        const blob = await response.blob();
+        formData.append('file', blob, filePath.split(/[\\/]/).pop() || 'import.db');
+        const res = await fetch('/api/backup/import', { method: 'POST', body: formData });
+        if (res.ok) window.location.reload();
+        else alert("Import Failed");
+    };
+
     const handleImportClick = () => { fileInputRef.current?.click(); setIsFileMenuOpen(false); };
     const handleExportClick = () => { window.open('/api/backup/export', '_blank'); setIsFileMenuOpen(false); };
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -323,28 +352,45 @@ export default function TabBar({ userId }: { userId: string }) {
 
     return (
         <div className="flex flex-col w-full bg-bg-sidebar border-b border-border-primary transition-colors duration-200">
-            {/* FILE MENU & HEADER */}
-            <div className="flex items-center px-4 py-1 space-x-4 bg-bg-card text-xs text-text-secondary select-none relative transition-colors duration-200">
-                <div className="w-6 h-6 bg-accent-primary rounded flex items-center justify-center font-bold text-white mr-2">J</div>
-                <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite" onChange={handleFileChange} />
+            {/* Hidden file input for imports */}
+            <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite" onChange={handleFileChange} />
 
-                {/* File Dropdown */}
-                <div className="relative" ref={fileMenuRef}>
-                    <span onClick={() => setIsFileMenuOpen(!isFileMenuOpen)} className="px-2 py-0.5 rounded cursor-pointer hover:bg-bg-hover">File</span>
-                    {isFileMenuOpen && (
-                        <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
-                            <button onClick={handleImportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Import DB...</button>
-                            <button onClick={handleExportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Export DB</button>
-                        </div>
-                    )}
-                </div>
-                <span className="hover:bg-bg-hover px-2 py-0.5 rounded cursor-pointer hidden sm:block">Edit</span>
-                <span className="hover:bg-bg-hover px-2 py-0.5 rounded cursor-pointer hidden sm:block">View</span>
+            {/* FILE MENU & HEADER - Only show in web browser (not Electron) */}
+            {typeof window !== 'undefined' && !window.electron && (
+                <div className="flex items-center px-4 py-1 space-x-4 bg-bg-card text-xs text-text-secondary select-none relative transition-colors duration-200">
+                    <div className="w-6 h-6 bg-accent-primary rounded flex items-center justify-center font-bold text-white mr-2">J</div>
 
-                <div className="ml-auto">
-                    <ThemeToggle />
+                    {/* File Dropdown */}
+                    <div className="relative" ref={fileMenuRef}>
+                        <span onClick={() => setIsFileMenuOpen(!isFileMenuOpen)} className="px-2 py-0.5 rounded cursor-pointer hover:bg-bg-hover">File</span>
+                        {isFileMenuOpen && (
+                            <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
+                                <button onClick={handleImportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Import DB...</button>
+                                <button onClick={handleExportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Export DB</button>
+                            </div>
+                        )}
+                    </div>
+                    <span className="hover:bg-bg-hover px-2 py-0.5 rounded cursor-pointer hidden sm:block">Edit</span>
+
+                    {/* View Dropdown */}
+                    <div className="relative" ref={viewMenuRef}>
+                        <span onClick={() => setIsViewMenuOpen(!isViewMenuOpen)} className="px-2 py-0.5 rounded cursor-pointer hover:bg-bg-hover hidden sm:block">View</span>
+                        {isViewMenuOpen && (
+                            <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
+                                <button
+                                    onClick={() => {
+                                        setTheme(theme === 'dark' ? 'light' : 'dark');
+                                        setIsViewMenuOpen(false);
+                                    }}
+                                    className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors"
+                                >
+                                    Toggle Theme
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* TAB STRIP (Sortable) */}
             <div className="flex items-center px-2 pt-2 space-x-1 overflow-x-auto no-scrollbar bg-bg-sidebar">
@@ -364,13 +410,13 @@ export default function TabBar({ userId }: { userId: string }) {
                     </SortableContext>
                 </DndContext>
 
-                <button onClick={() => setIsModalOpen(true)} className="h-8 w-8 flex items-center justify-center text-text-muted hover:bg-bg-hover rounded">
+                <button onClick={() => setIsAddMenuOpen(true)} className="h-8 w-8 flex items-center justify-center text-text-muted hover:bg-bg-hover rounded">
                     <Plus className="w-5 h-5" />
                 </button>
             </div>
 
             {/* MODAL (Compact) */}
-            {isModalOpen && (
+            {isAddMenuOpen && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
                     <div className="bg-bg-card p-6 rounded-lg w-80 border border-border-primary">
                         <h3 className="text-text-primary mb-4 font-bold">New Tab</h3>
@@ -381,7 +427,7 @@ export default function TabBar({ userId }: { userId: string }) {
                             <button onClick={() => setNewTabType('Notebook')} className={`flex-1 p-2 border rounded ${newTabType === 'Notebook' ? 'bg-accent-secondary border-accent-primary text-accent-primary' : 'border-border-primary text-text-secondary'}`}>Notebook</button>
                         </div>
                         <div className="flex justify-end gap-2">
-                            <button onClick={() => setIsModalOpen(false)} className="px-3 py-1 text-text-muted hover:text-text-primary">Cancel</button>
+                            <button onClick={() => setIsAddMenuOpen(false)} className="px-3 py-1 text-text-muted hover:text-text-primary">Cancel</button>
                             <button onClick={handleCreateTab} disabled={!newTabName} className="px-3 py-1 bg-accent-primary text-white rounded hover:bg-opacity-90">Create</button>
                         </div>
                     </div>

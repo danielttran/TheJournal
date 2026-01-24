@@ -6,12 +6,13 @@
   "author": "User",
   "description": "TheJournal App",
   "scripts": {
-    "dev": "next dev",
+    "dev": "npm rebuild better-sqlite3 && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "dev:electron": "electron .",
-    "build:electron": "next build && electron-builder"
+    "dev:electron": "npm rebuild better-sqlite3 && concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "build:electron": "next build",
+    "build:installer": "node scripts/install-sqlite.js && electron-builder"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -21,6 +22,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "emoji-picker-react": "^4.16.1",
+    "get-port": "^5.1.1",
     "lucide-react": "^0.562.0",
     "next": "16.1.3",
     "next-swagger-doc": "^0.4.1",
@@ -33,14 +35,16 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.2",
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/swagger-ui-react": "^5.18.0",
+    "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
-    "electron": "^40.0.0",
+    "electron": "^33.2.1",
     "electron-builder": "^26.4.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.3",

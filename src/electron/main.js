@@ -1,17 +1,25 @@
-const { app, BrowserWindow, screen } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, Menu } = require('electron');
 const path = require('path');
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const getPort = require('get-port');
+const SettingsManager = require('./settings');
 
 const dev = process.env.NODE_ENV !== 'production';
 const dir = path.join(__dirname, '../../'); // Adjust based on where main.js is (src/electron/main.js -> root is ../../)
 
+const settingsManager = new SettingsManager();
+const settings = settingsManager.getSettings();
+
 async function startServer() {
     // Set DB Path for Next.js to use
     if (!dev) {
-        process.env.JOURNAL_DB_PATH = path.join(app.getPath('userData'), 'journal.db');
+        const dbPath = settings.dbPath === 'default'
+            ? path.join(app.getPath('userData'), 'journal.db')
+            : settings.dbPath;
+
+        process.env.JOURNAL_DB_PATH = dbPath;
         console.log('Database Path:', process.env.JOURNAL_DB_PATH);
     }
 
@@ -56,14 +64,8 @@ function createWindow(url) {
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.js')
         },
-        autoHideMenuBar: true,
+        autoHideMenuBar: false,
         backgroundColor: '#111827', // Match bg-bg-app
-        titleBarStyle: 'hidden',
-        titleBarOverlay: {
-            color: '#111827',
-            symbolColor: '#9ca3af',
-            height: 48 // Match header height
-        }
     });
 
     mainWindow.loadURL(url);
@@ -73,8 +75,86 @@ function createWindow(url) {
     });
 }
 
+function createMenu() {
+    const { dialog, shell } = require('electron');
+
+    const template = [
+        {
+            label: 'File',
+            submenu: [
+                {
+                    label: 'Import DB...',
+                    click: () => {
+                        if (mainWindow) {
+                            dialog.showOpenDialog(mainWindow, {
+                                properties: ['openFile'],
+                                filters: [{ name: 'Database', extensions: ['db', 'sqlite'] }]
+                            }).then(result => {
+                                if (!result.canceled && result.filePaths.length > 0) {
+                                    mainWindow.webContents.send('import-db', result.filePaths[0]);
+                                }
+                            });
+                        }
+                    }
+                },
+                {
+                    label: 'Export DB',
+                    click: () => {
+                        if (mainWindow) {
+                            mainWindow.webContents.send('export-db');
+                        }
+                    }
+                },
+                { type: 'separator' },
+                { role: 'quit' }
+            ]
+        },
+        {
+            label: 'Edit',
+            submenu: [
+                { role: 'undo' },
+                { role: 'redo' },
+                { type: 'separator' },
+                { role: 'cut' },
+                { role: 'copy' },
+                { role: 'paste' }
+            ]
+        },
+        {
+            label: 'View',
+            submenu: [
+                { role: 'reload' },
+                { role: 'toggleDevTools' },
+                { type: 'separator' },
+                {
+                    label: 'Toggle Theme',
+                    accelerator: 'CmdOrCtrl+T',
+                    click: () => {
+                        if (mainWindow) {
+                            console.log('Sending toggle-theme event');
+                            mainWindow.webContents.send('toggle-theme');
+                        }
+                    }
+                }
+            ]
+        }
+    ];
+
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+}
+
 app.whenReady().then(async () => {
     try {
+        createMenu();
+
+        // Register IPC Handlers
+        ipcMain.handle('get-settings', () => settingsManager.getSettings());
+        ipcMain.handle('save-setting', (event, key, value) => {
+            const success = settingsManager.saveSettings({ [key]: value });
+            return success ? settingsManager.getSettings() : false;
+        });
+
         // If dev, we assume user ran 'npm run dev' separately or we wait for it
         // Or we can just point to 3000. 
         // For the "sidecar" plan, in DEV we usually point to localhost:3000

@@ -23,7 +23,7 @@ export function ThemeToggle() {
     return (
         <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="w-8 h-8 flex items-center justify-center rounded p-1 text-text-secondary hover:bg-bg-hover transition-colors"
+            className="relative w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-black/50 backdrop-blur-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
             title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
         >
             <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />

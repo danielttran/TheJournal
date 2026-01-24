@@ -22,3 +22,16 @@ export interface Entry {
     PreviewText?: string;
     children?: Entry[];
 }
+
+declare global {
+    interface Window {
+        electron: {
+            saveFile: (content: string) => Promise<boolean>;
+            getSettings: () => Promise<any>;
+            saveSetting: (key: string, value: any) => Promise<any>;
+            onToggleTheme: (callback: () => void) => void;
+            onImportDB: (callback: (filePath: string) => void) => void;
+            onExportDB: (callback: () => void) => void;
+        };
+    }
+}

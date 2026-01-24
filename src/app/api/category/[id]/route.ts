@@ -1,6 +1,31 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    try {
+        const { id } = await params;
+        const categoryId = parseInt(id, 10);
+
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = parseInt(userIdCookie.value, 10);
+
+        const category = db.prepare('SELECT * FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
+
+        if (!category) {
+            return NextResponse.json({ error: "Category not found" }, { status: 404 });
+        }
+
+        return NextResponse.json(category);
+    } catch (error) {
+        console.error("Get category error", error);
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    }
+}
+
+
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { id } = await params;
@@ -35,7 +60,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const categoryId = parseInt(id, 10);
         const body = await req.json();
-        const { name, icon, viewSettings } = body;
+        const { name, icon, viewSettings, lastSelectedEntryId } = body;
 
         // Construct dynamic update
         const updates: string[] = [];
@@ -43,7 +68,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         if (name !== undefined) { updates.push("Name = ?"); values.push(name); }
         if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
-        if (viewSettings !== undefined) { updates.push("ViewSettings = ?"); values.push(JSON.stringify(viewSettings)); }
+
+        // Handle viewSettings or lastSelectedEntryId
+        if (viewSettings !== undefined || lastSelectedEntryId !== undefined) {
+            // Fetch current settings
+            const category = db.prepare('SELECT ViewSettings FROM Category WHERE CategoryID = ?').get(categoryId) as any;
+            const currentSettings = category?.ViewSettings ? JSON.parse(category.ViewSettings) : {};
+
+            // Merge updates
+            if (viewSettings !== undefined) {
+                Object.assign(currentSettings, viewSettings);
+            }
+            if (lastSelectedEntryId !== undefined) {
+                currentSettings.lastSelectedEntryId = lastSelectedEntryId;
+            }
+
+            updates.push("ViewSettings = ?");
+            values.push(JSON.stringify(currentSettings));
+        }
 
         if (updates.length === 0) return NextResponse.json({ success: true }); // Nothing to update
 
