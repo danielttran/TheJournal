@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { X, Plus, GripVertical, Book, FileText } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { useClickOutside } from '@/hooks';
 import {
     DndContext,
     closestCenter,
@@ -211,19 +212,11 @@ export default function TabBar({ userId }: { userId: string }) {
         fetchTabs();
     }, []);
 
-    // Click away for File Menu
-    useEffect(() => {
-        function handleClickOutside(event: MouseEvent) {
-            if (fileMenuRef.current && !fileMenuRef.current.contains(event.target as Node)) {
-                setIsFileMenuOpen(false);
-            }
-            if (viewMenuRef.current && !viewMenuRef.current.contains(event.target as Node)) {
-                setIsViewMenuOpen(false);
-            }
-        }
-        if (isFileMenuOpen || isViewMenuOpen) document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [isFileMenuOpen, isViewMenuOpen]);
+    // Click away handlers using custom hook
+    const closeFileMenu = useCallback(() => setIsFileMenuOpen(false), []);
+    const closeViewMenu = useCallback(() => setIsViewMenuOpen(false), []);
+    useClickOutside(fileMenuRef, closeFileMenu, isFileMenuOpen);
+    useClickOutside(viewMenuRef, closeViewMenu, isViewMenuOpen);
 
     // Listen for Electron menu events
     useEffect(() => {
