@@ -5,6 +5,8 @@ import { Providers } from "./providers";
 import ThemeProvider from '@/components/ThemeProvider';
 import ThemeManager from '@/components/ThemeManager';
 
+// Font configuration
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],

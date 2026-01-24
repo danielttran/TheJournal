@@ -1,13 +1,26 @@
 "use client";
 
 import dynamic from 'next/dynamic';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import hljs from 'highlight.js';
 import 'react-quill-new/dist/quill.snow.css'; // Add css for snow theme
+import 'highlight.js/styles/atom-one-dark.css'; // Syntax highlighting theme
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import { useSearchParams } from 'next/navigation';
+
+// ... other imports
 import Breadcrumbs from './Breadcrumbs';
 
 // Dynamic import to avoid SSR issues with Quill
 const ReactQuill = dynamic(() => import('react-quill-new'), { ssr: false });
+
+declare global {
+    interface Window {
+        katex: any;
+        hljs: any;
+    }
+}
 
 export default function Editor({ categoryId, userId }: { categoryId: string, userId: string }) {
     const searchParams = useSearchParams();
@@ -24,6 +37,12 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const contentRef = useRef('');
     const entryIdRef = useRef<number | null>(null);
     const isDirtyRef = useRef(false);
+
+    // Setup KaTeX and Highlight.js for Quill
+    useEffect(() => {
+        window.katex = katex;
+        window.hljs = hljs;
+    }, []);
 
     // Sync refs with state
     useEffect(() => { entryIdRef.current = entryId; }, [entryId]);
@@ -129,7 +148,11 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             const contentToSave = contentRef.current;
             const wasDirty = isDirtyRef.current;
 
-            if (wasDirty && idToSave) {
+            // Only save on unmount if we have valid content and it was dirty
+            // This prevents wiping data on rapid reloads where content might be briefly empty
+            if (wasDirty && idToSave && contentToSave && contentToSave.trim() !== '' && contentToSave !== '<p><br></p>') {
+                // Use beacon for reliable unmount fetch if supported, otherwise standard fetch
+                // For now, standard fetch with keepalive which we already use in performSave
                 performSave(idToSave, contentToSave, false);
             }
         };
@@ -206,16 +229,30 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         };
     }, [categoryId, userId, selectedDate, urlEntryId]);
 
-    // Toolbar Modules
-    const modules = {
-        toolbar: [
-            [{ 'header': [1, 2, false] }],
-            ['bold', 'italic', 'underline', 'strike', 'blockquote'],
-            [{ 'list': 'ordered' }, { 'list': 'bullet' }, { 'indent': '-1' }, { 'indent': '+1' }],
-            ['link', 'image'],
-            ['clean']
-        ],
-    };
+
+
+    // ... other imports
+
+    // Toolbar Modules - Memoized to prevent re-renders
+    const modules = useMemo(() => ({
+        syntax: {
+            highlight: (text: string) => hljs.highlightAuto(text).value,
+        },
+        toolbar: {
+            container: [
+                [{ 'font': [] }, { 'size': [] }],
+                [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+                ['bold', 'italic', 'underline', 'strike'],
+                [{ 'color': [] }, { 'background': [] }],
+                [{ 'script': 'sub' }, { 'script': 'super' }],
+                [{ 'header': 1 }, { 'header': 2 }, 'blockquote', 'code-block'],
+                [{ 'list': 'ordered' }, { 'list': 'bullet' }, { 'indent': '-1' }, { 'indent': '+1' }],
+                [{ 'direction': 'rtl' }, { 'align': [] }],
+                ['link', 'image', 'video', 'formula'],
+                ['clean']
+            ],
+        },
+    }), []);
 
     return (
         <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
@@ -302,11 +339,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 }
                 .ql-picker {
                     color: var(--text-secondary) !important;
-                }
-                .ql-picker-options {
-                    background-color: var(--bg-card) !important;
-                    border: 1px solid var(--border-primary) !important;
-                    color: var(--text-primary) !important;
                 }
                 .quill {
                     height: 100%;

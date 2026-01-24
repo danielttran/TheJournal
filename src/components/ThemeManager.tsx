@@ -28,17 +28,7 @@ export default function ThemeManager() {
         applyTheme();
 
         // Listen for changes
-        const cleanup = window.electron.onOpenSettings ?
-            // We can reuse onOpenSettings event or just re-fetch periodically?
-            // Actually, we should probably add a specific listener for settings changes if possible.
-            // But for now, let's just re-apply when the component mounts or theme changes.
-            // If the user changes settings, the modal will handle saving, we need to know when to re-apply.
-            // Ideally, we'd have a 'settings-changed' event. 
-            // For now, let's just depend on re-renders from theme changes, and maybe polling or specific event?
-            // Let's add a simple event listener if the modal triggers one, or just rely on the fact 
-            // that saving settings might not trigger a re-render here automatically without an event.
-            // Let's assume we might need to add a listener mechanism later, but for now this handles load.
-            null : null;
+
 
         // To make it live update, we can trust that saving settings via IPC might act as a signal if we had one.
         // For this implementation, we will add a secondary effect that listens to a custom event dispatched by SettingsModal

@@ -1,6 +1,55 @@
 @import "tailwindcss";
 
-/* Toast animation */
+@layer base {
+
+  :root {
+    /* Light Mode Defaults */
+    --bg-app: #f3f4f6;
+    --bg-sidebar: #ffffff;
+    --bg-card: #ffffff;
+    --bg-hover: #f9fafb;
+    --bg-active: #e5e7eb;
+
+    --text-primary: #111827;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+
+    --border-primary: #e5e7eb;
+    --border-secondary: #f3f4f6;
+
+    --accent-primary: #9333ea;
+    --accent-secondary: #e9d5ff;
+  }
+
+  /* Dark Mode Variables */
+  .dark {
+    --bg-app: #000000;
+    --bg-sidebar: #0a0a0a;
+    --bg-card: #0f0f0f;
+    --bg-hover: #1a1a1a;
+    --bg-active: #151515;
+
+    --text-primary: #ffffff;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+
+    --border-primary: #1a1a1a;
+    --border-secondary: #27272a;
+
+    --accent-primary: #14b8a6;
+    --accent-secondary: #0d9488;
+    --accent-glow: rgba(20, 184, 166, 0.4);
+  }
+}
+
+/* Base Styles */
+body {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Animations */
 @keyframes slide-in {
   from {
     transform: translateX(100%);
@@ -17,66 +66,19 @@
   animation: slide-in 0.2s ease-out;
 }
 
-:root {
-  /* Light Mode Defaults */
-  --bg-app: #f3f4f6;
-  /* gray-100 */
-  --bg-sidebar: #ffffff;
-  /* white */
-  --bg-card: #ffffff;
-  --bg-hover: #f9fafb;
-  /* gray-50 */
-  --bg-active: #e5e7eb;
-  /* gray-200 */
-
-  --text-primary: #111827;
-  /* gray-900 */
-  --text-secondary: #6b7280;
-  /* gray-500 */
-  --text-muted: #9ca3af;
-  /* gray-400 */
-
-  --border-primary: #e5e7eb;
-  /* gray-200 */
-  --border-secondary: #f3f4f6;
-
-  --accent-primary: #9333ea;
-  /* purple-600 */
-  --accent-secondary: #e9d5ff;
-  /* purple-200 */
+/* 
+  Quill Dropdown Fix (Dark Mode)
+  Quill's default theme uses a white background for dropdowns.
+  In dark mode, the text color inherits 'white' from the body/theme, causing white-on-white.
+  This rule explicitly inverts the text color to black for dropdown items when in dark mode.
+*/
+.dark .ql-picker-options .ql-picker-item {
+  color: #000000;
 }
 
-/* Dark Mode Overrides */
-.dark {
-  --bg-app: #000000;
-  /* Pure black */
-  --bg-sidebar: #0a0a0a;
-  /* Very dark sidebar */
-  --bg-card: #0f0f0f;
-  /* Very dark card background */
-  --bg-hover: #1a1a1a;
-  --bg-active: #151515;
-
-  --text-primary: #ffffff;
-  --text-secondary: #a1a1aa;
-  /* neutral-400 */
-  --text-muted: #71717a;
-  /* neutral-500 */
-
-  --border-primary: #1a1a1a;
-  --border-secondary: #27272a;
-
-  --accent-primary: #14b8a6;
-  /* Teal neon color */
-  --accent-secondary: #0d9488;
-  /* teal-600 */
-
-  --accent-glow: rgba(20, 184, 166, 0.4);
-}
-
-.dark ::selection {
-  background-color: var(--accent-primary);
-  color: #ffffff;
+.dark .ql-picker-options .ql-picker-item:hover {
+  background-color: #f3f4f6;
+  /* Ensure hover is visible */
 }
 
 @theme inline {
@@ -98,10 +100,4 @@
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-body {
-  background: var(--bg-app);
-  color: var(--text-primary);
-  font-family: Arial, Helvetica, sans-serif;
 }

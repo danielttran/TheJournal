@@ -206,14 +206,16 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isClient, setIsClient] = useState(false);
 
     // Refs for clicking outside
     const fileInputRef = useRef<HTMLInputElement>(null);
     const fileMenuRef = useRef<HTMLDivElement>(null);
     const viewMenuRef = useRef<HTMLDivElement>(null);
 
-    // Initial Load
+    // Initial Load & Hydration Check
     useEffect(() => {
+        setIsClient(true);
         fetchTabs();
     }, []);
 
@@ -379,7 +381,7 @@ export default function TabBar({ userId }: { userId: string }) {
             <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite" onChange={handleFileChange} />
 
             {/* FILE MENU & HEADER - Show in web, but hide in Electron to avoid duplicate menu */}
-            {typeof window !== 'undefined' && !window.electron && (
+            {isClient && typeof window !== 'undefined' && !window.electron && (
                 <div className="flex items-center px-4 py-1 space-x-4 bg-bg-card text-xs text-text-secondary select-none relative transition-colors duration-200">
                     <div className="w-6 h-6 bg-accent-primary rounded flex items-center justify-center font-bold text-white mr-2">J</div>
 
