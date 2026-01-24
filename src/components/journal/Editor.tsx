@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import hljs from 'highlight.js';
 import 'react-quill-new/dist/quill.snow.css'; // Add css for snow theme
-import 'highlight.js/styles/atom-one-dark.css'; // Syntax highlighting theme
+
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useSearchParams } from 'next/navigation';
@@ -13,7 +13,39 @@ import { useSearchParams } from 'next/navigation';
 import Breadcrumbs from './Breadcrumbs';
 
 // Dynamic import to avoid SSR issues with Quill
-const ReactQuill = dynamic(() => import('react-quill-new'), { ssr: false });
+// Dynamic import to avoid SSR issues with Quill
+const ReactQuill = dynamic(async () => {
+    const { default: RQ, Quill } = await import('react-quill-new');
+
+    const BlockEmbed = Quill.import('blots/block/embed');
+    const Link = Quill.import('formats/link');
+
+    class CustomVideo extends BlockEmbed {
+        static create(value: string) {
+            const node = super.create();
+            const iframe = node as HTMLIFrameElement;
+            iframe.setAttribute('frameborder', '0');
+            iframe.setAttribute('allowfullscreen', 'true');
+            iframe.setAttribute('src', this.sanitize(value));
+            return iframe;
+        }
+
+        static value(node: any) {
+            return node.getAttribute('src');
+        }
+
+        static sanitize(url: string) {
+            return Link.sanitize(url);
+        }
+    }
+    CustomVideo.blotName = 'video';
+    CustomVideo.tagName = 'iframe';
+    CustomVideo.className = 'ql-video';
+
+    Quill.register(CustomVideo as any, true);
+
+    return RQ;
+}, { ssr: false });
 
 declare global {
     interface Window {
@@ -254,6 +286,16 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         },
     }), []);
 
+    // List of supported formats - explicitly including video
+    const formats = [
+        'header', 'font', 'size',
+        'bold', 'italic', 'underline', 'strike', 'blockquote',
+        'list', 'indent',
+        'link', 'image', 'video', 'formula',
+        'color', 'background',
+        'script', 'direction', 'align', 'code-block'
+    ];
+
     return (
         <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
             {/* Breadcrumb Header - replacing the old fixed title bar */}
@@ -288,89 +330,11 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     value={value}
                     onChange={handleChange}
                     modules={modules}
+                    formats={formats}
                     className="flex-1 flex flex-col bg-transparent border-none"
                     placeholder="Start writing..."
                 />
             </div>
-
-            <style jsx global>{`
-                /* Custom overrides to match the theme aesthetics */
-                .ql-toolbar {
-                    border: none !important;
-                    border-bottom: 1px solid var(--border-primary) !important;
-                    background: var(--bg-card);
-                    color: var(--text-primary);
-                    padding: 12px 24px !important;
-                    transition: background-color 0.2s, border-color 0.2s;
-                }
-                .ql-container {
-                    border: none !important;
-                    font-size: 1.125rem;
-                    flex: 1;
-                    overflow: hidden; 
-                    display: flex;
-                    flex-direction: column;
-                }
-                .ql-editor {
-                    flex: 1;
-                    overflow-y: auto;
-                    padding: 2rem 4rem !important; /* Spacious padding */
-                    color: var(--text-primary);
-                }
-                .ql-editor.ql-blank::before {
-                    color: var(--text-muted) !important;
-                    opacity: 0.6;
-                    font-style: italic;
-                }
-                .ql-editor:focus.ql-blank::before {
-                    display: none !important;
-                }
-                .ql-editor p {
-                     margin-bottom: 0.8em;
-                     line-height: 1.6;
-                }
-                .ql-stroke {
-                    stroke: var(--text-secondary) !important;
-                    fill: none !important; 
-                }
-                .ql-fill {
-                    fill: var(--text-secondary) !important;
-                    stroke: none !important; 
-                }
-                .ql-picker {
-                    color: var(--text-secondary) !important;
-                }
-
-                /* FIX: specific override for the Code Block Language dropdown (select element) */
-                select.ql-ui {
-                    background-color: transparent !important;
-                    color: #f3f4f6 !important; /* Always light text because code block is always dark (atom-one-dark) */
-                    border: none !important;
-                    padding: 0 4px !important;
-                    cursor: pointer;
-                }
-                select.ql-ui:hover {
-                    text-decoration: underline;
-                }
-                /* Native options often cannot be fully transparent, but we try to match theme */
-                select.ql-ui option {
-                    background-color: var(--bg-card) !important;
-                    color: var(--text-primary) !important;
-                }
-                
-                /* Ensure the container or tooltip holding it handles dark mode correctly if needed */
-                .ql-tooltip {
-                    background-color: transparent !important;
-                    border: none !important;
-                    box-shadow: none !important;
-                }
-
-                .quill {
-                    height: 100%;
-                    display: flex;
-                    flex-direction: column;
-                }
-            `}</style>
         </div>
     );
 }

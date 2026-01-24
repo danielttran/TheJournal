@@ -88,3 +88,236 @@ body {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
+
+/* Quill JS Theme Overrides */
+@layer base {
+
+  /* 
+    Code Block Styling 
+    Quill 2.0 / react-quill-new uses a container div + native select for language 
+  */
+  .ql-snow .ql-code-block-container {
+    background-color: var(--bg-hover) !important;
+    border: 1px solid var(--border-primary);
+    border-radius: 0.375rem;
+    /* rounded-md */
+    font-family: var(--font-mono), monospace;
+    margin-bottom: 1rem;
+  }
+
+  .ql-snow .ql-code-block {
+    background-color: transparent !important;
+    color: var(--text-primary) !important;
+    padding: 0 !important;
+  }
+
+  /* 
+     Legacy Support / Alternative Rendering 
+     Some versions might still use pre.ql-syntax 
+  */
+  .ql-snow .ql-editor pre.ql-syntax {
+    background-color: var(--bg-hover) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-primary);
+    border-radius: 0.375rem;
+    font-family: var(--font-mono), monospace;
+  }
+
+  /* Dark Mode specific overrides for code blocks */
+  .dark .ql-snow .ql-code-block-container,
+  .dark .ql-snow .ql-editor pre.ql-syntax {
+    background-color: #1e1e1e !important;
+    color: #d4d4d4 !important;
+    border-color: #333;
+  }
+
+  .dark .ql-snow .ql-code-block {
+    color: #d4d4d4 !important;
+  }
+
+  /* 
+     Language Dropdown (Native Select in Code Block)
+     Fixes the unreadable text issue
+  */
+  .ql-code-block-container select.ql-ui {
+    background-color: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-primary) !important;
+    border-radius: 0.25rem;
+    margin-top: 4px;
+    margin-right: 4px;
+    outline: none;
+  }
+
+  /* Toolbar styling */
+  .ql-toolbar.ql-snow {
+    border-color: var(--border-primary) !important;
+    background-color: var(--bg-card);
+  }
+
+  .ql-toolbar.ql-snow .ql-stroke {
+    stroke: var(--text-secondary) !important;
+  }
+
+  .ql-toolbar.ql-snow .ql-fill {
+    fill: var(--text-secondary) !important;
+  }
+
+  .ql-toolbar.ql-snow .ql-picker {
+    color: var(--text-secondary) !important;
+  }
+
+  /* Hover states for toolbar icons */
+  .ql-toolbar.ql-snow button:hover .ql-stroke,
+  .ql-toolbar.ql-snow .ql-picker-label:hover .ql-stroke {
+    stroke: var(--text-primary) !important;
+  }
+
+  .ql-toolbar.ql-snow button:hover .ql-fill,
+  .ql-toolbar.ql-snow .ql-picker-label:hover .ql-fill {
+    fill: var(--text-primary) !important;
+  }
+
+  .ql-toolbar.ql-snow .ql-picker-label:hover {
+    color: var(--text-primary) !important;
+  }
+
+  /* Dropdown Options (Standard Quill Pickers in Toolbar) */
+  .ql-snow .ql-picker-options {
+    background-color: var(--bg-card) !important;
+    border-color: var(--border-primary) !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+    padding: 0.5rem !important;
+  }
+
+  .ql-snow .ql-picker-item {
+    color: var(--text-secondary) !important;
+  }
+
+  .ql-snow .ql-picker-item:hover,
+  .ql-snow .ql-picker-item.ql-selected {
+    color: var(--text-primary) !important;
+    background-color: var(--bg-hover) !important;
+  }
+}
+
+/* Syntax Highlighting (highlight.js) */
+@layer base {
+
+  /* Light Mode Syntax */
+  .ql-snow .ql-editor .hljs-comment,
+  .ql-snow .ql-editor .hljs-quote {
+    color: #a0a1a7;
+    font-style: italic;
+  }
+
+  .ql-snow .ql-editor .hljs-doctag,
+  .ql-snow .ql-editor .hljs-keyword,
+  .ql-snow .ql-editor .hljs-formula {
+    color: #a626a4;
+  }
+
+  .ql-snow .ql-editor .hljs-section,
+  .ql-snow .ql-editor .hljs-name,
+  .ql-snow .ql-editor .hljs-selector-tag,
+  .ql-snow .ql-editor .hljs-deletion,
+  .ql-snow .ql-editor .hljs-subst {
+    color: #e45649;
+  }
+
+  .ql-snow .ql-editor .hljs-literal {
+    color: #0184bc;
+  }
+
+  .ql-snow .ql-editor .hljs-string,
+  .ql-snow .ql-editor .hljs-regexp,
+  .ql-snow .ql-editor .hljs-addition,
+  .ql-snow .ql-editor .hljs-attribute,
+  .ql-snow .ql-editor .hljs-meta .hljs-string {
+    color: #50a14f;
+  }
+
+  .ql-snow .ql-editor .hljs-attr,
+  .ql-snow .ql-editor .hljs-variable,
+  .ql-snow .ql-editor .hljs-template-variable,
+  .ql-snow .ql-editor .hljs-type,
+  .ql-snow .ql-editor .hljs-selector-class,
+  .ql-snow .ql-editor .hljs-selector-attr,
+  .ql-snow .ql-editor .hljs-selector-pseudo,
+  .ql-snow .ql-editor .hljs-number {
+    color: #986801;
+  }
+
+  .ql-snow .ql-editor .hljs-symbol,
+  .ql-snow .ql-editor .hljs-bullet,
+  .ql-snow .ql-editor .hljs-link,
+  .ql-snow .ql-editor .hljs-meta,
+  .ql-snow .ql-editor .hljs-selector-id,
+  .ql-snow .ql-editor .hljs-title {
+    color: #4078f2;
+  }
+
+  .ql-snow .ql-editor .hljs-built_in,
+  .ql-snow .ql-editor .hljs-title.class_,
+  .ql-snow .ql-editor .hljs-class .hljs-title {
+    color: #c18401;
+  }
+
+  /* Dark Mode Syntax Overrides */
+  .dark .ql-snow .ql-editor .hljs-comment,
+  .dark .ql-snow .ql-editor .hljs-quote {
+    color: #6a9955;
+  }
+
+  .dark .ql-snow .ql-editor .hljs-doctag,
+  .dark .ql-snow .ql-editor .hljs-keyword,
+  .dark .ql-snow .ql-editor .hljs-formula {
+    color: #c586c0;
+  }
+
+  .dark .ql-snow .ql-editor .hljs-section,
+  .dark .ql-snow .ql-editor .hljs-name,
+  .dark .ql-snow .ql-editor .hljs-selector-tag,
+  .dark .ql-snow .ql-editor .hljs-deletion,
+  .dark .ql-snow .ql-editor .hljs-subst {
+    color: #f44747;
+  }
+
+  .dark .ql-snow .ql-editor .hljs-literal {
+    color: #569cd6;
+  }
+
+  .dark .ql-snow .ql-editor .hljs-string,
+  .dark .ql-snow .ql-editor .hljs-regexp,
+  .dark .ql-snow .ql-editor .hljs-addition,
+  .dark .ql-snow .ql-editor .hljs-attribute,
+  .dark .ql-snow .ql-editor .hljs-meta .hljs-string {
+    color: #ce9178;
+  }
+
+  .dark .ql-snow .ql-editor .hljs-attr,
+  .dark .ql-snow .ql-editor .hljs-variable,
+  .dark .ql-snow .ql-editor .hljs-template-variable,
+  .dark .ql-snow .ql-editor .hljs-type,
+  .dark .ql-snow .ql-editor .hljs-selector-class,
+  .dark .ql-snow .ql-editor .hljs-selector-attr,
+  .dark .ql-snow .ql-editor .hljs-selector-pseudo,
+  .dark .ql-snow .ql-editor .hljs-number {
+    color: #b5cea8;
+  }
+
+  .dark .ql-snow .ql-editor .hljs-symbol,
+  .dark .ql-snow .ql-editor .hljs-bullet,
+  .dark .ql-snow .ql-editor .hljs-link,
+  .dark .ql-snow .ql-editor .hljs-meta,
+  .dark .ql-snow .ql-editor .hljs-selector-id,
+  .dark .ql-snow .ql-editor .hljs-title {
+    color: #dcdcaa;
+  }
+
+  .dark .ql-snow .ql-editor .hljs-built_in,
+  .dark .ql-snow .ql-editor .hljs-title.class_,
+  .dark .ql-snow .ql-editor .hljs-class .hljs-title {
+    color: #4ec9b0;
+  }
+}
