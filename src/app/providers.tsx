@@ -2,6 +2,8 @@
 
 import { ThemeProvider, useTheme } from "next-themes";
 import { useEffect } from "react";
+import { ToastProvider } from "@/components/Toast";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function ThemeInitializer({ children }: { children: React.ReactNode }) {
     const { setTheme } = useTheme();
@@ -42,10 +44,15 @@ function ThemeInitializer({ children }: { children: React.ReactNode }) {
 
 export function Providers({ children }: { children: React.ReactNode }) {
     return (
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-            <ThemeInitializer>
-                {children}
-            </ThemeInitializer>
-        </ThemeProvider>
+        <ErrorBoundary>
+            <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+                <ToastProvider>
+                    <ThemeInitializer>
+                        {children}
+                    </ThemeInitializer>
+                </ToastProvider>
+            </ThemeProvider>
+        </ErrorBoundary>
     );
 }
+
