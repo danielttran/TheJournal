@@ -100,7 +100,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
     // Default Icon if none set
     const DisplayIcon = () => {
         if (category.Icon) return <span className="mr-2 text-base leading-none">{category.Icon}</span>;
-        return category.Type === 'Notebook' ? <FileText size={14} className="mr-2 opacity-70" /> : <Book size={14} className="mr-2 opacity-70" />;
+        return category.Type === 'Notebook' ? <FileText size={14} className="mr-2 text-accent-primary" /> : <Book size={14} className="mr-2 text-accent-primary" />;
     };
 
     if (isEditing) {
@@ -144,7 +144,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
             className={`
                 relative group flex items-center min-w-[120px] max-w-[200px] h-9 px-3 rounded-t-lg text-sm cursor-pointer select-none transition-colors
                 ${isActive
-                    ? 'bg-bg-app text-text-primary border-t-2 border-accent-primary'
+                    ? 'bg-bg-app text-white border-t-2 border-accent-primary shadow-[0_-2px_10px_var(--accent-glow)]'
                     : 'bg-bg-card text-text-secondary hover:bg-bg-hover'
                 }
             `}

@@ -65,7 +65,7 @@ export default async function JournalPage({ params, searchParams }: {
     }
 
     return (
-        <div className="flex h-screen bg-gray-900 text-gray-100 overflow-hidden font-sans">
+        <div className="flex h-screen bg-bg-app text-text-primary overflow-hidden font-sans transition-colors duration-200">
             <Sidebar categoryId={categoryId} userId={userId} title={category.Name} type={category.Type} viewSettings={category.ViewSettings} />
             <main className="flex-1 flex flex-col h-full relative">
                 {gridEntries ? (
