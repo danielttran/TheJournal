@@ -1,36 +1,106 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TheJournal
+
+A cross-platform journaling and note-taking application built with Next.js and Electron. Features both journal-style date-based entries and notebook-style hierarchical pages.
+
+## Features
+
+- 📅 **Journal Mode** - Date-based entries with calendar navigation
+- 📓 **Notebook Mode** - Hierarchical pages and sections with drag-and-drop
+- 🎨 **Rich Text Editor** - Full formatting with Quill.js
+- 🌙 **Dark/Light Themes** - System-aware with manual toggle
+- 💾 **Auto-Save** - Content saved automatically with crash recovery
+- 🔒 **Local Storage** - All data stored locally in SQLite
+- 📦 **Import/Export** - Backup and restore your data
 
 ## Getting Started
 
-First, run the development server:
+### Development (Web)
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Development (Electron)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run dev:electron
+```
 
-## Learn More
+### Production Build
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+# Build Next.js
+npm run build:electron
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Build installer
+npm run build:installer
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Project Structure
 
-## Deploy on Vercel
+```
+src/
+├── app/                    # Next.js App Router
+│   ├── api/                # REST API endpoints
+│   │   ├── backup/         # Import/Export DB
+│   │   ├── category/       # Notebook/Journal CRUD
+│   │   ├── entry/          # Entry CRUD, by-date, dates
+│   │   └── health/         # Health check
+│   ├── dashboard/          # Dashboard page
+│   ├── journal/[categoryId]/ # Journal/Notebook view
+│   ├── login/              # Authentication
+│   ├── globals.css         # Theme variables & styles
+│   ├── layout.tsx          # Root layout with providers
+│   └── providers.tsx       # Theme & Electron IPC setup
+│
+├── components/
+│   ├── journal/
+│   │   ├── Editor.tsx      # Rich text editor with auto-save
+│   │   ├── EntryGrid.tsx   # Grid view for entries
+│   │   ├── Sidebar.tsx     # Navigation (calendar/tree)
+│   │   └── TabBar.tsx      # Tab management & menus
+│   ├── dashboard/
+│   │   └── CategoryCard.tsx
+│   └── ThemeToggle.tsx     # Theme switch button
+│
+├── hooks/                  # Reusable React hooks
+│   ├── useClickOutside.ts  # Detect clicks outside element
+│   ├── useElectronIPC.ts   # Safe IPC event subscription
+│   └── index.ts            # Barrel export
+│
+├── lib/
+│   ├── db.ts               # SQLite database connection
+│   └── types.ts            # TypeScript interfaces
+│
+└── electron/               # Electron main process
+    ├── main.js             # Window creation & menu
+    ├── preload.js          # Context bridge API
+    └── settings.js         # User settings persistence
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Component Responsibilities
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Component | Description |
+|-----------|-------------|
+| **TabBar** | Category tabs, drag-to-reorder, File/View menus |
+| **Sidebar** | Journal calendar or notebook tree navigation |
+| **Editor** | Quill-based rich text with auto-save & recovery |
+| **EntryGrid** | Grid display for browsing past entries |
+
+## Database Schema
+
+- **User** - Authentication
+- **Category** - Journals and Notebooks
+- **Entry** - Individual pages/journal entries
+
+## Tech Stack
+
+- **Frontend**: Next.js 16, React 19, TypeScript
+- **Editor**: react-quill-new
+- **Styling**: Tailwind CSS with CSS variables
+- **Database**: better-sqlite3 (local SQLite)
+- **Desktop**: Electron 35
+- **DnD**: @dnd-kit

@@ -7,20 +7,23 @@ function ThemeInitializer({ children }: { children: React.ReactNode }) {
     const { setTheme } = useTheme();
 
     useEffect(() => {
-        if (window.electron) {
-            window.electron.getSettings().then((settings) => {
-                if (settings && settings.theme) {
-                    setTheme(settings.theme);
-                }
-            });
+        if (!window.electron) return;
 
-            // Listen for menu toggle
-            window.electron.onToggleTheme && window.electron.onToggleTheme(() => {
-                console.log('Theme toggle event received');
+        let isMounted = true;
+
+        window.electron.getSettings().then((settings) => {
+            if (!isMounted) return;
+            if (settings && settings.theme) {
+                setTheme(settings.theme);
+            }
+        });
+
+        // Listen for menu toggle - use mounted flag since IPC listeners can't be removed
+        if (window.electron.onToggleTheme) {
+            window.electron.onToggleTheme(() => {
+                if (!isMounted) return;
                 setTheme(currentTheme => {
                     const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-                    console.log(`Toggling theme from ${currentTheme} to ${newTheme}`);
-                    // Save to Electron settings
                     if (window.electron) {
                         window.electron.saveSetting('theme', newTheme);
                     }
@@ -28,6 +31,10 @@ function ThemeInitializer({ children }: { children: React.ReactNode }) {
                 });
             });
         }
+
+        return () => {
+            isMounted = false;
+        };
     }, [setTheme]);
 
     return <>{children}</>;

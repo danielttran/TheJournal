@@ -136,35 +136,42 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     // Initial Load Logic
     useEffect(() => {
+        const abortController = new AbortController();
+        let isMounted = true;
+
         const fetchEntry = async () => {
             let loadedId: number | null = null;
             let loadedContent = '';
 
             try {
                 if (urlEntryId) {
-                    const res = await fetch(`/api/entry/${urlEntryId}`);
+                    const res = await fetch(`/api/entry/${urlEntryId}`, { signal: abortController.signal });
                     if (res.ok) {
                         const data = await res.json();
                         loadedId = data.EntryID;
                         loadedContent = data.HtmlContent || '';
-                        setEntryTitle(data.Title || 'Untitled Page');
+                        if (isMounted) setEntryTitle(data.Title || 'Untitled Page');
                     }
                 } else {
                     const res = await fetch('/api/entry/by-date', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ date: selectedDate, categoryId, userId })
+                        body: JSON.stringify({ date: selectedDate, categoryId, userId }),
+                        signal: abortController.signal
                     });
                     if (res.ok) {
                         const data = await res.json();
                         loadedId = data.id;
                         loadedContent = data.html || '';
-                        setEntryTitle(''); // Clear title for journal entries
+                        if (isMounted) setEntryTitle(''); // Clear title for journal entries
                     }
                 }
             } catch (err) {
-                // Silent fail on load - entry will be empty
+                // Silent fail on load - entry will be empty (or aborted)
+                return;
             }
+
+            if (!isMounted) return;
 
             // Check for backup recovery
             const backup = localStorage.getItem('editor_backup');
@@ -189,7 +196,13 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             contentRef.current = loadedContent;
             if (!isDirtyRef.current) isDirtyRef.current = false;
         };
+
         fetchEntry();
+
+        return () => {
+            isMounted = false;
+            abortController.abort();
+        };
     }, [categoryId, userId, selectedDate, urlEntryId]);
 
     // Toolbar Modules

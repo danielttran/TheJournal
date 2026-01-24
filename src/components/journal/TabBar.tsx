@@ -227,15 +227,23 @@ export default function TabBar({ userId }: { userId: string }) {
 
     // Listen for Electron menu events
     useEffect(() => {
-        if (window.electron) {
-            window.electron.onImportDB && window.electron.onImportDB((filePath: string) => {
-                handleFileImport(filePath);
-            });
+        if (!window.electron) return;
 
-            window.electron.onExportDB && window.electron.onExportDB(() => {
-                handleExportClick();
-            });
-        }
+        let isMounted = true;
+
+        window.electron.onImportDB?.((filePath: string) => {
+            if (!isMounted) return;
+            handleFileImport(filePath);
+        });
+
+        window.electron.onExportDB?.(() => {
+            if (!isMounted) return;
+            handleExportClick();
+        });
+
+        return () => {
+            isMounted = false;
+        };
     }, []);
 
     const fetchTabs = async () => {

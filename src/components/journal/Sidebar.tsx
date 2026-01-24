@@ -259,13 +259,15 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         if (type === 'Notebook') fetchPages();
         else if (type === 'Journal') fetchJournalEntries();
 
+        let timeoutId: NodeJS.Timeout | null = null;
+
         const handleUpdate = () => {
             // Immediate fetch (fast)
             if (type === 'Notebook') fetchPages();
             if (type === 'Journal') fetchJournalEntries();
 
-            // Delayed fetch (catch race conditions)
-            setTimeout(() => {
+            // Delayed fetch (catch race conditions) - tracked for cleanup
+            timeoutId = setTimeout(() => {
                 if (type === 'Notebook') fetchPages();
                 if (type === 'Journal') fetchJournalEntries();
             }, 300);
@@ -278,6 +280,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         document.addEventListener('click', handleClickOutside);
 
         return () => {
+            if (timeoutId) clearTimeout(timeoutId);
             window.removeEventListener('journal-entry-updated', handleUpdate);
             document.removeEventListener('click', handleClickOutside);
         };
@@ -285,57 +288,63 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
 
     // Auto-select entry for notebooks (client-side to avoid flash)
     useEffect(() => {
-        if (type === 'Notebook' && !urlEntryId && !urlSectionId && pages.length > 0) {
-            // Helper to find first page in tree
-            const findFirstPage = (entries: Entry[]): Entry | null => {
-                for (const entry of entries) {
-                    if (entry.EntryType === 'Page') return entry;
-                    if (entry.children && entry.children.length > 0) {
-                        const found = findFirstPage(entry.children);
-                        if (found) return found;
-                    }
+        if (type !== 'Notebook' || urlEntryId || urlSectionId || pages.length === 0) return;
+
+        const abortController = new AbortController();
+
+        // Helper to find first page in tree
+        const findFirstPage = (entries: Entry[]): Entry | null => {
+            for (const entry of entries) {
+                if (entry.EntryType === 'Page') return entry;
+                if (entry.children && entry.children.length > 0) {
+                    const found = findFirstPage(entry.children);
+                    if (found) return found;
                 }
-                return null;
-            };
+            }
+            return null;
+        };
 
-            // Helper to check if entry exists in tree
-            const findEntryById = (id: number, entries: Entry[]): boolean => {
-                for (const entry of entries) {
-                    if (entry.EntryID === id) return true;
-                    if (entry.children && findEntryById(id, entry.children)) return true;
+        // Helper to check if entry exists in tree
+        const findEntryById = (id: number, entries: Entry[]): boolean => {
+            for (const entry of entries) {
+                if (entry.EntryID === id) return true;
+                if (entry.children && findEntryById(id, entry.children)) return true;
+            }
+            return false;
+        };
+
+        // Try to load last selected from ViewSettings
+        fetch(`/api/category/${categoryId}`, { signal: abortController.signal })
+            .then(res => res.json())
+            .then(data => {
+                if (abortController.signal.aborted) return;
+
+                let targetId: number | null = null;
+
+                // Get from ViewSettings
+                try {
+                    const viewSettings = data.ViewSettings ? JSON.parse(data.ViewSettings) : {};
+                    targetId = viewSettings.lastSelectedEntryId;
+
+                    // Verify entry still exists
+                    if (targetId && !findEntryById(targetId, pages)) {
+                        targetId = null;
+                    }
+                } catch { /* ignore */ }
+
+                // Fallback to first page
+                if (!targetId) {
+                    const firstPage = findFirstPage(pages);
+                    targetId = firstPage?.EntryID || null;
                 }
-                return false;
-            };
 
-            // Try to load last selected from ViewSettings
-            fetch(`/api/category/${categoryId}`)
-                .then(res => res.json())
-                .then(data => {
-                    let targetId: number | null = null;
+                if (targetId) {
+                    router.push(`?entry=${targetId}`, { scroll: false });
+                }
+            })
+            .catch(() => { /* silent fail or aborted */ });
 
-                    // Get from ViewSettings
-                    try {
-                        const viewSettings = data.ViewSettings ? JSON.parse(data.ViewSettings) : {};
-                        targetId = viewSettings.lastSelectedEntryId;
-
-                        // Verify entry still exists
-                        if (targetId && !findEntryById(targetId, pages)) {
-                            targetId = null;
-                        }
-                    } catch { /* ignore */ }
-
-                    // Fallback to first page
-                    if (!targetId) {
-                        const firstPage = findFirstPage(pages);
-                        targetId = firstPage?.EntryID || null;
-                    }
-
-                    if (targetId) {
-                        router.push(`?entry=${targetId}`, { scroll: false });
-                    }
-                })
-                .catch(() => { /* silent fail */ });
-        }
+        return () => abortController.abort();
     }, [type, urlEntryId, urlSectionId, pages, categoryId, router]);
 
     const fetchPages = async () => {
