@@ -16,6 +16,11 @@ import Breadcrumbs from './Breadcrumbs';
 // Dynamic import to avoid SSR issues with Quill
 const ReactQuill = dynamic(async () => {
     const { default: RQ, Quill } = await import('react-quill-new');
+    const { default: hljs } = await import('highlight.js');
+
+    if (typeof window !== 'undefined') {
+        window.hljs = hljs;
+    }
 
     const BlockEmbed = Quill.import('blots/block/embed');
     const Link = Quill.import('formats/link');
@@ -286,15 +291,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         },
     }), []);
 
-    // List of supported formats - explicitly including video
-    const formats = [
-        'header', 'font', 'size',
-        'bold', 'italic', 'underline', 'strike', 'blockquote',
-        'list', 'indent',
-        'link', 'image', 'video', 'formula',
-        'color', 'background',
-        'script', 'direction', 'align', 'code-block'
-    ];
+
 
     return (
         <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
@@ -330,7 +327,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     value={value}
                     onChange={handleChange}
                     modules={modules}
-                    formats={formats}
                     className="flex-1 flex flex-col bg-transparent border-none"
                     placeholder="Start writing..."
                 />
