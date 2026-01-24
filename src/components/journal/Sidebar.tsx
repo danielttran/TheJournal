@@ -1,7 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Search, Menu, Settings, Book, FileText, ChevronDown, ChevronRight as ChevronRightIcon, Plus, Folder, File, GripVertical, X, Trash } from 'lucide-react';
-import Link from 'next/link';
+import { ChevronLeft, ChevronRight, Book, FileText, ChevronDown, ChevronRight as ChevronRightIcon, Plus, Folder, File, GripVertical, X, Trash } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -18,8 +17,7 @@ import {
     DragStartEvent,
     DragOverlay,
     defaultDropAnimationSideEffects,
-    DropAnimation,
-    DragOverEvent
+    DropAnimation
 } from '@dnd-kit/core';
 import {
     arrayMove,
