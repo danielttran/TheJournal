@@ -7,13 +7,23 @@ export default function ThemeManager() {
     const { theme, systemTheme } = useTheme();
 
     useEffect(() => {
-        if (!window.electron) return;
-
         const applyTheme = async () => {
-            const settings = await window.electron.getSettings();
+            let settings: any = {};
+
+            if (window.electron) {
+                settings = await window.electron.getSettings();
+            } else {
+                try {
+                    const saved = localStorage.getItem('app-settings');
+                    settings = saved ? JSON.parse(saved) : {};
+                } catch (e) { }
+            }
+
             if (settings?.themePreferences) {
                 const currentTheme = theme === 'system' ? systemTheme : theme;
-                const prefs = settings.themePreferences[currentTheme === 'dark' ? 'dark' : 'light'];
+                // Default to 'dark' if undefined for safety
+                const activeTheme = currentTheme === 'dark' ? 'dark' : 'light';
+                const prefs = settings.themePreferences[activeTheme];
 
                 if (prefs) {
                     const root = document.documentElement;
@@ -26,13 +36,6 @@ export default function ThemeManager() {
 
         // Initial application
         applyTheme();
-
-        // Listen for changes
-
-
-        // To make it live update, we can trust that saving settings via IPC might act as a signal if we had one.
-        // For this implementation, we will add a secondary effect that listens to a custom event dispatched by SettingsModal
-        // or simply exposes a reload function.
 
         const handleSettingsChange = () => applyTheme();
         window.addEventListener('theme-settings-changed', handleSettingsChange);

@@ -13,6 +13,7 @@ interface Settings {
     autoBackupOnClose: boolean;
     backupFrequency: number;
     retentionCount: number;
+    themePreferences?: any;
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
@@ -25,24 +26,46 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (isOpen && window.electron) {
+        if (isOpen) {
             setLoading(true);
-            window.electron.getSettings().then((saved: any) => {
-                setSettings({
-                    backupPath: saved.backupPath || '',
-                    autoBackupOnClose: saved.autoBackupOnClose || false,
-                    backupFrequency: saved.backupFrequency || 3,
-                    retentionCount: saved.retentionCount || 3,
+            if (window.electron) {
+                window.electron.getSettings().then((saved: any) => {
+                    setSettings({
+                        backupPath: saved.backupPath || '',
+                        autoBackupOnClose: saved.autoBackupOnClose || false,
+                        backupFrequency: saved.backupFrequency || 3,
+                        retentionCount: saved.retentionCount || 3,
+                        themePreferences: saved.themePreferences || {}
+                    });
+                    setLoading(false);
                 });
+            } else {
+                // Web Fallback: LocalStorage
+                try {
+                    const savedStr = localStorage.getItem('app-settings');
+                    const saved = savedStr ? JSON.parse(savedStr) : {};
+                    setSettings({
+                        backupPath: saved.backupPath || '', // Not really used on web
+                        autoBackupOnClose: saved.autoBackupOnClose || false,
+                        backupFrequency: saved.backupFrequency || 3,
+                        retentionCount: saved.retentionCount || 3,
+                        themePreferences: saved.themePreferences || {}
+                    });
+                } catch (e) { console.error("Failed to load settings", e); }
                 setLoading(false);
-            });
+            }
         }
     }, [isOpen]);
 
-    const handleSave = async (key: keyof Settings, value: any) => {
-        setSettings(prev => ({ ...prev, [key]: value }));
+    const handleSave = async (key: keyof Settings | 'themePreferences', value: any) => {
+        const newSettings = { ...settings, [key]: value };
+        setSettings(newSettings);
+
         if (window.electron) {
-            await window.electron.saveSetting(key, value);
+            await window.electron.saveSetting(key as string, value);
+        } else {
+            // Web Fallback
+            localStorage.setItem('app-settings', JSON.stringify(newSettings));
         }
     };
 
@@ -52,6 +75,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             if (path) {
                 handleSave('backupPath', path);
             }
+        } else {
+            alert("Backup path selection is only available in the desktop app.");
         }
     };
 

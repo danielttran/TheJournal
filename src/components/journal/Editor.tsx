@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from 'next/dynamic';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import hljs from 'highlight.js';
 import 'react-quill-new/dist/quill.snow.css'; // Add css for snow theme
 
@@ -270,7 +270,51 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     // ... other imports
 
-    // Toolbar Modules - Memoized to prevent re-renders
+    // Custom Image Handler for file uploads
+    const imageHandler = useCallback(() => {
+        const input = document.createElement('input');
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/*');
+        input.click();
+
+        input.onchange = async () => {
+            if (input.files && input.files[0]) {
+                const file = input.files[0];
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    setSaving(true); // Visual feedback
+                    const res = await fetch('/api/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+
+                    if (data.url) {
+                        const quill = (document.querySelector('.ql-editor') as any)?.__quill;
+                        // Note: accessing quill instance via DOM is hakcy. 
+                        // Better: create a ref for ReactQuill and access .getEditor()
+                        // But I don't have the ref wired up easily in this structure without refactoring render.
+                        // Actually ReactQuill component exposes ref.
+                        // Let's assume standard behavior: the 'this' context of the handler in pure JS Quill is the toolbar/module.
+                        // But in React wrapper, it's tricky.
+
+                        // ALTERNATIVE: Use the ref I already have? I don't have a Quill ref.
+                        // I will add a ref `quillRef`.
+                    }
+                } catch (e) {
+                    console.error('Image upload failed', e);
+                } finally {
+                    setSaving(false);
+                }
+            }
+        };
+    }, []);
+
+    const quillRef = useRef<any>(null);
+
+    // Toolbar Modules
     const modules = useMemo(() => ({
         syntax: {
             highlight: (text: string) => hljs.highlightAuto(text).value,
@@ -288,8 +332,36 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 ['link', 'image', 'video', 'formula'],
                 ['clean']
             ],
+            handlers: {
+                image: () => {
+                    // Custom handler access
+                    // We need to trigger the file input
+                    const input = document.createElement('input');
+                    input.setAttribute('type', 'file');
+                    input.setAttribute('accept', 'image/*');
+                    input.click();
+
+                    input.onchange = async () => {
+                        const file = input.files?.[0];
+                        if (file) {
+                            const formData = new FormData();
+                            formData.append('file', file);
+
+                            // Optimistic UI or Loading state?
+                            // Just upload
+                            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                            const data = await res.json();
+                            if (data.url && quillRef.current) {
+                                const quill = quillRef.current.getEditor();
+                                const range = quill.getSelection(true);
+                                quill.insertEmbed(range.index, 'image', data.url);
+                            }
+                        }
+                    };
+                }
+            }
         },
-    }), []);
+    }), []); // Empty deps might be issue if we need access to something, but refs are stable.
 
 
 
@@ -322,6 +394,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
             <div className="flex-1 overflow-hidden relative flex flex-col">
                 <ReactQuill
+                    ref={quillRef}
                     key={entryId || 'loading'}
                     theme="snow"
                     value={value}
