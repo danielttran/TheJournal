@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { X, Plus, Book, FileText } from 'lucide-react';
+import { X, Plus, Book, FileText, LogOut } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useClickOutside } from '@/hooks';
 import {
@@ -28,6 +28,7 @@ import { CSS } from '@dnd-kit/utilities';
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
 import { Category } from '@/lib/types';
+import { logout } from '@/app/actions';
 
 // ---------------------------
 // Sortable Tab Component
@@ -234,6 +235,11 @@ export default function TabBar({ userId }: { userId: string }) {
             handleExportClick();
         });
 
+        window.electron.onLogoutRequest?.(() => {
+            if (!isMounted) return;
+            handleLogout();
+        });
+
         return () => {
             isMounted = false;
         };
@@ -336,6 +342,13 @@ export default function TabBar({ userId }: { userId: string }) {
         else alert("Import Failed");
     };
 
+    const handleLogout = async () => {
+        if (window.electron) {
+            await window.electron.logout();
+        }
+        await logout();
+    };
+
     const handleImportClick = () => { fileInputRef.current?.click(); setIsFileMenuOpen(false); };
     const handleExportClick = () => { window.open('/api/backup/export', '_blank'); setIsFileMenuOpen(false); };
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -356,7 +369,7 @@ export default function TabBar({ userId }: { userId: string }) {
             {/* Hidden file input for imports */}
             <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite" onChange={handleFileChange} />
 
-            {/* FILE MENU & HEADER - Only show in web browser (not Electron) */}
+            {/* FILE MENU & HEADER - Show in web, but hide in Electron to avoid duplicate menu */}
             {typeof window !== 'undefined' && !window.electron && (
                 <div className="flex items-center px-4 py-1 space-x-4 bg-bg-card text-xs text-text-secondary select-none relative transition-colors duration-200">
                     <div className="w-6 h-6 bg-accent-primary rounded flex items-center justify-center font-bold text-white mr-2">J</div>
@@ -368,6 +381,11 @@ export default function TabBar({ userId }: { userId: string }) {
                             <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
                                 <button onClick={handleImportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Import DB...</button>
                                 <button onClick={handleExportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Export DB</button>
+                                <div className="border-t border-border-primary my-1"></div>
+                                <button onClick={handleLogout} className="text-left px-4 py-2 hover:bg-red-500 hover:text-white transition-colors flex items-center">
+                                    <LogOut size={14} className="mr-2" />
+                                    Logout
+                                </button>
                             </div>
                         )}
                     </div>

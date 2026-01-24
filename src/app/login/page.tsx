@@ -14,28 +14,13 @@ function LoginFormContent() {
     const [state, action, isPending] = useActionState(login, null);
     const searchParams = useSearchParams();
     const registered = searchParams.get("registered");
-    const [rememberMe, setRememberMe] = useState(false);
+    const [rememberMe, _setRememberMe] = useState(false);
+    const rememberMeRef = useRef(false);
+    const setRememberMe = (val: boolean) => {
+        _setRememberMe(val);
+        rememberMeRef.current = val;
+    };
     const formRef = useRef<HTMLFormElement>(null);
-
-    // Load settings on mount
-    useEffect(() => {
-        if (window.electron) {
-            window.electron.getSettings().then((settings) => {
-                if (settings && settings.rememberMe) {
-                    setRememberMe(true);
-                    const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement;
-                    const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement;
-
-                    if (usernameInput && passwordInput) {
-                        usernameInput.value = settings.userName || "";
-                        passwordInput.value = settings.savedPassword || "";
-
-                        // Auto-fill only (no auto-submit)
-                    }
-                }
-            });
-        }
-    }, []);
 
     // Save settings when login is successful (detected by redirect or lack of error)
     // However, since it's a server action redirect, we might need a better way.
@@ -48,7 +33,7 @@ function LoginFormContent() {
             // Always sync the userName setting as requested
             await window.electron.saveSetting("userName", username);
 
-            if (rememberMe) {
+            if (rememberMeRef.current) {
                 await window.electron.saveSetting("rememberMe", true);
                 await window.electron.saveSetting("savedPassword", password);
             } else {
@@ -60,6 +45,39 @@ function LoginFormContent() {
             action(formData);
         });
     };
+
+    // Load settings on mount
+    useEffect(() => {
+        if (window.electron) {
+            window.electron.getSettings().then((settings) => {
+                if (settings && settings.rememberMe) {
+                    setRememberMe(true);
+                    const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement;
+                    const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement;
+
+                    if (usernameInput && passwordInput) {
+                        const savedUser = settings.userName || "";
+                        const savedPass = settings.savedPassword || "";
+
+                        usernameInput.value = savedUser;
+                        passwordInput.value = savedPass;
+
+                        // Auto-login if both are present
+                        if (savedUser && savedPass) {
+                            const formData = new FormData();
+                            formData.append("username", savedUser);
+                            formData.append("password", savedPass);
+
+                            // Small timeout to ensure form is ready and user sees what's happening
+                            setTimeout(() => {
+                                handleSubmit(formData);
+                            }, 50);
+                        }
+                    }
+                }
+            });
+        }
+    }, []);
 
     return (
         <main className="min-h-screen flex items-center justify-center relative overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-950 dark:to-gray-900 transition-colors duration-500">

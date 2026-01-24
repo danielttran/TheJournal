@@ -68,6 +68,12 @@ export async function login(prevState: unknown, formData: FormData) {
     }
 }
 
+export async function logout() {
+    const { cookies } = await import("next/headers");
+    (await cookies()).delete("userId");
+    redirect("/login");
+}
+
 
 
 const RegisterSchema = z.object({

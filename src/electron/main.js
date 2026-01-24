@@ -106,6 +106,15 @@ function createMenu() {
                     }
                 },
                 { type: 'separator' },
+                {
+                    label: 'Logout',
+                    click: () => {
+                        if (mainWindow) {
+                            mainWindow.webContents.send('logout-request');
+                        }
+                    }
+                },
+                { type: 'separator' },
                 { role: 'quit' }
             ]
         },
@@ -153,6 +162,13 @@ app.whenReady().then(async () => {
         ipcMain.handle('save-setting', (event, key, value) => {
             const success = settingsManager.saveSettings({ [key]: value });
             return success ? settingsManager.getSettings() : false;
+        });
+        ipcMain.handle('logout', () => {
+            settingsManager.saveSettings({
+                rememberMe: false,
+                savedPassword: ''
+            });
+            return true;
         });
 
         // If dev, we assume user ran 'npm run dev' separately or we wait for it
