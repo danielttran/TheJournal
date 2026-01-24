@@ -340,6 +340,31 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 .ql-picker {
                     color: var(--text-secondary) !important;
                 }
+
+                /* FIX: specific override for the Code Block Language dropdown (select element) */
+                select.ql-ui {
+                    background-color: transparent !important;
+                    color: #f3f4f6 !important; /* Always light text because code block is always dark (atom-one-dark) */
+                    border: none !important;
+                    padding: 0 4px !important;
+                    cursor: pointer;
+                }
+                select.ql-ui:hover {
+                    text-decoration: underline;
+                }
+                /* Native options often cannot be fully transparent, but we try to match theme */
+                select.ql-ui option {
+                    background-color: var(--bg-card) !important;
+                    color: var(--text-primary) !important;
+                }
+                
+                /* Ensure the container or tooltip holding it handles dark mode correctly if needed */
+                .ql-tooltip {
+                    background-color: transparent !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                }
+
                 .quill {
                     height: 100%;
                     display: flex;

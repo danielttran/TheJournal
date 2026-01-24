@@ -66,20 +66,7 @@ body {
   animation: slide-in 0.2s ease-out;
 }
 
-/* 
-  Quill Dropdown Fix (Dark Mode)
-  Quill's default theme uses a white background for dropdowns.
-  In dark mode, the text color inherits 'white' from the body/theme, causing white-on-white.
-  This rule explicitly inverts the text color to black for dropdown items when in dark mode.
-*/
-.dark .ql-picker-options .ql-picker-item {
-  color: #000000;
-}
 
-.dark .ql-picker-options .ql-picker-item:hover {
-  background-color: #f3f4f6;
-  /* Ensure hover is visible */
-}
 
 @theme inline {
   --color-bg-app: var(--bg-app);
