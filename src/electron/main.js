@@ -114,6 +114,15 @@ function createMenu() {
                         }
                     }
                 },
+                {
+                    label: 'Settings',
+                    click: () => {
+                        if (mainWindow) {
+                            mainWindow.webContents.send('open-settings');
+                        }
+                    }
+                },
+                { type: 'separator' },
                 { type: 'separator' },
                 { role: 'quit' }
             ]
@@ -166,9 +175,22 @@ app.whenReady().then(async () => {
         ipcMain.handle('logout', () => {
             settingsManager.saveSettings({
                 rememberMe: false,
-                savedPassword: ''
+                userName: 'User',
+                savedPassword: '',
+                backupPath: '',
+                backupFrequency: 3,
+                retentionCount: 3,
+                autoBackupOnClose: false
             });
             return true;
+        });
+
+        ipcMain.handle('select-folder', async () => {
+            const result = await require('electron').dialog.showOpenDialog(mainWindow, {
+                properties: ['openDirectory']
+            });
+            if (result.canceled || result.filePaths.length === 0) return null;
+            return result.filePaths[0];
         });
 
         // If dev, we assume user ran 'npm run dev' separately or we wait for it
@@ -206,5 +228,39 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
     if (serverInstance) {
         serverInstance.close();
+    }
+});
+
+app.on('before-quit', (e) => {
+    console.log('[Electron] App closing, checking backup settings...');
+    const s = settingsManager.getSettings();
+    console.log('[Electron] Settings:', { autoBackup: s.autoBackupOnClose, path: s.backupPath });
+
+    if (s.autoBackupOnClose && s.backupPath) {
+        const fs = require('fs');
+        let dbPath;
+
+        if (dev) {
+            dbPath = path.join(dir, 'journal.db');
+            if (!fs.existsSync(dbPath)) dbPath = path.join(app.getPath('userData'), 'journal.db');
+        } else {
+            dbPath = process.env.JOURNAL_DB_PATH || path.join(app.getPath('userData'), 'journal.db');
+        }
+
+        console.log('[Electron] Attempting backup from:', dbPath);
+
+        if (fs.existsSync(dbPath)) {
+            try {
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const backupName = `backup-${timestamp}.db`;
+                const dest = path.join(s.backupPath, backupName);
+                fs.copyFileSync(dbPath, dest);
+                console.log('[Electron] ✅ Auto-backup SUCCESS at:', dest);
+            } catch (err) {
+                console.error('[Electron] ❌ Auto-backup FAILED:', err);
+            }
+        } else {
+            console.error('[Electron] ❌ Source DB not found at:', dbPath);
+        }
     }
 });

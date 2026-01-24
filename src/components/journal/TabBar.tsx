@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { X, Plus, Book, FileText, LogOut } from 'lucide-react';
+import { X, Plus, Book, FileText, LogOut, Settings } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useClickOutside } from '@/hooks';
+import SettingsModal from '../SettingsModal';
 import {
     DndContext,
     closestCenter,
@@ -145,7 +146,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
             className={`
                 relative group flex items-center min-w-[120px] max-w-[200px] h-9 px-3 rounded-t-lg text-sm cursor-pointer select-none transition-colors
                 ${isActive
-                    ? 'bg-bg-app text-white border-t-2 border-accent-primary shadow-[0_-2px_10px_var(--accent-glow)]'
+                    ? 'bg-bg-app text-text-primary border-t-2 border-accent-primary shadow-[0_-2px_10px_var(--accent-glow)]'
                     : 'bg-bg-card text-text-secondary hover:bg-bg-hover'
                 }
             `}
@@ -204,6 +205,9 @@ export default function TabBar({ userId }: { userId: string }) {
     const [newTabType, setNewTabType] = useState<'Journal' | 'Notebook'>('Journal');
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+    // Refs for clicking outside
     const fileInputRef = useRef<HTMLInputElement>(null);
     const fileMenuRef = useRef<HTMLDivElement>(null);
     const viewMenuRef = useRef<HTMLDivElement>(null);
@@ -238,6 +242,11 @@ export default function TabBar({ userId }: { userId: string }) {
         window.electron.onLogoutRequest?.(() => {
             if (!isMounted) return;
             handleLogout();
+        });
+
+        window.electron.onOpenSettings?.(() => {
+            if (!isMounted) return;
+            setIsSettingsOpen(true);
         });
 
         return () => {
@@ -381,6 +390,10 @@ export default function TabBar({ userId }: { userId: string }) {
                             <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
                                 <button onClick={handleImportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Import DB...</button>
                                 <button onClick={handleExportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Export DB</button>
+                                <button onClick={() => { setIsSettingsOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Settings size={14} className="mr-2" />
+                                    Settings...
+                                </button>
                                 <div className="border-t border-border-primary my-1"></div>
                                 <button onClick={handleLogout} className="text-left px-4 py-2 hover:bg-red-500 hover:text-white transition-colors flex items-center">
                                     <LogOut size={14} className="mr-2" />
@@ -452,6 +465,8 @@ export default function TabBar({ userId }: { userId: string }) {
                     </div>
                 </div>
             )}
+
+            <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
         </div>
     );
 }

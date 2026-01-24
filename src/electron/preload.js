@@ -7,5 +7,8 @@ contextBridge.exposeInMainWorld('electron', {
     onToggleTheme: (callback) => ipcRenderer.on('toggle-theme', () => callback()),
     onImportDB: (callback) => ipcRenderer.on('import-db', (_event, filePath) => callback(filePath)),
     onExportDB: (callback) => ipcRenderer.on('export-db', () => callback()),
-    onLogoutRequest: (callback) => ipcRenderer.on('logout-request', () => callback())
+    onExportDB: (callback) => ipcRenderer.on('export-db', () => callback()),
+    onLogoutRequest: (callback) => ipcRenderer.on('logout-request', () => callback()),
+    onOpenSettings: (callback) => ipcRenderer.on('open-settings', () => callback()),
+    selectFolder: () => ipcRenderer.invoke('select-folder')
 });
