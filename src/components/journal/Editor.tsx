@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import { useState, useEffect, useRef } from 'react';
 import 'react-quill-new/dist/quill.snow.css'; // Add css for snow theme
 import { useSearchParams } from 'next/navigation';
+import Breadcrumbs from './Breadcrumbs';
 
 // Dynamic import to avoid SSR issues with Quill
 const ReactQuill = dynamic(() => import('react-quill-new'), { ssr: false });
@@ -218,18 +219,18 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     return (
         <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
-            {/* Entry Header - shows which note is selected */}
-            {urlEntryId && entryTitle && (
-                <div className="h-12 border-b border-border-primary flex items-center justify-between px-6 bg-bg-card transition-colors duration-200">
-                    <div className="flex items-center space-x-3">
-                        <span className="text-sm font-medium text-text-primary truncate">
-                            {entryTitle}
+            {/* Breadcrumb Header - replacing the old fixed title bar */}
+            {urlEntryId && (
+                <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200">
+                    <div className="flex-1 overflow-hidden">
+                        <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
+                    </div>
+                    <div className="flex items-center ml-4 flex-shrink-0">
+                        <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                            {saving ? 'Saving' : 'Saved'}
                         </span>
                     </div>
-                    <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
-                        {saving ? 'Saving...' : 'Saved'}
-                    </span>
                 </div>
             )}
 
