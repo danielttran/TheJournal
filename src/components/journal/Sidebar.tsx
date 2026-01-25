@@ -1,10 +1,10 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Book, FileText, ChevronDown, ChevronRight as ChevronRightIcon, Plus, Folder, File, GripVertical, X, Trash } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Book, FileText, ChevronDown, ChevronRight as ChevronRightIcon, Plus, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, addYears, subYears } from 'date-fns';
 import dynamic from 'next/dynamic';
 import {
     DndContext,
@@ -429,6 +429,8 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     };
     const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
     const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
+    const nextYear = () => setCurrentMonth(addYears(currentMonth, 1));
+    const prevYear = () => setCurrentMonth(subYears(currentMonth, 1));
 
     const groupedEntries = journalEntries.reduce((acc: Record<string, Record<string, { entries: Entry[], key: string }>>, entry: Entry) => {
         if (!entry.CreatedDate) return acc;
@@ -520,8 +522,10 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="font-semibold text-text-primary">{format(currentMonth, 'MMMM yyyy')}</h3>
                             <div className="flex space-x-1">
+                                <button onClick={prevYear} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><ChevronsLeft className="w-4 h-4" /></button>
                                 <button onClick={prevMonth} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><ChevronLeft className="w-4 h-4" /></button>
                                 <button onClick={nextMonth} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><ChevronRight className="w-4 h-4" /></button>
+                                <button onClick={nextYear} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><ChevronsRight className="w-4 h-4" /></button>
                             </div>
                         </div>
                         <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
