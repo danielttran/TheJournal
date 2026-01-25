@@ -19,6 +19,21 @@ const UpdateSchema = z.object({
 // ... imports
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    // Recursive helper to get all descendant IDs
+    const getAllDescendantIds = (rootId: number): number[] => {
+        const descendants: number[] = [];
+        const queue = [rootId];
+        while (queue.length > 0) {
+            const current = queue.shift()!;
+            descendants.push(current);
+            const children = db.prepare('SELECT EntryID FROM Entry WHERE ParentEntryID = ?').all(current) as { EntryID: number }[];
+            for (const child of children) {
+                queue.push(child.EntryID);
+            }
+        }
+        return descendants;
+    };
+
     try {
         const { id } = await params;
         const entryId = parseInt(id, 10);
@@ -42,31 +57,25 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
             return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
         }
 
-        // Perform Delete
-        // With foreign keys ON, deleting Entry *should* cascade if defined schema permits,
-        // but explicit transaction is safer if schema is unknown.
-        // Assuming schema has ON DELETE CASCADE for EntryContent/Children or we manually delete.
-        // Let's do manual to be safe for now, or just try delete Entry.
-
         const deleteTransaction = db.transaction(() => {
-            // Delete content
-            db.prepare('DELETE FROM EntryContent WHERE EntryID = ?').run(entryId);
-            // Delete entry (children will be orphaned or fail constraint if not recursive. 
-            // If we assume simplistic structure for now: 
-            // Ideally we need recursive delete for Section children? 
-            // SQLite with foreign_keys=ON handles cascade if defined.
-            // Let's rely on simplistic delete first, if it fails constraints we know schema issue.)
+            // 1. Identify all IDs to delete (Self + Descendants)
+            const idsToDelete = getAllDescendantIds(entryId);
 
-            // Actually, let's just run DELETE FROM Entry, if it fails due to constraint we handle it.
-            // But manually deleting children is safer for "Section" logic if DB doesn't cascade.
+            if (idsToDelete.length === 0) return;
 
-            // Recursive delete helper (simple depth-first) could be complex in SQL.
-            // Let's assume for this task we just delete the target. 
+            const placeholders = idsToDelete.map(() => '?').join(',');
 
-            // Note: If this is a Section with children, and no cascade, this might fail. 
-            // For now, let's just try delete.
+            // 2. Delete Content
+            db.prepare(`DELETE FROM EntryContent WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
 
-            db.prepare('DELETE FROM Entry WHERE EntryID = ?').run(entryId);
+            // 3. Delete Entries
+            // We can delete all in one go. Foreign keys might complain if we don't do bottom-up, 
+            // but with standard SQLite FKs ON, deleting parents might auto-cascade or fail. 
+            // Safest: Delete all Entry rows in the set.
+            // If we just DELETE FROM Entry WHERE EntryID IN (...), order matters if self-referencing FK is restrictive.
+            // But usually, deleting parent with CASCADE works. If NO ACTION/RESTRICT, we must delete children first.
+            // Let's assume standard behavior: delete the set. If fails, we might need reverse sort by hierarchy.
+            db.prepare(`DELETE FROM Entry WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
         });
 
         deleteTransaction();
@@ -108,9 +117,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         const body = await req.json();
 
+        // Debug logging for large payloads - OPTIMIZED to prevent crash
+        if (body.content) {
+            const contentLength = req.headers.get('content-length') || 'unknown';
+            console.log(`[API] PUT Entry ${entryId} - Content update (Length: ${contentLength})`);
+        } else {
+            console.log(`[API] PUT Entry ${entryId} - Metadata update`);
+        }
+
         // 1. Validation
         const result = UpdateSchema.safeParse(body);
         if (!result.success) {
+            console.error(`[API] Validation failed for Entry ${entryId}:`, result.error.issues);
             return NextResponse.json({ error: result.error.issues }, { status: 400 });
         }
 

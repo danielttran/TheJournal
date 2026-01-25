@@ -25,6 +25,11 @@ const ReactQuill = dynamic(async () => {
     const BlockEmbed = Quill.import('blots/block/embed');
     const Link = Quill.import('formats/link');
 
+    // Register Pixel-based Font Size
+    const Size = Quill.import('attributors/style/size');
+    Size.whitelist = ['8px', '9px', '10px', '11px', '12px', '14px', '16px', '18px', '20px', '22px', '24px', '26px', '28px', '36px', '48px', '72px'];
+    Quill.register(Size, true);
+
     class CustomVideo extends BlockEmbed {
         static create(value: string) {
             const node = super.create();
@@ -69,11 +74,13 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const [entryId, setEntryId] = useState<number | null>(null);
     const [entryTitle, setEntryTitle] = useState<string>('');
     const [saving, setSaving] = useState(false);
+    const [saveError, setSaveError] = useState(false);
 
     // Refs for Data Safety (The "Truth" outside React render cycle)
     const contentRef = useRef('');
     const entryIdRef = useRef<number | null>(null);
     const isDirtyRef = useRef(false);
+    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null); // For debounce
 
     // Setup KaTeX and Highlight.js for Quill
     useEffect(() => {
@@ -88,6 +95,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const performSave = async (id: number, content: string, isAutoSave = false, retryCount = 0): Promise<boolean> => {
         if (isAutoSave) {
             setSaving(true);
+            setSaveError(false);
         }
 
         try {
@@ -100,7 +108,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             const res = await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                keepalive: true,
                 body: JSON.stringify({
                     userId,
                     content: { ops: [{ insert: content }] },
@@ -120,37 +127,38 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             throw new Error(`HTTP ${res.status}`);
 
         } catch (err) {
+            console.error("Save failed", err);
             // Retry with exponential backoff (max 3 retries)
             if (retryCount < 3) {
                 await new Promise(r => setTimeout(r, 500 * Math.pow(2, retryCount)));
                 return performSave(id, content, isAutoSave, retryCount + 1);
             }
+            setSaveError(true);
             return false;
         } finally {
             if (isAutoSave) setSaving(false);
         }
     };
 
-    // Text Change Handler
+    // Text Change Handler (Optimized: Uncontrolled Mode)
+    // We avoid setValue() here to prevent React render loops on large docs
     const handleChange = (content: string) => {
-        setValue(content);
         if (contentRef.current !== content) {
             contentRef.current = content;
             if (!isDirtyRef.current) {
                 isDirtyRef.current = true;
+                setSaveError(false); // Clear error on new changes
             }
+
+            // Custom Debounce Logic
+            if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = setTimeout(() => {
+                if (entryIdRef.current && isDirtyRef.current) {
+                    performSave(entryIdRef.current, contentRef.current, true);
+                }
+            }, 1000);
         }
     };
-
-    // Auto-Save Timer (Debounce)
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            if (isDirtyRef.current && entryIdRef.current) {
-                performSave(entryIdRef.current, contentRef.current, true);
-            }
-        }, 1000);
-        return () => clearTimeout(timer);
-    }, [value]);
 
     // LocalStorage Backup (Crash Recovery)
     useEffect(() => {
@@ -166,7 +174,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         return () => clearInterval(backupTimer);
     }, []);
 
-    // beforeunload Warning (Accidental Close Protection)
+    // beforeunload Warning
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
             if (isDirtyRef.current) {
@@ -181,15 +189,14 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     // Navigation / Unmount Safety Net
     useEffect(() => {
         return () => {
+            // Clear any pending debounce save
+            if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
             const idToSave = entryIdRef.current;
             const contentToSave = contentRef.current;
             const wasDirty = isDirtyRef.current;
 
-            // Only save on unmount if we have valid content and it was dirty
-            // This prevents wiping data on rapid reloads where content might be briefly empty
             if (wasDirty && idToSave && contentToSave && contentToSave.trim() !== '' && contentToSave !== '<p><br></p>') {
-                // Use beacon for reliable unmount fetch if supported, otherwise standard fetch
-                // For now, standard fetch with keepalive which we already use in performSave
                 performSave(idToSave, contentToSave, false);
             }
         };
@@ -205,6 +212,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             let loadedContent = '';
 
             try {
+                setSaveError(false);
                 if (urlEntryId) {
                     const res = await fetch(`/api/entry/${urlEntryId}`, { signal: abortController.signal });
                     if (res.ok) {
@@ -212,6 +220,9 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         loadedId = data.EntryID;
                         loadedContent = data.HtmlContent || '';
                         if (isMounted) setEntryTitle(data.Title || 'Untitled Page');
+                    } else {
+                        console.error("Failed to load entry:", res.status);
+                        setSaveError(true);
                     }
                 } else {
                     const res = await fetch('/api/entry/by-date', {
@@ -225,10 +236,16 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         loadedId = data.id;
                         loadedContent = data.html || '';
                         if (isMounted) setEntryTitle(''); // Clear title for journal entries
+                    } else {
+                        console.error("Failed to load daily entry:", res.status);
+                        setSaveError(true);
                     }
                 }
             } catch (err) {
-                // Silent fail on load - entry will be empty (or aborted)
+                if ((err as Error).name !== 'AbortError') {
+                    console.error("Error fetching entry:", err);
+                    setSaveError(true);
+                }
                 return;
             }
 
@@ -269,6 +286,31 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
 
     // ... other imports
+
+    const [defaultFontSize, setDefaultFontSize] = useState(14);
+
+    // Load Settings (Font Size)
+    useEffect(() => {
+        const loadSettings = async () => {
+            let saved: any = {};
+            if (window.electron) {
+                saved = await window.electron.getSettings();
+            } else {
+                try {
+                    const savedStr = localStorage.getItem('app-settings');
+                    saved = savedStr ? JSON.parse(savedStr) : {};
+                } catch (e) { }
+            }
+            if (saved.defaultFontSize !== undefined) setDefaultFontSize(saved.defaultFontSize);
+        };
+        loadSettings();
+
+        const handleSizeChange = (e: any) => {
+            if (e.detail) setDefaultFontSize(e.detail);
+        };
+        window.addEventListener('font-size-changed', handleSizeChange);
+        return () => window.removeEventListener('font-size-changed', handleSizeChange);
+    }, []);
 
     // Custom Image Handler for file uploads
     const imageHandler = useCallback(() => {
@@ -315,13 +357,13 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const quillRef = useRef<any>(null);
 
     // Toolbar Modules
+    // Toolbar Modules
     const modules = useMemo(() => ({
-        syntax: {
-            highlight: (text: string) => hljs.highlightAuto(text).value,
-        },
+        // Syntax highlighting disabled to prevent lag on large documents
+        // syntax: { highlight: (text: string) => hljs.highlightAuto(text).value },
         toolbar: {
             container: [
-                [{ 'font': [] }, { 'size': [] }],
+                [{ 'font': [] }, { 'size': [false, '8px', '9px', '10px', '11px', '12px', '14px', '16px', '18px', '20px', '22px', '24px', '26px', '28px', '36px', '48px', '72px'] }],
                 [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
                 ['bold', 'italic', 'underline', 'strike'],
                 [{ 'color': [] }, { 'background': [] }],
@@ -365,8 +407,55 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
 
 
+    // CSS for Font Size Picker Labels
+    const fontSizeWhitelist = ['8px', '9px', '10px', '11px', '12px', '14px', '16px', '18px', '20px', '22px', '24px', '26px', '28px', '36px', '48px', '72px'];
+    const fontSizeCss = fontSizeWhitelist.map(size => `
+        .ql-snow .ql-picker.ql-size .ql-picker-label[data-value="${size}"]::before,
+        .ql-snow .ql-picker.ql-size .ql-picker-item[data-value="${size}"]::before {
+            content: '${size}';
+        }
+    `).join('');
+
     return (
         <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
+            <style>{`
+                .ql-container { font-size: ${defaultFontSize}px !important; }
+                
+                /* Layout for Scrolling & Stability */
+                .ql-container.ql-snow { 
+                    font-size: ${defaultFontSize}px !important; 
+                    border: none !important;
+                    display: flex !important;
+                    flex-direction: column;
+                    flex: 1;
+                    min-height: 0;  /* Crucial for proper Flex behavior */
+                    overflow: hidden;
+                    height: 100% !important;
+                }
+                
+                .ql-editor { 
+                    font-size: ${defaultFontSize}px !important;
+                    flex: 1;
+                    overflow-y: auto;
+                    overflow-x: auto;
+                    height: 100%;
+                }
+                
+                /* Custom Font Size Dropdown Labels */
+                ${fontSizeCss}
+                
+                /* Default Label (Normal/False) should match setting */
+                .ql-snow .ql-picker.ql-size .ql-picker-label:not([data-value])::before,
+                .ql-snow .ql-picker.ql-size .ql-picker-item:not([data-value])::before {
+                    content: '${defaultFontSize}px';
+                }
+                
+                /* Fix dropdown width - slightly wider for "Normal" fallback if needed, but 60px is usually enough */
+                .ql-snow .ql-picker.ql-size { width: 70px; }
+                 /* Ensure toolbar doesn't shrink */
+                .ql-toolbar { flex-shrink: 0; }
+            `}</style>
+
             {/* Breadcrumb Header - replacing the old fixed title bar */}
             {urlEntryId && (
                 <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200">
@@ -374,9 +463,9 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
                     </div>
                     <div className="flex items-center ml-4 flex-shrink-0">
-                        <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
-                            {saving ? 'Saving' : 'Saved'}
+                        <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                            {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
                         </span>
                     </div>
                 </div>
@@ -385,22 +474,22 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             {/* Floating save indicator for journal mode */}
             {!urlEntryId && (
                 <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
-                    <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
-                        {saving ? 'Saving...' : 'Saved'}
+                    <span className={`text-xs flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
+                        {saveError ? 'Error' : saving ? 'Saving...' : 'Saved'}
                     </span>
                 </div>
             )}
 
-            <div className="flex-1 overflow-hidden relative flex flex-col">
+            <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
                 <ReactQuill
                     ref={quillRef}
                     key={entryId || 'loading'}
                     theme="snow"
-                    value={value}
+                    defaultValue={value}
                     onChange={handleChange}
                     modules={modules}
-                    className="flex-1 flex flex-col bg-transparent border-none"
+                    className="flex-1 flex flex-col bg-transparent border-none min-h-0"
                     placeholder="Start writing..."
                 />
             </div>

@@ -14,6 +14,7 @@ interface Settings {
     backupFrequency: number;
     retentionCount: number;
     themePreferences?: any;
+    defaultFontSize: number;
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
@@ -22,38 +23,35 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         autoBackupOnClose: false,
         backupFrequency: 3,
         retentionCount: 3,
+        defaultFontSize: 14,
     });
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (isOpen) {
             setLoading(true);
-            if (window.electron) {
-                window.electron.getSettings().then((saved: any) => {
-                    setSettings({
-                        backupPath: saved.backupPath || '',
-                        autoBackupOnClose: saved.autoBackupOnClose || false,
-                        backupFrequency: saved.backupFrequency || 3,
-                        retentionCount: saved.retentionCount || 3,
-                        themePreferences: saved.themePreferences || {}
-                    });
-                    setLoading(false);
+            const loadSettings = async () => {
+                let saved: any = {};
+                if (window.electron) {
+                    saved = await window.electron.getSettings();
+                } else {
+                    try {
+                        const savedStr = localStorage.getItem('app-settings');
+                        saved = savedStr ? JSON.parse(savedStr) : {};
+                    } catch (e) { }
+                }
+
+                setSettings({
+                    backupPath: saved.backupPath || '',
+                    autoBackupOnClose: saved.autoBackupOnClose || false,
+                    backupFrequency: saved.backupFrequency || 3,
+                    retentionCount: saved.retentionCount || 3,
+                    themePreferences: saved.themePreferences || {},
+                    defaultFontSize: saved.defaultFontSize || 14,
                 });
-            } else {
-                // Web Fallback: LocalStorage
-                try {
-                    const savedStr = localStorage.getItem('app-settings');
-                    const saved = savedStr ? JSON.parse(savedStr) : {};
-                    setSettings({
-                        backupPath: saved.backupPath || '', // Not really used on web
-                        autoBackupOnClose: saved.autoBackupOnClose || false,
-                        backupFrequency: saved.backupFrequency || 3,
-                        retentionCount: saved.retentionCount || 3,
-                        themePreferences: saved.themePreferences || {}
-                    });
-                } catch (e) { console.error("Failed to load settings", e); }
                 setLoading(false);
-            }
+            };
+            loadSettings();
         }
     }, [isOpen]);
 
@@ -66,6 +64,14 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         } else {
             // Web Fallback
             localStorage.setItem('app-settings', JSON.stringify(newSettings));
+        }
+
+        // Dispatch events for live updates
+        if (key === 'themePreferences') {
+            window.dispatchEvent(new Event('theme-settings-changed'));
+        }
+        if (key === 'defaultFontSize') {
+            window.dispatchEvent(new CustomEvent('font-size-changed', { detail: value }));
         }
     };
 
@@ -101,10 +107,31 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         </div>
                     ) : (
                         <div className="space-y-6">
+                            {/* Editor Preferences */}
+                            <section>
+                                <h3 className="text-sm font-semibold text-accent-primary uppercase tracking-wider mb-4">Editor Preferences</h3>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-text-primary">Default Font Size (px)</label>
+                                    <div className="flex items-center bg-bg-app border border-border-secondary rounded-lg px-3 py-2">
+                                        <input
+                                            type="number"
+                                            min="8"
+                                            max="72"
+                                            className="bg-transparent w-full text-sm text-text-primary focus:outline-none"
+                                            value={settings.defaultFontSize}
+                                            onChange={(e) => handleSave('defaultFontSize', parseInt(e.target.value) || 14)}
+                                        />
+                                        <span className="text-xs text-text-muted ml-2">px</span>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <div className="h-px bg-border-primary" />
+
                             {/* Backup Section */}
                             <section>
                                 <h3 className="text-sm font-semibold text-accent-primary uppercase tracking-wider mb-4">Backup Preferences</h3>
-
+                                {/* ... rest of backup section ... */}
                                 <div className="space-y-5">
                                     {/* Backup Path */}
                                     <div className="space-y-2">

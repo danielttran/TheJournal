@@ -457,8 +457,8 @@ export default function TabBar({ userId }: { userId: string }) {
                         <input className="w-full bg-bg-active border border-border-primary p-2 text-text-primary mb-4 rounded"
                             placeholder="Name" value={newTabName} onChange={e => setNewTabName(e.target.value)} autoFocus />
                         <div className="flex gap-2 mb-4">
-                            <button onClick={() => setNewTabType('Journal')} className={`flex-1 p-2 border rounded ${newTabType === 'Journal' ? 'bg-accent-secondary border-accent-primary text-accent-primary' : 'border-border-primary text-text-secondary'}`}>Journal</button>
-                            <button onClick={() => setNewTabType('Notebook')} className={`flex-1 p-2 border rounded ${newTabType === 'Notebook' ? 'bg-accent-secondary border-accent-primary text-accent-primary' : 'border-border-primary text-text-secondary'}`}>Notebook</button>
+                            <button onClick={() => setNewTabType('Journal')} className={`flex-1 p-2 border rounded ${newTabType === 'Journal' ? 'bg-accent-primary text-white border-accent-primary' : 'border-border-primary text-text-secondary'}`}>Journal</button>
+                            <button onClick={() => setNewTabType('Notebook')} className={`flex-1 p-2 border rounded ${newTabType === 'Notebook' ? 'bg-accent-primary text-white border-accent-primary' : 'border-border-primary text-text-secondary'}`}>Notebook</button>
                         </div>
                         <div className="flex justify-end gap-2">
                             <button onClick={() => setIsAddMenuOpen(false)} className="px-3 py-1 text-text-muted hover:text-text-primary">Cancel</button>
