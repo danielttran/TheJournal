@@ -1,15 +1,12 @@
 import { db } from '@/lib/db';
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
-import Sidebar from '@/components/journal/Sidebar';
-import Editor from '@/components/journal/Editor';
+import JournalView from '@/components/journal/JournalView';
 
 async function getCategory(categoryId: string, userId: string): Promise<any> {
     const category = db.prepare('SELECT * FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as any;
     return category;
 }
-
-import EntryGrid from '@/components/journal/EntryGrid'; // Add import
 
 export default async function JournalPage({ params, searchParams }: {
     params: Promise<{ categoryId: string }>,
@@ -65,15 +62,16 @@ export default async function JournalPage({ params, searchParams }: {
     }
 
     return (
-        <div className="flex h-screen bg-bg-app text-text-primary overflow-hidden font-sans transition-colors duration-200">
-            <Sidebar categoryId={categoryId} userId={userId} title={category.Name} type={category.Type} viewSettings={category.ViewSettings} />
-            <main className="flex-1 flex flex-col h-full relative">
-                {gridEntries ? (
-                    <EntryGrid entries={gridEntries} title={gridTitle} dataUrl={dataUrl} />
-                ) : (
-                    <Editor categoryId={categoryId} userId={userId} />
-                )}
-            </main>
-        </div>
+        <JournalView
+            categoryId={categoryId}
+            userId={userId}
+            categoryName={category.Name}
+            categoryType={category.Type}
+            viewSettings={category.ViewSettings}
+            gridEntries={gridEntries}
+            gridTitle={gridTitle}
+            dataUrl={dataUrl}
+        />
     );
 }
+

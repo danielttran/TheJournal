@@ -10,6 +10,7 @@ import 'katex/dist/katex.min.css';
 import { useSearchParams } from 'next/navigation';
 
 import Breadcrumbs from './Breadcrumbs';
+import { useLoading } from '@/contexts/LoadingContext';
 
 const ReactQuill = dynamic(async () => {
     const { default: RQ, Quill } = await import('react-quill-new');
@@ -67,10 +68,23 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const selectedDate = urlDate || new Date().toISOString().split('T')[0];
     const urlEntryId = searchParams.get('entry') ? parseInt(searchParams.get('entry')!, 10) : null;
 
+    // Loading context for sharing state with Sidebar
+    const { setLoading, clearLoading } = useLoading();
+
     const [entryId, setEntryId] = useState<number | null>(null);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
+
+    // Helper to update both local and context loading state
+    const updateLoadingProgress = useCallback((entryId: number | null, progress: number | null) => {
+        setLoadingProgress(progress);
+        if (entryId !== null && progress !== null) {
+            setLoading(entryId, progress);
+        } else {
+            clearLoading();
+        }
+    }, [setLoading, clearLoading]);
 
     // Refs for Data Safety
     const contentRef = useRef('');
@@ -82,6 +96,10 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     // SAFETY GUARD
     const isFullyLoadedRef = useRef(false);
+    // Abort controller for canceling chunked loading when switching notes
+    const loadingAbortRef = useRef<AbortController | null>(null);
+    // Track if we're saving before switching to a new note
+    const [isSwitchingSaving, setIsSwitchingSaving] = useState(false);
 
     useEffect(() => {
         window.katex = katex;
@@ -217,10 +235,15 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         };
     }, [urlEntryId, selectedDate, performSave]);
 
-    // CORRECTED LOADING LOGIC
-    const loadContentSafely = useCallback(async (html: string | null, delta: any | null) => {
+    // Helper to yield to main thread - uses 10ms delay to actually let browser process events
+    const yieldToMain = (ms: number = 10) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+    // NON-BLOCKING LOADING LOGIC - Aggressive chunking for huge content
+    const loadContentSafely = useCallback(async (loadedEntryId: number, html: string | null, delta: any | null, signal?: AbortSignal) => {
+        if (signal?.aborted) return;
+
         if (!quillRef.current) {
-            setTimeout(() => loadContentSafely(html, delta), 100);
+            setTimeout(() => loadContentSafely(loadedEntryId, html, delta, signal), 100);
             return;
         }
 
@@ -229,16 +252,20 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         // Check if delta is valid and usable
         const isValidDelta = delta && delta.ops && Array.isArray(delta.ops) && delta.ops.length > 0;
 
-        // SIMPLE PATH: Small content - just load it directly
-        const LARGE_THRESHOLD = 500000; // 500KB
+        // Calculate content size
         const contentSize = isValidDelta
             ? JSON.stringify(delta).length
             : (html?.length || 0);
 
-        if (contentSize < LARGE_THRESHOLD) {
-            // Direct load - fast and simple
+        // SIMPLE PATH: Small content (< 100KB) - just load it directly
+        const SMALL_THRESHOLD = 100000;
+        if (contentSize < SMALL_THRESHOLD) {
+            if (signal?.aborted) return;
             console.log("Loading directly (small content):", contentSize, "chars");
-            setLoadingProgress(0);
+            updateLoadingProgress(loadedEntryId, 0);
+
+            await yieldToMain(1);
+            if (signal?.aborted) return;
 
             if (isValidDelta) {
                 quill.setContents(delta, 'api');
@@ -246,32 +273,39 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 quill.clipboard.dangerouslyPasteHTML(html, 'api');
             }
 
-            // Sync refs
             contentRef.current = quill.root.innerHTML;
             deltaRef.current = quill.getContents();
-
-            setLoadingProgress(null);
+            updateLoadingProgress(null, null);
             isFullyLoadedRef.current = true;
             return;
         }
 
-        // LARGE CONTENT PATH - Chunked loading with progress
+        // LARGE CONTENT PATH - Very aggressive chunked loading
         console.log("Loading chunked (large content):", contentSize, "chars");
-        setLoadingProgress(0);
+        updateLoadingProgress(loadedEntryId, 0);
+
+        await yieldToMain(5);
+        if (signal?.aborted) return;
+
         quill.enable(false);
-        quill.setText(''); // Clear first
+        quill.setText('');
 
         if (isValidDelta) {
-            // Delta chunking
+            // Process delta ops - split huge text inserts into VERY small chunks
             let ops = delta.ops;
-
-            // Split huge text inserts
             const processedOps: any[] = [];
+
+            // Use very small chunks for huge content (500 chars each for better responsiveness)
+            const CHUNK_SIZE = 500;
+
             for (const op of ops) {
-                if (typeof op.insert === 'string' && op.insert.length > 10000) {
-                    const chunks = op.insert.match(/.{1,5000}/g) || [];
-                    for (const chunk of chunks) {
-                        processedOps.push({ ...op, insert: chunk });
+                if (typeof op.insert === 'string' && op.insert.length > CHUNK_SIZE) {
+                    // Split large text into small chunks
+                    for (let i = 0; i < op.insert.length; i += CHUNK_SIZE) {
+                        processedOps.push({
+                            ...op,
+                            insert: op.insert.substring(i, i + CHUNK_SIZE)
+                        });
                     }
                 } else {
                     processedOps.push(op);
@@ -279,12 +313,20 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             }
             ops = processedOps;
 
-            const BATCH_SIZE = 100;
-            let index = 0;
+            console.log("Split into", ops.length, "ops for chunked loading");
 
-            const loadNextBatch = () => {
-                if (index >= ops.length) {
-                    finishLoading();
+            // Use VERY small batches for responsiveness (5 ops = 2500 chars per batch)
+            const BATCH_SIZE = 5;
+            let index = 0;
+            const totalOps = ops.length;
+
+            // Async loop with proper yielding
+            while (index < totalOps) {
+                // CRITICAL: Check abort BEFORE each operation
+                if (signal?.aborted) {
+                    console.log("Loading aborted - user switched notes");
+                    quill.enable(true);
+                    updateLoadingProgress(null, null);
                     return;
                 }
 
@@ -292,56 +334,68 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 quill.updateContents({ ops: batch }, 'api');
                 index += BATCH_SIZE;
 
-                setLoadingProgress(Math.min(99, Math.round((index / ops.length) * 100)));
-                requestAnimationFrame(loadNextBatch);
-            };
+                // Update progress every 100 batches to reduce React re-renders
+                if (index % (BATCH_SIZE * 20) === 0 || index >= totalOps) {
+                    updateLoadingProgress(loadedEntryId, Math.min(99, Math.round((index / totalOps) * 100)));
+                }
 
-            requestAnimationFrame(loadNextBatch);
-
-        } else if (html) {
-            // HTML - just paste it (browser will handle it)
-            // For very large HTML, we chunk it
-            const CHUNK_SIZE = 100000;
-            const chunks: string[] = [];
-
-            for (let i = 0; i < html.length; i += CHUNK_SIZE) {
-                chunks.push(html.substring(i, i + CHUNK_SIZE));
+                // Yield with actual delay to allow click events to process
+                await yieldToMain(1);
             }
 
-            let index = 0;
+            finishLoading();
 
-            const loadNextHtmlChunk = () => {
-                if (index >= chunks.length) {
-                    finishLoading();
+        } else if (html) {
+            // HTML chunking - very small chunks for responsiveness
+            const CHUNK_SIZE = 10000;
+            const totalChunks = Math.ceil(html.length / CHUNK_SIZE);
+
+            for (let i = 0; i < html.length; i += CHUNK_SIZE) {
+                // CRITICAL: Check abort BEFORE each operation
+                if (signal?.aborted) {
+                    console.log("Loading aborted - user switched notes");
+                    quill.enable(true);
+                    updateLoadingProgress(null, null);
                     return;
                 }
 
-                quill.clipboard.dangerouslyPasteHTML(quill.getLength(), chunks[index], 'api');
-                index++;
+                const chunk = html.substring(i, i + CHUNK_SIZE);
+                quill.clipboard.dangerouslyPasteHTML(quill.getLength(), chunk, 'api');
 
-                setLoadingProgress(Math.min(99, Math.round((index / chunks.length) * 100)));
-                setTimeout(loadNextHtmlChunk, 16);
-            };
+                const chunkIndex = Math.floor(i / CHUNK_SIZE);
+                if (chunkIndex % 10 === 0 || i + CHUNK_SIZE >= html.length) {
+                    updateLoadingProgress(loadedEntryId, Math.min(99, Math.round(((chunkIndex + 1) / totalChunks) * 100)));
+                }
 
-            requestAnimationFrame(loadNextHtmlChunk);
+                await yieldToMain(1);
+            }
+
+            finishLoading();
         } else {
             finishLoading();
         }
 
         function finishLoading() {
+            if (signal?.aborted) return;
             quill.enable(true);
             contentRef.current = quill.root.innerHTML;
             deltaRef.current = quill.getContents();
-            setLoadingProgress(null);
+            updateLoadingProgress(null, null);
             isFullyLoadedRef.current = true;
             console.log("Loading complete, content length:", contentRef.current.length);
         }
 
-    }, []);
+    }, [updateLoadingProgress]);
 
     // Initial Load
     useEffect(() => {
+        // Cancel any previous loading
+        if (loadingAbortRef.current) {
+            loadingAbortRef.current.abort();
+        }
+
         const abortController = new AbortController();
+        loadingAbortRef.current = abortController;
         let isMounted = true;
 
         // Reset state
@@ -349,6 +403,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         isDirtyRef.current = false;
         contentRef.current = '';
         deltaRef.current = null;
+        // Initial loading state - will be updated with entryId once fetched
         setLoadingProgress(0);
 
         const fetchEntry = async () => {
@@ -369,7 +424,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     if (res.ok) data = await res.json();
                 }
 
-                if (!isMounted) return;
+                if (!isMounted || abortController.signal.aborted) return;
 
                 if (data) {
                     const loadedId = data.EntryID || data.id;
@@ -388,14 +443,15 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
                     console.log("Loaded entry:", loadedId, "Delta ops:", loadedDelta?.ops?.length || 0, "HTML length:", loadedHtml.length);
 
-                    if (isMounted) {
+                    if (isMounted && !abortController.signal.aborted) {
                         setEntryId(loadedId);
                     }
-                    loadContentSafely(loadedHtml, loadedDelta);
+                    // Pass the entryId and abort signal to loadContentSafely
+                    loadContentSafely(loadedId, loadedHtml, loadedDelta, abortController.signal);
 
                 } else {
                     setSaveError(true);
-                    setLoadingProgress(null);
+                    updateLoadingProgress(null, null);
                     isFullyLoadedRef.current = true;
                 }
 
@@ -538,46 +594,24 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
                     </div>
                     <div className="flex items-center ml-4 flex-shrink-0 gap-4">
-                        {loadingProgress !== null ? (
-                            <span className="text-[10px] uppercase tracking-wider font-semibold text-blue-400 animate-pulse">
-                                Loading {loadingProgress}%
-                            </span>
-                        ) : (
-                            <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                                <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
-                                {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
-                            </span>
-                        )}
+                        <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                            {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
+                        </span>
                     </div>
                 </div>
             )}
 
             {!urlEntryId && (
                 <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
-                    {loadingProgress !== null ? (
-                        <span className="text-xs text-blue-400 animate-pulse mr-2">Loading {loadingProgress}%</span>
-                    ) : (
-                        <span className={`text-xs flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
-                            {saveError ? 'Error' : saving ? 'Saving...' : 'Saved'}
-                        </span>
-                    )}
+                    <span className={`text-xs flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
+                        {saveError ? 'Error' : saving ? 'Saving...' : 'Saved'}
+                    </span>
                 </div>
             )}
 
             <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
-                {loadingProgress !== null && loadingProgress < 100 && (
-                    <div className="absolute inset-0 bg-bg-app/80 z-20 flex items-center justify-center flex-col gap-4 backdrop-blur-sm">
-                        <div className="text-lg font-bold text-blue-400 animate-pulse">
-                            Loading Large Note ({loadingProgress}%)
-                        </div>
-                        <div className="w-64 h-2 bg-gray-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${loadingProgress}%` }}></div>
-                        </div>
-                        <p className="text-xs text-text-secondary">Please wait...</p>
-                    </div>
-                )}
-
                 <ReactQuill
                     ref={quillRef}
                     theme="snow"

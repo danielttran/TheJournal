@@ -28,6 +28,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+import { useLoading } from '@/contexts/LoadingContext';
+
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
 
@@ -44,7 +46,7 @@ import { Entry } from '@/lib/types';
 // ---------------------------
 // Sortable Notebook Item (Updated)
 // ---------------------------
-const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection, selectedId, isOverlay, onContextMenu, onRename, onToggleExpand }: {
+const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection, selectedId, isOverlay, onContextMenu, onRename, onToggleExpand, loadingEntryId, loadingProgress }: {
     entry: Entry,
     level: number,
     onSelect: (id: number, type: 'Page' | 'Section') => void,
@@ -54,7 +56,9 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
     isOverlay?: boolean,
     onContextMenu: (e: React.MouseEvent, entryId: number) => void,
     onRename: (id: number, newTitle: string) => void,
-    onToggleExpand: (id: number, expanded: boolean) => void
+    onToggleExpand: (id: number, expanded: boolean) => void,
+    loadingEntryId: number | null,
+    loadingProgress: number | null
 }) => {
     const [isOpen, setIsOpen] = useState(entry.IsExpanded || false);
     const [isEditing, setIsEditing] = useState(false);
@@ -62,6 +66,7 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
     const isSelected = selectedId === entry.EntryID;
     const hasChildren = entry.children && entry.children.length > 0;
     const inputRef = useRef<HTMLInputElement>(null);
+    const isLoading = loadingEntryId === entry.EntryID;
 
     // Sync expanded state from props (Server/API truth)
     useEffect(() => {
@@ -151,7 +156,13 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
                             className="bg-bg-active text-text-primary border border-accent-primary rounded px-1 py-0.5 text-xs w-full focus:outline-none"
                         />
                     ) : (
-                        <span className="truncate">{entry.Title || 'Untitled'}</span>
+                        <span className="truncate flex-1">{entry.Title || 'Untitled'}</span>
+                    )}
+                    {/* Loading indicator */}
+                    {isLoading && loadingProgress !== null && (
+                        <span className="ml-2 text-[10px] text-blue-400 animate-pulse font-medium whitespace-nowrap">
+                            {loadingProgress}%
+                        </span>
                     )}
                 </div>
                 <div className="hidden group-hover:flex items-center space-x-1">
@@ -162,7 +173,7 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
                 <div className="flex flex-col">
                     <SortableContext items={entry.children!.map(c => c.EntryID)} strategy={verticalListSortingStrategy}>
                         {entry.children!.map(child => (
-                            <SortableNotebookItem key={child.EntryID} entry={child} level={level + 1} onSelect={onSelect} onAddPage={onAddPage} onAddSection={onAddSection} selectedId={selectedId} onContextMenu={onContextMenu} onRename={onRename} onToggleExpand={onToggleExpand} />
+                            <SortableNotebookItem key={child.EntryID} entry={child} level={level + 1} onSelect={onSelect} onAddPage={onAddPage} onAddSection={onAddSection} selectedId={selectedId} onContextMenu={onContextMenu} onRename={onRename} onToggleExpand={onToggleExpand} loadingEntryId={loadingEntryId} loadingProgress={loadingProgress} />
                         ))}
                     </SortableContext>
                 </div>
@@ -178,6 +189,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     const router = useRouter();
     const searchParams = useSearchParams();
     const { theme } = useTheme();
+    const { loadingState } = useLoading();
 
     // Journal Expanded State (Persistent)
     const [journalExpanded, setJournalExpanded] = useState<Record<string, boolean>>(() => {
@@ -646,11 +658,13 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                             onContextMenu={handleContextMenu}
                                             onRename={handleRename}
                                             onToggleExpand={handleNotebookExpandToggle}
+                                            loadingEntryId={loadingState.entryId}
+                                            loadingProgress={loadingState.progress}
                                         />
                                     ))}
                                 </SortableContext>
                                 {/* DragOverlay also needs update, passing dummy onRename */}
-                                <DragOverlay dropAnimation={dropAnimation}>{activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddSection={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} onRename={() => { }} onToggleExpand={() => { }} /> : null}</DragOverlay>
+                                <DragOverlay dropAnimation={dropAnimation}>{activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddSection={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} onRename={() => { }} onToggleExpand={() => { }} loadingEntryId={null} loadingProgress={null} /> : null}</DragOverlay>
                             </DndContext>
                             {pages.length === 0 && <div className="text-center py-4 text-text-muted text-sm">Empty notebook</div>}
                         </div>
