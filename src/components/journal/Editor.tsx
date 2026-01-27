@@ -3,17 +3,14 @@
 import dynamic from 'next/dynamic';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import hljs from 'highlight.js';
-import 'react-quill-new/dist/quill.snow.css'; // Add css for snow theme
+import 'react-quill-new/dist/quill.snow.css';
 
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useSearchParams } from 'next/navigation';
 
-// ... other imports
 import Breadcrumbs from './Breadcrumbs';
 
-// Dynamic import to avoid SSR issues with Quill
-// Dynamic import to avoid SSR issues with Quill
 const ReactQuill = dynamic(async () => {
     const { default: RQ, Quill } = await import('react-quill-new');
     const { default: hljs } = await import('highlight.js');
@@ -25,7 +22,6 @@ const ReactQuill = dynamic(async () => {
     const BlockEmbed = Quill.import('blots/block/embed');
     const Link = Quill.import('formats/link');
 
-    // Register Pixel-based Font Size
     const Size = Quill.import('attributors/style/size');
     Size.whitelist = ['8px', '9px', '10px', '11px', '12px', '14px', '16px', '18px', '20px', '22px', '24px', '26px', '28px', '36px', '48px', '72px'];
     Quill.register(Size, true);
@@ -61,6 +57,7 @@ declare global {
     interface Window {
         katex: any;
         hljs: any;
+        electron?: any;
     }
 }
 
@@ -70,37 +67,63 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const selectedDate = urlDate || new Date().toISOString().split('T')[0];
     const urlEntryId = searchParams.get('entry') ? parseInt(searchParams.get('entry')!, 10) : null;
 
-    const [value, setValue] = useState('');
     const [entryId, setEntryId] = useState<number | null>(null);
-    const [entryTitle, setEntryTitle] = useState<string>('');
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
+    const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
 
-    // Refs for Data Safety (The "Truth" outside React render cycle)
+    // Refs for Data Safety
     const contentRef = useRef('');
+    const deltaRef = useRef<any>(null);
     const entryIdRef = useRef<number | null>(null);
     const isDirtyRef = useRef(false);
-    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null); // For debounce
+    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const quillRef = useRef<any>(null);
 
-    // Setup KaTeX and Highlight.js for Quill
+    // SAFETY GUARD
+    const isFullyLoadedRef = useRef(false);
+
     useEffect(() => {
         window.katex = katex;
         window.hljs = hljs;
     }, []);
 
-    // Sync refs with state
     useEffect(() => { entryIdRef.current = entryId; }, [entryId]);
 
-    // Core Save Function - The "Cannot Fail" Logic with Retry
-    const performSave = async (id: number, content: string, isAutoSave = false, retryCount = 0): Promise<boolean> => {
+    // Core Save Function
+    const performSave = useCallback(async (id: number, isAutoSave = false, retryCount = 0): Promise<boolean> => {
+        if (!isFullyLoadedRef.current) {
+            console.warn("Save blocked: Editor not fully loaded");
+            return false;
+        }
+
         if (isAutoSave) {
             setSaving(true);
             setSaveError(false);
         }
 
         try {
+            let delta = deltaRef.current;
+            let html = contentRef.current;
+
+            if (quillRef.current) {
+                try {
+                    const quill = quillRef.current.getEditor();
+                    delta = quill.getContents();
+                    html = quill.root.innerHTML;
+                    deltaRef.current = delta;
+                    contentRef.current = html;
+                } catch (e) {
+                    // Use refs if quill unavailable
+                }
+            }
+
+            if (!delta && html) {
+                delta = { ops: [{ insert: html }] };
+            }
+
             const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = content;
+            tempDiv.innerHTML = html || '';
             const plainText = tempDiv.textContent || tempDiv.innerText || '';
             const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
             const derivedPreview = plainText.substring(0, 200);
@@ -110,8 +133,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userId,
-                    content: { ops: [{ insert: content }] },
-                    html: content,
+                    content: delta,
+                    html: html,
                     title: derivedTitle,
                     preview: derivedPreview
                 })
@@ -120,7 +143,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             if (res.ok) {
                 window.dispatchEvent(new CustomEvent('journal-entry-updated'));
                 isDirtyRef.current = false;
-                // Clear backup on successful save
                 localStorage.removeItem('editor_backup');
                 return true;
             }
@@ -128,42 +150,41 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
         } catch (err) {
             console.error("Save failed", err);
-            // Retry with exponential backoff (max 3 retries)
             if (retryCount < 3) {
                 await new Promise(r => setTimeout(r, 500 * Math.pow(2, retryCount)));
-                return performSave(id, content, isAutoSave, retryCount + 1);
+                return performSave(id, isAutoSave, retryCount + 1);
             }
             setSaveError(true);
             return false;
         } finally {
             if (isAutoSave) setSaving(false);
         }
-    };
+    }, [userId]);
 
-    // Text Change Handler (Optimized: Uncontrolled Mode)
-    // We avoid setValue() here to prevent React render loops on large docs
-    const handleChange = (content: string) => {
-        if (contentRef.current !== content) {
-            contentRef.current = content;
+    const handleChange = useCallback((_content: string, _delta: any, source: string, editor: any) => {
+        // ALWAYS update refs
+        contentRef.current = editor.getHTML();
+        deltaRef.current = editor.getContents();
+
+        if (source === 'user' && isFullyLoadedRef.current) {
             if (!isDirtyRef.current) {
                 isDirtyRef.current = true;
-                setSaveError(false); // Clear error on new changes
+                setSaveError(false);
             }
 
-            // Custom Debounce Logic
             if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = setTimeout(() => {
                 if (entryIdRef.current && isDirtyRef.current) {
-                    performSave(entryIdRef.current, contentRef.current, true);
+                    performSave(entryIdRef.current, true);
                 }
             }, 1000);
         }
-    };
+    }, [performSave]);
 
-    // LocalStorage Backup (Crash Recovery)
+    // Backup
     useEffect(() => {
         const backupTimer = setInterval(() => {
-            if (entryIdRef.current && contentRef.current && isDirtyRef.current) {
+            if (entryIdRef.current && isDirtyRef.current && isFullyLoadedRef.current) {
                 localStorage.setItem('editor_backup', JSON.stringify({
                     entryId: entryIdRef.current,
                     content: contentRef.current,
@@ -174,7 +195,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         return () => clearInterval(backupTimer);
     }, []);
 
-    // beforeunload Warning
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
             if (isDirtyRef.current) {
@@ -186,44 +206,159 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, []);
 
-    // Navigation / Unmount Safety Net
+    // Unmount Save - Uses refs only
     useEffect(() => {
         return () => {
-            // Clear any pending debounce save
             if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-
-            const idToSave = entryIdRef.current;
-            const contentToSave = contentRef.current;
-            const wasDirty = isDirtyRef.current;
-
-            if (wasDirty && idToSave && contentToSave && contentToSave.trim() !== '' && contentToSave !== '<p><br></p>') {
-                performSave(idToSave, contentToSave, false);
+            if (isDirtyRef.current && entryIdRef.current && isFullyLoadedRef.current) {
+                console.log("Saving on unmount for entry", entryIdRef.current);
+                performSave(entryIdRef.current, false);
             }
         };
-    }, [urlEntryId, selectedDate]);
+    }, [urlEntryId, selectedDate, performSave]);
 
-    // Initial Load Logic
+    // CORRECTED LOADING LOGIC
+    const loadContentSafely = useCallback(async (html: string | null, delta: any | null) => {
+        if (!quillRef.current) {
+            setTimeout(() => loadContentSafely(html, delta), 100);
+            return;
+        }
+
+        const quill = quillRef.current.getEditor();
+
+        // Check if delta is valid and usable
+        const isValidDelta = delta && delta.ops && Array.isArray(delta.ops) && delta.ops.length > 0;
+
+        // SIMPLE PATH: Small content - just load it directly
+        const LARGE_THRESHOLD = 500000; // 500KB
+        const contentSize = isValidDelta
+            ? JSON.stringify(delta).length
+            : (html?.length || 0);
+
+        if (contentSize < LARGE_THRESHOLD) {
+            // Direct load - fast and simple
+            console.log("Loading directly (small content):", contentSize, "chars");
+            setLoadingProgress(0);
+
+            if (isValidDelta) {
+                quill.setContents(delta, 'api');
+            } else if (html) {
+                quill.clipboard.dangerouslyPasteHTML(html, 'api');
+            }
+
+            // Sync refs
+            contentRef.current = quill.root.innerHTML;
+            deltaRef.current = quill.getContents();
+
+            setLoadingProgress(null);
+            isFullyLoadedRef.current = true;
+            return;
+        }
+
+        // LARGE CONTENT PATH - Chunked loading with progress
+        console.log("Loading chunked (large content):", contentSize, "chars");
+        setLoadingProgress(0);
+        quill.enable(false);
+        quill.setText(''); // Clear first
+
+        if (isValidDelta) {
+            // Delta chunking
+            let ops = delta.ops;
+
+            // Split huge text inserts
+            const processedOps: any[] = [];
+            for (const op of ops) {
+                if (typeof op.insert === 'string' && op.insert.length > 10000) {
+                    const chunks = op.insert.match(/.{1,5000}/g) || [];
+                    for (const chunk of chunks) {
+                        processedOps.push({ ...op, insert: chunk });
+                    }
+                } else {
+                    processedOps.push(op);
+                }
+            }
+            ops = processedOps;
+
+            const BATCH_SIZE = 100;
+            let index = 0;
+
+            const loadNextBatch = () => {
+                if (index >= ops.length) {
+                    finishLoading();
+                    return;
+                }
+
+                const batch = ops.slice(index, index + BATCH_SIZE);
+                quill.updateContents({ ops: batch }, 'api');
+                index += BATCH_SIZE;
+
+                setLoadingProgress(Math.min(99, Math.round((index / ops.length) * 100)));
+                requestAnimationFrame(loadNextBatch);
+            };
+
+            requestAnimationFrame(loadNextBatch);
+
+        } else if (html) {
+            // HTML - just paste it (browser will handle it)
+            // For very large HTML, we chunk it
+            const CHUNK_SIZE = 100000;
+            const chunks: string[] = [];
+
+            for (let i = 0; i < html.length; i += CHUNK_SIZE) {
+                chunks.push(html.substring(i, i + CHUNK_SIZE));
+            }
+
+            let index = 0;
+
+            const loadNextHtmlChunk = () => {
+                if (index >= chunks.length) {
+                    finishLoading();
+                    return;
+                }
+
+                quill.clipboard.dangerouslyPasteHTML(quill.getLength(), chunks[index], 'api');
+                index++;
+
+                setLoadingProgress(Math.min(99, Math.round((index / chunks.length) * 100)));
+                setTimeout(loadNextHtmlChunk, 16);
+            };
+
+            requestAnimationFrame(loadNextHtmlChunk);
+        } else {
+            finishLoading();
+        }
+
+        function finishLoading() {
+            quill.enable(true);
+            contentRef.current = quill.root.innerHTML;
+            deltaRef.current = quill.getContents();
+            setLoadingProgress(null);
+            isFullyLoadedRef.current = true;
+            console.log("Loading complete, content length:", contentRef.current.length);
+        }
+
+    }, []);
+
+    // Initial Load
     useEffect(() => {
         const abortController = new AbortController();
         let isMounted = true;
 
-        const fetchEntry = async () => {
-            let loadedId: number | null = null;
-            let loadedContent = '';
+        // Reset state
+        isFullyLoadedRef.current = false;
+        isDirtyRef.current = false;
+        contentRef.current = '';
+        deltaRef.current = null;
+        setLoadingProgress(0);
 
+        const fetchEntry = async () => {
             try {
                 setSaveError(false);
+                let data: any = null;
+
                 if (urlEntryId) {
                     const res = await fetch(`/api/entry/${urlEntryId}`, { signal: abortController.signal });
-                    if (res.ok) {
-                        const data = await res.json();
-                        loadedId = data.EntryID;
-                        loadedContent = data.HtmlContent || '';
-                        if (isMounted) setEntryTitle(data.Title || 'Untitled Page');
-                    } else {
-                        console.error("Failed to load entry:", res.status);
-                        setSaveError(true);
-                    }
+                    if (res.ok) data = await res.json();
                 } else {
                     const res = await fetch('/api/entry/by-date', {
                         method: 'POST',
@@ -231,48 +366,46 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         body: JSON.stringify({ date: selectedDate, categoryId, userId }),
                         signal: abortController.signal
                     });
-                    if (res.ok) {
-                        const data = await res.json();
-                        loadedId = data.id;
-                        loadedContent = data.html || '';
-                        if (isMounted) setEntryTitle(''); // Clear title for journal entries
-                    } else {
-                        console.error("Failed to load daily entry:", res.status);
-                        setSaveError(true);
-                    }
+                    if (res.ok) data = await res.json();
                 }
+
+                if (!isMounted) return;
+
+                if (data) {
+                    const loadedId = data.EntryID || data.id;
+                    const loadedHtml = data.HtmlContent || data.html || '';
+                    let loadedDelta = null;
+
+                    if (data.QuillDelta) {
+                        try {
+                            loadedDelta = typeof data.QuillDelta === 'string'
+                                ? JSON.parse(data.QuillDelta)
+                                : data.QuillDelta;
+                        } catch (e) {
+                            console.error("Failed to parse delta:", e);
+                        }
+                    }
+
+                    console.log("Loaded entry:", loadedId, "Delta ops:", loadedDelta?.ops?.length || 0, "HTML length:", loadedHtml.length);
+
+                    if (isMounted) {
+                        setEntryId(loadedId);
+                    }
+                    loadContentSafely(loadedHtml, loadedDelta);
+
+                } else {
+                    setSaveError(true);
+                    setLoadingProgress(null);
+                    isFullyLoadedRef.current = true;
+                }
+
             } catch (err) {
                 if ((err as Error).name !== 'AbortError') {
                     console.error("Error fetching entry:", err);
                     setSaveError(true);
-                }
-                return;
-            }
-
-            if (!isMounted) return;
-
-            // Check for backup recovery
-            const backup = localStorage.getItem('editor_backup');
-            if (backup && loadedId) {
-                try {
-                    const backupData = JSON.parse(backup);
-                    // Only offer recovery if backup is for same entry and is recent (< 1 hour)
-                    if (backupData.entryId === loadedId &&
-                        Date.now() - backupData.timestamp < 3600000 &&
-                        backupData.content !== loadedContent) {
-                        // Silently use backup if it's newer (automatic recovery)
-                        loadedContent = backupData.content;
-                        isDirtyRef.current = true; // Mark as dirty to trigger save
-                    }
-                } catch (e) {
-                    localStorage.removeItem('editor_backup');
+                    setLoadingProgress(null);
                 }
             }
-
-            setValue(loadedContent);
-            setEntryId(loadedId);
-            contentRef.current = loadedContent;
-            if (!isDirtyRef.current) isDirtyRef.current = false;
         };
 
         fetchEntry();
@@ -281,15 +414,11 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             isMounted = false;
             abortController.abort();
         };
-    }, [categoryId, userId, selectedDate, urlEntryId]);
+    }, [categoryId, userId, selectedDate, urlEntryId, loadContentSafely]);
 
 
-
-    // ... other imports
-
+    // Font Size Settings
     const [defaultFontSize, setDefaultFontSize] = useState(14);
-
-    // Load Settings (Font Size)
     useEffect(() => {
         const loadSettings = async () => {
             let saved: any = {};
@@ -312,7 +441,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         return () => window.removeEventListener('font-size-changed', handleSizeChange);
     }, []);
 
-    // Custom Image Handler for file uploads
     const imageHandler = useCallback(() => {
         const input = document.createElement('input');
         input.setAttribute('type', 'file');
@@ -324,26 +452,17 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 const file = input.files[0];
                 const formData = new FormData();
                 formData.append('file', file);
-
                 try {
-                    setSaving(true); // Visual feedback
+                    setSaving(true);
                     const res = await fetch('/api/upload', {
                         method: 'POST',
                         body: formData
                     });
                     const data = await res.json();
-
-                    if (data.url) {
-                        const quill = (document.querySelector('.ql-editor') as any)?.__quill;
-                        // Note: accessing quill instance via DOM is hakcy. 
-                        // Better: create a ref for ReactQuill and access .getEditor()
-                        // But I don't have the ref wired up easily in this structure without refactoring render.
-                        // Actually ReactQuill component exposes ref.
-                        // Let's assume standard behavior: the 'this' context of the handler in pure JS Quill is the toolbar/module.
-                        // But in React wrapper, it's tricky.
-
-                        // ALTERNATIVE: Use the ref I already have? I don't have a Quill ref.
-                        // I will add a ref `quillRef`.
+                    if (data.url && quillRef.current) {
+                        const quill = quillRef.current.getEditor();
+                        const range = quill.getSelection(true);
+                        quill.insertEmbed(range.index, 'image', data.url);
                     }
                 } catch (e) {
                     console.error('Image upload failed', e);
@@ -354,13 +473,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         };
     }, []);
 
-    const quillRef = useRef<any>(null);
-
-    // Toolbar Modules
-    // Toolbar Modules
     const modules = useMemo(() => ({
-        // Syntax highlighting disabled to prevent lag on large documents
-        // syntax: { highlight: (text: string) => hljs.highlightAuto(text).value },
         toolbar: {
             container: [
                 [{ 'font': [] }, { 'size': [false, '8px', '9px', '10px', '11px', '12px', '14px', '16px', '18px', '20px', '22px', '24px', '26px', '28px', '36px', '48px', '72px'] }],
@@ -375,39 +488,11 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 ['clean']
             ],
             handlers: {
-                image: () => {
-                    // Custom handler access
-                    // We need to trigger the file input
-                    const input = document.createElement('input');
-                    input.setAttribute('type', 'file');
-                    input.setAttribute('accept', 'image/*');
-                    input.click();
-
-                    input.onchange = async () => {
-                        const file = input.files?.[0];
-                        if (file) {
-                            const formData = new FormData();
-                            formData.append('file', file);
-
-                            // Optimistic UI or Loading state?
-                            // Just upload
-                            const res = await fetch('/api/upload', { method: 'POST', body: formData });
-                            const data = await res.json();
-                            if (data.url && quillRef.current) {
-                                const quill = quillRef.current.getEditor();
-                                const range = quill.getSelection(true);
-                                quill.insertEmbed(range.index, 'image', data.url);
-                            }
-                        }
-                    };
-                }
+                image: imageHandler
             }
         },
-    }), []); // Empty deps might be issue if we need access to something, but refs are stable.
+    }), [imageHandler]);
 
-
-
-    // CSS for Font Size Picker Labels
     const fontSizeWhitelist = ['8px', '9px', '10px', '11px', '12px', '14px', '16px', '18px', '20px', '22px', '24px', '26px', '28px', '36px', '48px', '72px'];
     const fontSizeCss = fontSizeWhitelist.map(size => `
         .ql-snow .ql-picker.ql-size .ql-picker-label[data-value="${size}"]::before,
@@ -420,19 +505,16 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
             <style>{`
                 .ql-container { font-size: ${defaultFontSize}px !important; }
-                
-                /* Layout for Scrolling & Stability */
                 .ql-container.ql-snow { 
                     font-size: ${defaultFontSize}px !important; 
                     border: none !important;
                     display: flex !important;
                     flex-direction: column;
                     flex: 1;
-                    min-height: 0;  /* Crucial for proper Flex behavior */
+                    min-height: 0; 
                     overflow: hidden;
                     height: 100% !important;
                 }
-                
                 .ql-editor { 
                     font-size: ${defaultFontSize}px !important;
                     flex: 1;
@@ -440,53 +522,66 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     overflow-x: auto;
                     height: 100%;
                 }
-                
-                /* Custom Font Size Dropdown Labels */
                 ${fontSizeCss}
-                
-                /* Default Label (Normal/False) should match setting */
                 .ql-snow .ql-picker.ql-size .ql-picker-label:not([data-value])::before,
                 .ql-snow .ql-picker.ql-size .ql-picker-item:not([data-value])::before {
                     content: '${defaultFontSize}px';
                 }
-                
-                /* Fix dropdown width - slightly wider for "Normal" fallback if needed, but 60px is usually enough */
                 .ql-snow .ql-picker.ql-size { width: 70px; }
-                 /* Ensure toolbar doesn't shrink */
                 .ql-toolbar { flex-shrink: 0; }
             `}</style>
 
-            {/* Breadcrumb Header - replacing the old fixed title bar */}
+            {/* Breadcrumb Header */}
             {urlEntryId && (
                 <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200">
                     <div className="flex-1 overflow-hidden">
                         <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
                     </div>
-                    <div className="flex items-center ml-4 flex-shrink-0">
-                        <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
-                            {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
-                        </span>
+                    <div className="flex items-center ml-4 flex-shrink-0 gap-4">
+                        {loadingProgress !== null ? (
+                            <span className="text-[10px] uppercase tracking-wider font-semibold text-blue-400 animate-pulse">
+                                Loading {loadingProgress}%
+                            </span>
+                        ) : (
+                            <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                                <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                                {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
+                            </span>
+                        )}
                     </div>
                 </div>
             )}
 
-            {/* Floating save indicator for journal mode */}
             {!urlEntryId && (
                 <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
-                    <span className={`text-xs flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
-                        {saveError ? 'Error' : saving ? 'Saving...' : 'Saved'}
-                    </span>
+                    {loadingProgress !== null ? (
+                        <span className="text-xs text-blue-400 animate-pulse mr-2">Loading {loadingProgress}%</span>
+                    ) : (
+                        <span className={`text-xs flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
+                            {saveError ? 'Error' : saving ? 'Saving...' : 'Saved'}
+                        </span>
+                    )}
                 </div>
             )}
 
             <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
+                {loadingProgress !== null && loadingProgress < 100 && (
+                    <div className="absolute inset-0 bg-bg-app/80 z-20 flex items-center justify-center flex-col gap-4 backdrop-blur-sm">
+                        <div className="text-lg font-bold text-blue-400 animate-pulse">
+                            Loading Large Note ({loadingProgress}%)
+                        </div>
+                        <div className="w-64 h-2 bg-gray-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${loadingProgress}%` }}></div>
+                        </div>
+                        <p className="text-xs text-text-secondary">Please wait...</p>
+                    </div>
+                )}
+
                 <ReactQuill
                     ref={quillRef}
-                    key={entryId || 'loading'}
                     theme="snow"
-                    defaultValue={value}
+                    defaultValue={''}
                     onChange={handleChange}
                     modules={modules}
                     className="flex-1 flex flex-col bg-transparent border-none min-h-0"
