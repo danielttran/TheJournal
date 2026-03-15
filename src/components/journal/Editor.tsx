@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from 'next/dynamic';
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import hljs from 'highlight.js';
 import 'react-quill-new/dist/quill.snow.css'; // Add css for snow theme
 
@@ -59,6 +59,70 @@ declare global {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Module-level entry cache — survives React re-renders and note navigation.
+// Fetches always run to completion even after the component unmounts, so the
+// data is ready when the user switches back.
+// ---------------------------------------------------------------------------
+type CacheEntry = {
+    content: string;
+    title: string;
+    entryId: number | null;
+};
+
+const entryCache = new Map<string, CacheEntry>();
+// Pending promises keyed by cache key — prevents duplicate in-flight requests.
+const pendingFetches = new Map<string, Promise<CacheEntry | null>>();
+
+function getCacheKey(
+    urlEntryId: number | null,
+    selectedDate: string,
+    categoryId: string,
+): string {
+    return urlEntryId ? `entry:${urlEntryId}` : `date:${categoryId}:${selectedDate}`;
+}
+
+/** Fetch note data from the API (no AbortSignal — intentionally runs in background). */
+async function fetchEntryData(
+    urlEntryId: number | null,
+    selectedDate: string,
+    categoryId: string,
+    userId: string,
+): Promise<CacheEntry | null> {
+    try {
+        if (urlEntryId) {
+            const res = await fetch(`/api/entry/${urlEntryId}`);
+            if (res.ok) {
+                const data = await res.json();
+                return {
+                    entryId: data.EntryID,
+                    content: data.HtmlContent || '',
+                    title: data.Title || 'Untitled Page',
+                };
+            }
+        } else {
+            const res = await fetch('/api/entry/by-date', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date: selectedDate, categoryId, userId }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                return {
+                    entryId: data.id,
+                    content: data.html || '',
+                    title: '',
+                };
+            }
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 export default function Editor({ categoryId, userId }: { categoryId: string, userId: string }) {
     const searchParams = useSearchParams();
     const urlDate = searchParams.get('date');
@@ -69,6 +133,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const [entryId, setEntryId] = useState<number | null>(null);
     const [entryTitle, setEntryTitle] = useState<string>('');
     const [saving, setSaving] = useState(false);
+    const [isLoadingEntry, setIsLoadingEntry] = useState(false);
 
     // Refs for Data Safety (The "Truth" outside React render cycle)
     const contentRef = useRef('');
@@ -115,6 +180,15 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 isDirtyRef.current = false;
                 // Clear backup on successful save
                 localStorage.removeItem('editor_backup');
+                // Keep cache in sync with saved content so navigating back shows latest
+                const byIdKey = `entry:${id}`;
+                const byDateKey = `date:${categoryId}:${selectedDate}`;
+                for (const key of [byIdKey, byDateKey]) {
+                    const cached = entryCache.get(key);
+                    if (cached && cached.entryId === id) {
+                        entryCache.set(key, { ...cached, content });
+                    }
+                }
                 return true;
             }
             throw new Error(`HTTP ${res.status}`);
@@ -138,6 +212,13 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             contentRef.current = content;
             if (!isDirtyRef.current) {
                 isDirtyRef.current = true;
+            }
+            // Keep cache current with live edits — if the user switches away
+            // and back, they'll see their in-progress work, not stale data.
+            const cacheKey = getCacheKey(urlEntryId, selectedDate, categoryId);
+            const cached = entryCache.get(cacheKey);
+            if (cached) {
+                entryCache.set(cacheKey, { ...cached, content });
             }
         }
     };
@@ -195,122 +276,101 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         };
     }, [urlEntryId, selectedDate]);
 
-    // Initial Load Logic
+    // ---------------------------------------------------------------------------
+    // Initial Load Logic — background-cache aware
+    //
+    // Key behaviours:
+    //  1. Cache hit  → render immediately, no network round-trip.
+    //  2. In-flight  → reuse the existing Promise (no duplicate request).
+    //  3. Miss       → start fetch WITHOUT an AbortSignal so it continues
+    //                  running even if the user navigates away.  When it
+    //                  resolves the result is stored in the cache and, if the
+    //                  user has already switched notes, the state update is
+    //                  skipped (isMounted guard).  Switching back later gets
+    //                  an instant cache hit.
+    // ---------------------------------------------------------------------------
     useEffect(() => {
-        const abortController = new AbortController();
         let isMounted = true;
+        const cacheKey = getCacheKey(urlEntryId, selectedDate, categoryId);
 
-        const fetchEntry = async () => {
-            let loadedId: number | null = null;
-            let loadedContent = '';
-
-            try {
-                if (urlEntryId) {
-                    const res = await fetch(`/api/entry/${urlEntryId}`, { signal: abortController.signal });
-                    if (res.ok) {
-                        const data = await res.json();
-                        loadedId = data.EntryID;
-                        loadedContent = data.HtmlContent || '';
-                        if (isMounted) setEntryTitle(data.Title || 'Untitled Page');
-                    }
-                } else {
-                    const res = await fetch('/api/entry/by-date', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ date: selectedDate, categoryId, userId }),
-                        signal: abortController.signal
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        loadedId = data.id;
-                        loadedContent = data.html || '';
-                        if (isMounted) setEntryTitle(''); // Clear title for journal entries
-                    }
+        const loadEntry = async () => {
+            // 1. Instant cache hit
+            const cached = entryCache.get(cacheKey);
+            if (cached) {
+                if (isMounted) {
+                    setValue(cached.content);
+                    setEntryId(cached.entryId);
+                    setEntryTitle(urlEntryId ? cached.title : '');
+                    contentRef.current = cached.content;
+                    isDirtyRef.current = false;
                 }
-            } catch (err) {
-                // Silent fail on load - entry will be empty (or aborted)
                 return;
             }
 
-            if (!isMounted) return;
+            // 2. Reuse an already in-flight request for the same key
+            //    (handles: user navigates away then immediately back)
+            let fetchPromise = pendingFetches.get(cacheKey);
+            if (!fetchPromise) {
+                // 3. Start a new background fetch — no AbortSignal
+                fetchPromise = fetchEntryData(urlEntryId, selectedDate, categoryId, userId);
+                pendingFetches.set(cacheKey, fetchPromise);
+            }
 
-            // Check for backup recovery
+            setIsLoadingEntry(true);
+            const result = await fetchPromise;
+            // Remove pending entry regardless of who resolves first
+            pendingFetches.delete(cacheKey);
+
+            if (!result) {
+                if (isMounted) setIsLoadingEntry(false);
+                return;
+            }
+
+            // Apply crash-recovery backup if it's for this entry and is recent
+            let finalContent = result.content;
             const backup = localStorage.getItem('editor_backup');
-            if (backup && loadedId) {
+            if (backup && result.entryId) {
                 try {
                     const backupData = JSON.parse(backup);
-                    // Only offer recovery if backup is for same entry and is recent (< 1 hour)
-                    if (backupData.entryId === loadedId &&
+                    if (
+                        backupData.entryId === result.entryId &&
                         Date.now() - backupData.timestamp < 3600000 &&
-                        backupData.content !== loadedContent) {
-                        // Silently use backup if it's newer (automatic recovery)
-                        loadedContent = backupData.content;
-                        isDirtyRef.current = true; // Mark as dirty to trigger save
+                        backupData.content !== result.content
+                    ) {
+                        finalContent = backupData.content;
                     }
-                } catch (e) {
+                } catch {
                     localStorage.removeItem('editor_backup');
                 }
             }
 
-            setValue(loadedContent);
-            setEntryId(loadedId);
-            contentRef.current = loadedContent;
-            if (!isDirtyRef.current) isDirtyRef.current = false;
+            const finalEntry: CacheEntry = { ...result, content: finalContent };
+
+            // Always cache — even if the user has already navigated away.
+            // This is the key to background loading: the data will be here
+            // when they switch back.
+            entryCache.set(cacheKey, finalEntry);
+
+            if (isMounted) {
+                setValue(finalEntry.content);
+                setEntryId(finalEntry.entryId);
+                setEntryTitle(urlEntryId ? finalEntry.title : '');
+                contentRef.current = finalEntry.content;
+                // Mark dirty only if we applied a backup (needs to be persisted)
+                isDirtyRef.current = finalContent !== result.content;
+                setIsLoadingEntry(false);
+            }
         };
 
-        fetchEntry();
+        loadEntry();
 
         return () => {
             isMounted = false;
-            abortController.abort();
+            // Intentionally NOT aborting — the HTTP request continues in
+            // the background and populates the cache for instant recall.
         };
     }, [categoryId, userId, selectedDate, urlEntryId]);
 
-
-
-    // ... other imports
-
-    // Custom Image Handler for file uploads
-    const imageHandler = useCallback(() => {
-        const input = document.createElement('input');
-        input.setAttribute('type', 'file');
-        input.setAttribute('accept', 'image/*');
-        input.click();
-
-        input.onchange = async () => {
-            if (input.files && input.files[0]) {
-                const file = input.files[0];
-                const formData = new FormData();
-                formData.append('file', file);
-
-                try {
-                    setSaving(true); // Visual feedback
-                    const res = await fetch('/api/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const data = await res.json();
-
-                    if (data.url) {
-                        const quill = (document.querySelector('.ql-editor') as any)?.__quill;
-                        // Note: accessing quill instance via DOM is hakcy. 
-                        // Better: create a ref for ReactQuill and access .getEditor()
-                        // But I don't have the ref wired up easily in this structure without refactoring render.
-                        // Actually ReactQuill component exposes ref.
-                        // Let's assume standard behavior: the 'this' context of the handler in pure JS Quill is the toolbar/module.
-                        // But in React wrapper, it's tricky.
-
-                        // ALTERNATIVE: Use the ref I already have? I don't have a Quill ref.
-                        // I will add a ref `quillRef`.
-                    }
-                } catch (e) {
-                    console.error('Image upload failed', e);
-                } finally {
-                    setSaving(false);
-                }
-            }
-        };
-    }, []);
 
     const quillRef = useRef<any>(null);
 
@@ -334,8 +394,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             ],
             handlers: {
                 image: () => {
-                    // Custom handler access
-                    // We need to trigger the file input
                     const input = document.createElement('input');
                     input.setAttribute('type', 'file');
                     input.setAttribute('accept', 'image/*');
@@ -347,8 +405,6 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                             const formData = new FormData();
                             formData.append('file', file);
 
-                            // Optimistic UI or Loading state?
-                            // Just upload
                             const res = await fetch('/api/upload', { method: 'POST', body: formData });
                             const data = await res.json();
                             if (data.url && quillRef.current) {
@@ -374,10 +430,17 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
                     </div>
                     <div className="flex items-center ml-4 flex-shrink-0">
-                        <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
-                            {saving ? 'Saving' : 'Saved'}
-                        </span>
+                        {isLoadingEntry ? (
+                            <span className="text-[10px] uppercase tracking-wider font-semibold flex items-center text-text-muted">
+                                <div className="w-1.5 h-1.5 rounded-full mr-1.5 bg-text-muted animate-pulse"></div>
+                                Loading
+                            </span>
+                        ) : (
+                            <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                                <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                                {saving ? 'Saving' : 'Saved'}
+                            </span>
+                        )}
                     </div>
                 </div>
             )}
@@ -385,14 +448,29 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             {/* Floating save indicator for journal mode */}
             {!urlEntryId && (
                 <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
-                    <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
-                        {saving ? 'Saving...' : 'Saved'}
-                    </span>
+                    {isLoadingEntry ? (
+                        <span className="text-xs flex items-center text-text-muted">
+                            <div className="w-1.5 h-1.5 rounded-full mr-1 bg-text-muted animate-pulse"></div>
+                            Loading...
+                        </span>
+                    ) : (
+                        <span className={`text-xs flex items-center transition-colors ${saving ? 'text-yellow-500' : 'text-green-500'}`}>
+                            <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
+                            {saving ? 'Saving...' : 'Saved'}
+                        </span>
+                    )}
                 </div>
             )}
 
             <div className="flex-1 overflow-hidden relative flex flex-col">
+                {isLoadingEntry && !entryId && (
+                    <div className="absolute inset-0 flex items-start justify-center pt-16 pointer-events-none z-10">
+                        <div className="flex flex-col items-center gap-3 text-text-muted">
+                            <div className="w-5 h-5 border-2 border-text-muted border-t-transparent rounded-full animate-spin opacity-50"></div>
+                            <span className="text-xs opacity-50">Loading note…</span>
+                        </div>
+                    </div>
+                )}
                 <ReactQuill
                     ref={quillRef}
                     key={entryId || 'loading'}
