@@ -62,6 +62,37 @@ declare global {
     }
 }
 
+// Module-level cache for fetched note content so background fetches persist across switches
+const entryContentCache = new Map<string, { html: string; delta: any; timestamp: number }>();
+const CACHE_MAX_SIZE = 50;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function cacheEntry(key: string, html: string, delta: any) {
+    // Evict oldest if at capacity
+    if (entryContentCache.size >= CACHE_MAX_SIZE) {
+        let oldestKey: string | null = null;
+        let oldestTime = Infinity;
+        for (const [k, v] of entryContentCache) {
+            if (v.timestamp < oldestTime) {
+                oldestTime = v.timestamp;
+                oldestKey = k;
+            }
+        }
+        if (oldestKey) entryContentCache.delete(oldestKey);
+    }
+    entryContentCache.set(key, { html, delta, timestamp: Date.now() });
+}
+
+function getCachedEntry(key: string) {
+    const cached = entryContentCache.get(key);
+    if (!cached) return null;
+    if (Date.now() - cached.timestamp > CACHE_TTL_MS) {
+        entryContentCache.delete(key);
+        return null;
+    }
+    return cached;
+}
+
 export default function Editor({ categoryId, userId }: { categoryId: string, userId: string }) {
     const searchParams = useSearchParams();
     const urlDate = searchParams.get('date');
@@ -96,8 +127,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     // SAFETY GUARD
     const isFullyLoadedRef = useRef(false);
-    // Abort controller for canceling chunked loading when switching notes
-    const loadingAbortRef = useRef<AbortController | null>(null);
+    // Abort controller for canceling chunked Quill rendering when switching notes
+    const renderAbortRef = useRef<AbortController | null>(null);
     // Track if we're saving before switching to a new note
     const [isSwitchingSaving, setIsSwitchingSaving] = useState(false);
 
@@ -162,6 +193,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 window.dispatchEvent(new CustomEvent('journal-entry-updated'));
                 isDirtyRef.current = false;
                 localStorage.removeItem('editor_backup');
+                // Update cache with saved content so switching back loads latest
+                cacheEntry(`entry-${id}`, html, delta);
                 return true;
             }
             throw new Error(`HTTP ${res.status}`);
@@ -389,42 +422,72 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     // Initial Load
     useEffect(() => {
-        // Cancel any previous loading
-        if (loadingAbortRef.current) {
-            loadingAbortRef.current.abort();
+        // Cancel any previous Quill rendering (but NOT the fetch — let it finish and cache)
+        if (renderAbortRef.current) {
+            renderAbortRef.current.abort();
         }
 
-        const abortController = new AbortController();
-        loadingAbortRef.current = abortController;
+        const renderAbort = new AbortController();
+        renderAbortRef.current = renderAbort;
         let isMounted = true;
 
-        // Reset state
+        // Reset state for the new note
         isFullyLoadedRef.current = false;
         isDirtyRef.current = false;
         contentRef.current = '';
         deltaRef.current = null;
-        // Initial loading state - will be updated with entryId once fetched
         setLoadingProgress(0);
 
-        const fetchEntry = async () => {
+        // Build a cache key for this note
+        const cacheKey = urlEntryId ? `entry-${urlEntryId}` : `date-${categoryId}-${selectedDate}`;
+
+        const loadEntry = async () => {
             try {
                 setSaveError(false);
+
+                // Check cache first for instant loading
+                const cached = getCachedEntry(cacheKey);
+                if (cached) {
+                    console.log("Cache hit for", cacheKey);
+                    if (!isMounted || renderAbort.signal.aborted) return;
+
+                    // We still need the entry ID — derive it from cache key or re-fetch metadata
+                    // For cached entries, load content directly into Quill
+                    if (urlEntryId) {
+                        setEntryId(urlEntryId);
+                        loadContentSafely(urlEntryId, cached.html, cached.delta, renderAbort.signal);
+                    } else {
+                        // For date-based entries, we need the ID — do a quick fetch
+                        const res = await fetch('/api/entry/by-date', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ date: selectedDate, categoryId, userId }),
+                        });
+                        if (!isMounted || renderAbort.signal.aborted) return;
+                        if (res.ok) {
+                            const data = await res.json();
+                            const loadedId = data.EntryID || data.id;
+                            setEntryId(loadedId);
+                            loadContentSafely(loadedId, cached.html, cached.delta, renderAbort.signal);
+                        }
+                    }
+                    return;
+                }
+
+                // No cache — fetch from API (without tying to render abort so it can complete in background)
                 let data: any = null;
 
                 if (urlEntryId) {
-                    const res = await fetch(`/api/entry/${urlEntryId}`, { signal: abortController.signal });
+                    const res = await fetch(`/api/entry/${urlEntryId}`);
                     if (res.ok) data = await res.json();
                 } else {
                     const res = await fetch('/api/entry/by-date', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ date: selectedDate, categoryId, userId }),
-                        signal: abortController.signal
                     });
                     if (res.ok) data = await res.json();
                 }
-
-                if (!isMounted || abortController.signal.aborted) return;
 
                 if (data) {
                     const loadedId = data.EntryID || data.id;
@@ -441,22 +504,30 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         }
                     }
 
+                    // Always cache the fetched content (even if user switched away)
+                    cacheEntry(cacheKey, loadedHtml, loadedDelta);
+
                     console.log("Loaded entry:", loadedId, "Delta ops:", loadedDelta?.ops?.length || 0, "HTML length:", loadedHtml.length);
 
-                    if (isMounted && !abortController.signal.aborted) {
-                        setEntryId(loadedId);
+                    // Only render into Quill if this effect is still current
+                    if (!isMounted || renderAbort.signal.aborted) {
+                        console.log("Fetch completed in background, cached for entry:", loadedId);
+                        return;
                     }
-                    // Pass the entryId and abort signal to loadContentSafely
-                    loadContentSafely(loadedId, loadedHtml, loadedDelta, abortController.signal);
+
+                    setEntryId(loadedId);
+                    loadContentSafely(loadedId, loadedHtml, loadedDelta, renderAbort.signal);
 
                 } else {
-                    setSaveError(true);
-                    updateLoadingProgress(null, null);
-                    isFullyLoadedRef.current = true;
+                    if (isMounted && !renderAbort.signal.aborted) {
+                        setSaveError(true);
+                        updateLoadingProgress(null, null);
+                        isFullyLoadedRef.current = true;
+                    }
                 }
 
             } catch (err) {
-                if ((err as Error).name !== 'AbortError') {
+                if ((err as Error).name !== 'AbortError' && isMounted) {
                     console.error("Error fetching entry:", err);
                     setSaveError(true);
                     setLoadingProgress(null);
@@ -464,11 +535,12 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             }
         };
 
-        fetchEntry();
+        loadEntry();
 
         return () => {
             isMounted = false;
-            abortController.abort();
+            // Only abort rendering, NOT the fetch — fetch continues to populate cache
+            renderAbort.abort();
         };
     }, [categoryId, userId, selectedDate, urlEntryId, loadContentSafely]);
 
