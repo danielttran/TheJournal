@@ -62,6 +62,37 @@ declare global {
     }
 }
 
+// Module-level cache for fetched note content so background fetches persist across switches
+const entryContentCache = new Map<string, { html: string; delta: any; timestamp: number }>();
+const CACHE_MAX_SIZE = 50;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function cacheEntry(key: string, html: string, delta: any) {
+    // Evict oldest if at capacity
+    if (entryContentCache.size >= CACHE_MAX_SIZE) {
+        let oldestKey: string | null = null;
+        let oldestTime = Infinity;
+        for (const [k, v] of entryContentCache) {
+            if (v.timestamp < oldestTime) {
+                oldestTime = v.timestamp;
+                oldestKey = k;
+            }
+        }
+        if (oldestKey) entryContentCache.delete(oldestKey);
+    }
+    entryContentCache.set(key, { html, delta, timestamp: Date.now() });
+}
+
+function getCachedEntry(key: string) {
+    const cached = entryContentCache.get(key);
+    if (!cached) return null;
+    if (Date.now() - cached.timestamp > CACHE_TTL_MS) {
+        entryContentCache.delete(key);
+        return null;
+    }
+    return cached;
+}
+
 export default function Editor({ categoryId, userId }: { categoryId: string, userId: string }) {
     const searchParams = useSearchParams();
     const urlDate = searchParams.get('date');
@@ -93,14 +124,13 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const isDirtyRef = useRef(false);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const quillRef = useRef<any>(null);
+    // Track current cache key for dual-key cache invalidation on save
+    const cacheKeyRef = useRef<string>('');
 
     // SAFETY GUARD
     const isFullyLoadedRef = useRef(false);
-    // Abort controller for canceling chunked loading when switching notes
-    const loadingAbortRef = useRef<AbortController | null>(null);
-    // Track if we're saving before switching to a new note
-    const [isSwitchingSaving, setIsSwitchingSaving] = useState(false);
-
+    // Abort controller for canceling chunked Quill rendering when switching notes
+    const renderAbortRef = useRef<AbortController | null>(null);
     useEffect(() => {
         window.katex = katex;
         window.hljs = hljs;
@@ -162,6 +192,12 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 window.dispatchEvent(new CustomEvent('journal-entry-updated'));
                 isDirtyRef.current = false;
                 localStorage.removeItem('editor_backup');
+                // Update cache with saved content so switching back loads latest.
+                cacheEntry(`entry-${id}`, html, delta);
+                // Also update the current cache key (handles date-based entries)
+                if (cacheKeyRef.current && cacheKeyRef.current !== `entry-${id}`) {
+                    cacheEntry(cacheKeyRef.current, html, delta);
+                }
                 return true;
             }
             throw new Error(`HTTP ${res.status}`);
@@ -213,27 +249,83 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         return () => clearInterval(backupTimer);
     }, []);
 
+    // Flush any pending save synchronously using captured ref data before switching.
+    // This must run BEFORE the load effect resets refs, so we snapshot the data here.
+    const flushPendingSave = useCallback(() => {
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+        }
+        if (isDirtyRef.current && entryIdRef.current && isFullyLoadedRef.current) {
+            const id = entryIdRef.current;
+            // Snapshot content from refs BEFORE they get reset
+            let delta = deltaRef.current;
+            let html = contentRef.current;
+
+            // Try to get latest from Quill if available
+            if (quillRef.current) {
+                try {
+                    const quill = quillRef.current.getEditor();
+                    delta = quill.getContents();
+                    html = quill.root.innerHTML;
+                } catch (e) { /* use refs */ }
+            }
+
+            // Mark clean immediately to prevent double saves
+            isDirtyRef.current = false;
+
+            // Fire-and-forget save with the snapshotted data
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html || '';
+            const plainText = tempDiv.textContent || tempDiv.innerText || '';
+            const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
+            const derivedPreview = plainText.substring(0, 200);
+
+            console.log("Flushing save for entry", id, "before switch");
+
+            if (!delta && html) {
+                delta = { ops: [{ insert: html }] };
+            }
+
+            // Snapshot cache key before it gets overwritten by the new note
+            const currentCacheKey = cacheKeyRef.current;
+
+            fetch(`/api/entry/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId,
+                    content: delta,
+                    html: html,
+                    title: derivedTitle,
+                    preview: derivedPreview
+                })
+            }).then(res => {
+                if (res.ok) {
+                    window.dispatchEvent(new CustomEvent('journal-entry-updated'));
+                    localStorage.removeItem('editor_backup');
+                    // Update all cache key variants so both ID and date lookups get fresh data
+                    cacheEntry(`entry-${id}`, html, delta);
+                    if (currentCacheKey && currentCacheKey !== `entry-${id}`) {
+                        cacheEntry(currentCacheKey, html, delta);
+                    }
+                }
+            }).catch(err => console.error("Flush save failed:", err));
+        }
+    }, [userId]);
+
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
             if (isDirtyRef.current) {
+                // Attempt to flush save before unload
+                flushPendingSave();
                 e.preventDefault();
                 e.returnValue = '';
             }
         };
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, []);
-
-    // Unmount Save - Uses refs only
-    useEffect(() => {
-        return () => {
-            if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-            if (isDirtyRef.current && entryIdRef.current && isFullyLoadedRef.current) {
-                console.log("Saving on unmount for entry", entryIdRef.current);
-                performSave(entryIdRef.current, false);
-            }
-        };
-    }, [urlEntryId, selectedDate, performSave]);
+    }, [flushPendingSave]);
 
     // Helper to yield to main thread - uses 10ms delay to actually let browser process events
     const yieldToMain = (ms: number = 10) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -389,42 +481,85 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     // Initial Load
     useEffect(() => {
-        // Cancel any previous loading
-        if (loadingAbortRef.current) {
-            loadingAbortRef.current.abort();
+        // CRITICAL: Save any dirty content BEFORE resetting state for the new note.
+        // This snapshots content from refs/Quill before they get wiped.
+        flushPendingSave();
+
+        // Cancel any previous Quill rendering (but NOT the fetch — let it finish and cache)
+        if (renderAbortRef.current) {
+            renderAbortRef.current.abort();
         }
 
-        const abortController = new AbortController();
-        loadingAbortRef.current = abortController;
+        const renderAbort = new AbortController();
+        renderAbortRef.current = renderAbort;
         let isMounted = true;
 
-        // Reset state
+        // Reset state for the new note
         isFullyLoadedRef.current = false;
         isDirtyRef.current = false;
         contentRef.current = '';
         deltaRef.current = null;
-        // Initial loading state - will be updated with entryId once fetched
         setLoadingProgress(0);
 
-        const fetchEntry = async () => {
+        // Clear Quill editor immediately to prevent stale content flash
+        if (quillRef.current) {
+            try {
+                const quill = quillRef.current.getEditor();
+                quill.setText('');
+            } catch (e) { /* Quill not ready yet */ }
+        }
+
+        // Build a cache key for this note and store in ref for save-time cache updates
+        const cacheKey = urlEntryId ? `entry-${urlEntryId}` : `date-${categoryId}-${selectedDate}`;
+        cacheKeyRef.current = cacheKey;
+
+        const loadEntry = async () => {
             try {
                 setSaveError(false);
+
+                // Check cache first for instant loading
+                const cached = getCachedEntry(cacheKey);
+                if (cached) {
+                    console.log("Cache hit for", cacheKey);
+                    if (!isMounted || renderAbort.signal.aborted) return;
+
+                    // We still need the entry ID — derive it from cache key or re-fetch metadata
+                    // For cached entries, load content directly into Quill
+                    if (urlEntryId) {
+                        setEntryId(urlEntryId);
+                        loadContentSafely(urlEntryId, cached.html, cached.delta, renderAbort.signal);
+                    } else {
+                        // For date-based entries, we need the ID — do a quick fetch
+                        const res = await fetch('/api/entry/by-date', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ date: selectedDate, categoryId, userId }),
+                        });
+                        if (!isMounted || renderAbort.signal.aborted) return;
+                        if (res.ok) {
+                            const data = await res.json();
+                            const loadedId = data.EntryID || data.id;
+                            setEntryId(loadedId);
+                            loadContentSafely(loadedId, cached.html, cached.delta, renderAbort.signal);
+                        }
+                    }
+                    return;
+                }
+
+                // No cache — fetch from API (without tying to render abort so it can complete in background)
                 let data: any = null;
 
                 if (urlEntryId) {
-                    const res = await fetch(`/api/entry/${urlEntryId}`, { signal: abortController.signal });
+                    const res = await fetch(`/api/entry/${urlEntryId}`);
                     if (res.ok) data = await res.json();
                 } else {
                     const res = await fetch('/api/entry/by-date', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ date: selectedDate, categoryId, userId }),
-                        signal: abortController.signal
                     });
                     if (res.ok) data = await res.json();
                 }
-
-                if (!isMounted || abortController.signal.aborted) return;
 
                 if (data) {
                     const loadedId = data.EntryID || data.id;
@@ -441,22 +576,30 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         }
                     }
 
+                    // Always cache the fetched content (even if user switched away)
+                    cacheEntry(cacheKey, loadedHtml, loadedDelta);
+
                     console.log("Loaded entry:", loadedId, "Delta ops:", loadedDelta?.ops?.length || 0, "HTML length:", loadedHtml.length);
 
-                    if (isMounted && !abortController.signal.aborted) {
-                        setEntryId(loadedId);
+                    // Only render into Quill if this effect is still current
+                    if (!isMounted || renderAbort.signal.aborted) {
+                        console.log("Fetch completed in background, cached for entry:", loadedId);
+                        return;
                     }
-                    // Pass the entryId and abort signal to loadContentSafely
-                    loadContentSafely(loadedId, loadedHtml, loadedDelta, abortController.signal);
+
+                    setEntryId(loadedId);
+                    loadContentSafely(loadedId, loadedHtml, loadedDelta, renderAbort.signal);
 
                 } else {
-                    setSaveError(true);
-                    updateLoadingProgress(null, null);
-                    isFullyLoadedRef.current = true;
+                    if (isMounted && !renderAbort.signal.aborted) {
+                        setSaveError(true);
+                        updateLoadingProgress(null, null);
+                        isFullyLoadedRef.current = true;
+                    }
                 }
 
             } catch (err) {
-                if ((err as Error).name !== 'AbortError') {
+                if ((err as Error).name !== 'AbortError' && isMounted) {
                     console.error("Error fetching entry:", err);
                     setSaveError(true);
                     setLoadingProgress(null);
@@ -464,13 +607,14 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             }
         };
 
-        fetchEntry();
+        loadEntry();
 
         return () => {
             isMounted = false;
-            abortController.abort();
+            // Only abort rendering, NOT the fetch — fetch continues to populate cache
+            renderAbort.abort();
         };
-    }, [categoryId, userId, selectedDate, urlEntryId, loadContentSafely]);
+    }, [categoryId, userId, selectedDate, urlEntryId, loadContentSafely, flushPendingSave]);
 
 
     // Font Size Settings
