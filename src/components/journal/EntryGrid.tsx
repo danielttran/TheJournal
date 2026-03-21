@@ -27,6 +27,8 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
     useEffect(() => {
         if (!dataUrl) return;
 
+        let retryTimeout: ReturnType<typeof setTimeout>;
+
         const handleUpdate = async () => {
             const fetchGrid = async () => {
                 try {
@@ -43,11 +45,14 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
             };
 
             fetchGrid(); // Immediate
-            setTimeout(fetchGrid, 300); // Retry logic
+            retryTimeout = setTimeout(fetchGrid, 300); // Retry logic
         };
 
         window.addEventListener('journal-entry-updated', handleUpdate);
-        return () => window.removeEventListener('journal-entry-updated', handleUpdate);
+        return () => {
+            clearTimeout(retryTimeout);
+            window.removeEventListener('journal-entry-updated', handleUpdate);
+        };
     }, [dataUrl]);
 
     const handleEntryClick = (entry: Entry) => {
