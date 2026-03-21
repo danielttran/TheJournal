@@ -22,20 +22,25 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 403 });
         }
 
-        // Create new Entry
-        const result = db.prepare(`
-            INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType) 
-            VALUES (?, ?, ?, ?, ?)
-        `).run(categoryId, title, 'Start writing...', parentEntryId || null, entryType);
-
-        const newEntryId = result.lastInsertRowid;
-
-        // Create empty Content
+        // Create Entry + Content atomically to prevent orphaned rows
         const initialDelta = JSON.stringify({ ops: [{ insert: "\n" }] });
-        db.prepare(`
-            INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent) 
-            VALUES (?, ?, ?)
-        `).run(newEntryId, initialDelta, '');
+        const createEntry = db.transaction(() => {
+            const result = db.prepare(`
+                INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType)
+                VALUES (?, ?, ?, ?, ?)
+            `).run(categoryId, title, 'Start writing...', parentEntryId || null, entryType);
+
+            const newEntryId = result.lastInsertRowid;
+
+            db.prepare(`
+                INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent)
+                VALUES (?, ?, ?)
+            `).run(newEntryId, initialDelta, '');
+
+            return newEntryId;
+        });
+
+        const newEntryId = createEntry();
 
         return NextResponse.json({
             id: newEntryId,

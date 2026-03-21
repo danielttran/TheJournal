@@ -147,8 +147,12 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     useEffect(() => { entryIdRef.current = entryId; }, [entryId]);
 
-    // Core Save Function
-    const performSave = useCallback(async (id: number, isAutoSave = false, retryCount = 0): Promise<boolean> => {
+    // Core Save Function. snapshot is populated on first call and reused across retries
+    // to avoid re-reading refs that may point to a different note after a switch.
+    const performSave = useCallback(async (
+        id: number, isAutoSave = false, retryCount = 0,
+        snapshot?: { delta: any; html: string; version: number | null }
+    ): Promise<boolean> => {
         if (!isFullyLoadedRef.current) {
             console.warn("Save blocked: Editor not fully loaded");
             return false;
@@ -159,7 +163,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             setSaveError(false);
         }
 
-        try {
+        // Snapshot content ONCE before retries — refs may change if user switches notes
+        if (!snapshot) {
             let delta = deltaRef.current;
             let html = contentRef.current;
 
@@ -179,15 +184,21 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 delta = { ops: [{ insert: html }] };
             }
 
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = html || '';
-            const plainText = tempDiv.textContent || tempDiv.innerText || '';
-            const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
-            const derivedPreview = plainText.substring(0, 200);
+            snapshot = { delta, html: html || '', version: versionRef.current };
+        }
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+        const { delta, html, version } = snapshot;
 
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html || '';
+        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+        const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
+        const derivedPreview = plainText.substring(0, 200);
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
+        try {
             const res = await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -198,10 +209,9 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     html: html,
                     title: derivedTitle,
                     preview: derivedPreview,
-                    expectedVersion: versionRef.current ?? undefined
+                    expectedVersion: version ?? undefined
                 })
             });
-            clearTimeout(timeoutId);
 
             if (res.ok) {
                 const data = await res.json();
@@ -222,6 +232,9 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 const conflict = await res.json();
                 console.error("Save conflict:", conflict.message);
                 setSaveError(true);
+                // Invalidate cache so revisiting this entry fetches fresh server content
+                entryContentCache.delete(`entry-${id}`);
+                if (cacheKeyRef.current) entryContentCache.delete(cacheKeyRef.current);
                 // Don't retry on conflict — user must reload
                 return false;
             }
@@ -236,14 +249,14 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             }
             if (retryCount < 3) {
                 await new Promise(r => setTimeout(r, 500 * Math.pow(2, retryCount)));
-                return performSave(id, isAutoSave, retryCount + 1);
+                return performSave(id, isAutoSave, retryCount + 1, snapshot);
             }
             // All retries exhausted — ensure data is preserved in localStorage
             try {
                 localStorage.setItem('editor_backup', JSON.stringify({
                     entryId: id,
-                    content: contentRef.current,
-                    delta: deltaRef.current,
+                    content: snapshot.html,
+                    delta: snapshot.delta,
                     timestamp: Date.now()
                 }));
             } catch (e) { /* localStorage might be full, but we tried */ }
@@ -251,6 +264,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             setSaveError(true);
             return false;
         } finally {
+            clearTimeout(timeoutId);
             if (isAutoSave) setSaving(false);
         }
     }, [userId]);
@@ -367,7 +381,11 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 }).then(res => {
                     if (res.ok) {
                         window.dispatchEvent(new CustomEvent('journal-entry-updated'));
-                        localStorage.removeItem('editor_backup');
+                        // Only remove backup if it still belongs to this entry (avoid deleting new note's backup)
+                        try {
+                            const backup = JSON.parse(localStorage.getItem('editor_backup') || '{}');
+                            if (backup.entryId === id) localStorage.removeItem('editor_backup');
+                        } catch (e) { localStorage.removeItem('editor_backup'); }
                         cacheEntry(`entry-${id}`, html, delta);
                         if (currentCacheKey && currentCacheKey !== `entry-${id}`) {
                             cacheEntry(currentCacheKey, html, delta);
@@ -760,6 +778,11 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             isMounted = false;
             // Only abort rendering, NOT the fetch — fetch continues to populate cache
             renderAbort.abort();
+            // Clear any pending auto-save timeout to prevent saves after unmount
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
         };
     }, [categoryId, userId, selectedDate, urlEntryId, loadContentSafely, flushPendingSave]);
 
