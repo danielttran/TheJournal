@@ -31,24 +31,42 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         const { id } = await params;
         const categoryId = parseInt(id, 10);
 
-        // Optional: Check permissions using session/cookie (similar to other routes)
-        // For now, assuming if they can hit this with a valid ID, we check ownership if we had auth middleware.
-        // We'll mimic the generic check.
-        // But since we don't have the userID passed easily here without cookies(), let's do safe fetch.
-
         const { cookies } = await import("next/headers");
         const cookieStore = await cookies();
         const userIdCookie = cookieStore.get("userId");
         if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const userId = parseInt(userIdCookie.value, 10);
 
-        const result = db.prepare('DELETE FROM Category WHERE CategoryID = ? AND UserID = ?').run(categoryId, userId);
-
-        if (result.changes === 0) {
+        // Verify ownership
+        const category = db.prepare('SELECT Name FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as any;
+        if (!category) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 404 });
         }
 
-        return NextResponse.json({ success: true });
+        // Count entries that will be destroyed (for client-side confirmation)
+        const entryCount = db.prepare('SELECT COUNT(*) as count FROM Entry WHERE CategoryID = ?').get(categoryId) as any;
+        const count = entryCount?.count || 0;
+
+        // Check if client confirmed deletion with entry count (prevents accidental cascade)
+        const url = new URL(req.url);
+        const confirmed = url.searchParams.get('confirmed');
+        if (count > 0 && confirmed !== 'true') {
+            return NextResponse.json({
+                error: "confirmation_required",
+                message: `This will permanently delete "${category.Name}" and ${count} entries. This cannot be undone.`,
+                entryCount: count
+            }, { status: 409 });
+        }
+
+        // CASCADE DELETE: Category → Entry → EntryContent (via foreign keys)
+        const result = db.prepare('DELETE FROM Category WHERE CategoryID = ? AND UserID = ?').run(categoryId, userId);
+
+        if (result.changes === 0) {
+            return NextResponse.json({ error: "Delete failed" }, { status: 500 });
+        }
+
+        console.log(`[AUDIT] User ${userId} deleted category "${category.Name}" (ID: ${categoryId}) with ${count} entries`);
+        return NextResponse.json({ success: true, deletedEntries: count });
     } catch (error) {
         console.error("Delete category error", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

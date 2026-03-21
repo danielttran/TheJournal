@@ -421,7 +421,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     };
 
     const handleDelete = async (id: number) => {
-        if (!confirm("Are you sure you want to delete this entry?")) return;
+        if (!confirm("Are you sure you want to delete this entry? This cannot be undone.")) return;
         try {
             const res = await fetch(`/api/entry/${id}`, {
                 method: 'DELETE',
@@ -430,8 +430,12 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                 if (type === 'Notebook') fetchPages();
                 else fetchJournalEntries();
                 setContextMenu(prev => ({ ...prev, visible: false }));
+            } else {
+                alert("Failed to delete entry. Your data is safe.");
             }
-        } catch (e) { /* silence */ }
+        } catch (e) {
+            alert("Failed to delete entry. Your data is safe.");
+        }
     };
 
     // ... (Date/Journal Logic same as before)
