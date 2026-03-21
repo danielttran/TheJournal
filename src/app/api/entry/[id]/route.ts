@@ -92,12 +92,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const entryId = parseInt(id, 10);
 
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = parseInt(userIdCookie.value, 10);
+
         const entry = db.prepare(`
             SELECT e.EntryID, e.Title, ec.HtmlContent, ec.QuillDelta, e.Icon
             FROM Entry e
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
-            WHERE e.EntryID = ?
-        `).get(entryId);
+            JOIN Category c ON e.CategoryID = c.CategoryID
+            WHERE e.EntryID = ? AND c.UserID = ?
+        `).get(entryId, userId);
 
         if (!entry) {
             return NextResponse.json({ error: "Entry not found" }, { status: 404 });
@@ -105,7 +112,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         return NextResponse.json(entry);
     } catch (error) {
-        /* silence */
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }

@@ -62,25 +62,30 @@ declare global {
     }
 }
 
-// Module-level cache for fetched note content so background fetches persist across switches
+// Module-level cache for fetched note content so background fetches persist across switches.
+// No hard cap on number of entries — only TTL-based eviction + lazy cleanup.
+// Disk is the only real limit; this cache holds references, not duplicates of disk data.
 const entryContentCache = new Map<string, { html: string; delta: any; timestamp: number }>();
-const CACHE_MAX_SIZE = 50;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const CACHE_CLEANUP_INTERVAL_MS = 2 * 60 * 1000; // Sweep expired entries every 2 minutes
+
+// Lazy cleanup: periodically evict expired entries to free memory
+let lastCleanup = Date.now();
+
+function cacheCleanup() {
+    const now = Date.now();
+    if (now - lastCleanup < CACHE_CLEANUP_INTERVAL_MS) return;
+    lastCleanup = now;
+    for (const [key, entry] of entryContentCache) {
+        if (now - entry.timestamp > CACHE_TTL_MS) {
+            entryContentCache.delete(key);
+        }
+    }
+}
 
 function cacheEntry(key: string, html: string, delta: any) {
-    // Evict oldest if at capacity
-    if (entryContentCache.size >= CACHE_MAX_SIZE) {
-        let oldestKey: string | null = null;
-        let oldestTime = Infinity;
-        for (const [k, v] of entryContentCache) {
-            if (v.timestamp < oldestTime) {
-                oldestTime = v.timestamp;
-                oldestKey = k;
-            }
-        }
-        if (oldestKey) entryContentCache.delete(oldestKey);
-    }
     entryContentCache.set(key, { html, delta, timestamp: Date.now() });
+    cacheCleanup();
 }
 
 function getCachedEntry(key: string) {
@@ -90,6 +95,8 @@ function getCachedEntry(key: string) {
         entryContentCache.delete(key);
         return null;
     }
+    // Refresh timestamp on access (LRU behavior)
+    cached.timestamp = Date.now();
     return cached;
 }
 

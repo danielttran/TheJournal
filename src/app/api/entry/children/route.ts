@@ -12,9 +12,22 @@ export async function GET(req: NextRequest) {
     }
 
     try {
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = parseInt(userIdCookie.value, 10);
+
+        // Verify parent entry belongs to user
+        const parent = db.prepare(`
+            SELECT 1 FROM Entry e JOIN Category c ON e.CategoryID = c.CategoryID
+            WHERE e.EntryID = ? AND c.UserID = ?
+        `).get(parentId, userId);
+        if (!parent) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
         const entries = db.prepare(`
             SELECT EntryID, Title, CreatedDate, Icon, PreviewText
-            FROM Entry 
+            FROM Entry
             WHERE ParentEntryID = ?
             ORDER BY SortOrder ASC, CreatedDate DESC
         `).all(parentId);
