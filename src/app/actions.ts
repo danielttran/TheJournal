@@ -53,7 +53,13 @@ export async function login(prevState: unknown, formData: FormData) {
         // Note: In a real app, use a secure session ID or JWT properly signed.
         // This is a simple implementation for demonstration.
         const { cookies } = await import("next/headers");
-        (await cookies()).set("userId", user.UserID.toString(), { httpOnly: true, path: "/" });
+        (await cookies()).set("userId", user.UserID.toString(), {
+            httpOnly: true,
+            path: "/",
+            sameSite: "lax",
+            secure: process.env.NODE_ENV === "production",
+            maxAge: 60 * 60 * 24 * 30, // 30 days
+        });
 
         redirect("/dashboard");
 

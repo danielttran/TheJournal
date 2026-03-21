@@ -6,6 +6,13 @@ import Database from 'better-sqlite3';
 
 export async function GET() {
     try {
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
         console.log("Export: Starting SQLite Backup...");
 
         // 1. Validate Live DB has data
