@@ -162,7 +162,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         }
 
         // Wrap in transaction
-        let newVersion = (entry.Version || 1) + 1;
+        let newVersion = (entry.Version ?? 1) + 1;
         const updateTransaction = db.transaction(() => {
             // 4. Update Content (if provided)
             if (content !== undefined) {
@@ -207,7 +207,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         return NextResponse.json({ success: true, version: newVersion });
 
     } catch (error) {
-        /* silence */
+        console.error("PUT /api/entry/[id] error:", error);
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 }

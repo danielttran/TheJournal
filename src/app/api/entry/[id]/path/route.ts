@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
@@ -8,6 +9,24 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         if (isNaN(entryId)) {
             return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+        }
+
+        // Auth check
+        const cookieStore = await cookies();
+        const userId = cookieStore.get("userId")?.value;
+        if (!userId) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        // Verify entry belongs to user
+        const ownerCheck = db.prepare(`
+            SELECT 1 FROM Entry e
+            JOIN Category c ON e.CategoryID = c.CategoryID
+            WHERE e.EntryID = ? AND c.UserID = ?
+        `).get(entryId, parseInt(userId, 10));
+
+        if (!ownerCheck) {
+            return NextResponse.json({ error: "Entry not found" }, { status: 404 });
         }
 
         // Recursive CTE to get the path

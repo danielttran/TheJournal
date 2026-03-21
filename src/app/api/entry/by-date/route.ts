@@ -42,27 +42,33 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        // Create new Entry
-        // We explicitly set CreatedDate to the requested date (at 12:00 PM to avoid timezone edge cases if just date)
-        const newEntryResult = db.prepare(`
-            INSERT INTO Entry (CategoryID, Title, PreviewText, CreatedDate) 
-            VALUES (?, ?, ?, ?)
-        `).run(categoryId, 'New Entry', 'Start writing...', `${date} 12:00:00`);
-
-        const newEntryId = newEntryResult.lastInsertRowid;
-
-        // Create empty Content
+        // Create Entry + Content atomically to prevent orphaned rows
         const initialDelta = JSON.stringify({ ops: [{ insert: "\n" }] });
-        db.prepare(`
-            INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent) 
-            VALUES (?, ?, ?)
-        `).run(newEntryId, initialDelta, '');
+        const createEntry = db.transaction(() => {
+            // We explicitly set CreatedDate to the requested date (at 12:00 PM to avoid timezone edge cases if just date)
+            const newEntryResult = db.prepare(`
+                INSERT INTO Entry (CategoryID, Title, PreviewText, CreatedDate)
+                VALUES (?, ?, ?, ?)
+            `).run(categoryId, 'New Entry', 'Start writing...', `${date} 12:00:00`);
+
+            const newEntryId = newEntryResult.lastInsertRowid;
+
+            db.prepare(`
+                INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent)
+                VALUES (?, ?, ?)
+            `).run(newEntryId, initialDelta, '');
+
+            return newEntryId;
+        });
+
+        const newEntryId = createEntry();
 
         return NextResponse.json({
             id: newEntryId,
             title: 'New Entry',
             content: { ops: [{ insert: "\n" }] },
             html: '',
+            Version: 1,
             isNew: true
         });
 

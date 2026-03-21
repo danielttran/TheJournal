@@ -13,6 +13,8 @@ class DBManager {
             this.instance = new Database(dbPath);
             this.instance.pragma('journal_mode = WAL');
             this.instance.pragma('foreign_keys = ON');
+            // Wait up to 5s for locked database instead of failing immediately
+            this.instance.pragma('busy_timeout = 5000');
             // Performance: let SQLite cache more pages in memory (64MB)
             this.instance.pragma('cache_size = -65536');
             // Safety: NORMAL is safe with WAL mode
