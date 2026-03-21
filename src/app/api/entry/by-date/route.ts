@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
         // For a more robust app, we might want a separate 'EntryDate' column, 
         // but 'CreatedDate' works if we override it on creation.
         const entry = db.prepare(`
-            SELECT e.EntryID, e.Title, ec.QuillDelta, ec.HtmlContent 
+            SELECT e.EntryID, e.Title, ec.QuillDelta, ec.HtmlContent, e.Version
             FROM Entry e
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
             WHERE e.CategoryID = ? AND date(e.CreatedDate) = ?
@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
                 title: entry.Title,
                 content: entry.QuillDelta ? JSON.parse(entry.QuillDelta) : null,
                 html: entry.HtmlContent,
+                Version: entry.Version ?? 1,
                 isNew: false
             });
         }

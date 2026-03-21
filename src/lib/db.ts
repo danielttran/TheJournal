@@ -39,6 +39,26 @@ class DBManager {
                     this.instance.prepare("ALTER TABLE Entry ADD COLUMN IsExpanded BOOLEAN DEFAULT 0").run();
                 }
 
+                // Migration for ParentEntryID (hierarchical notebooks)
+                if (!entryCols.some(c => c.name === 'ParentEntryID')) {
+                    this.instance.prepare("ALTER TABLE Entry ADD COLUMN ParentEntryID INTEGER REFERENCES Entry(EntryID) ON DELETE CASCADE").run();
+                }
+
+                // Migration for EntryType (Page vs Section)
+                if (!entryCols.some(c => c.name === 'EntryType')) {
+                    this.instance.prepare("ALTER TABLE Entry ADD COLUMN EntryType TEXT DEFAULT 'Page' CHECK(EntryType IN ('Page', 'Section'))").run();
+                }
+
+                // Migration for SortOrder on Entry
+                if (!entryCols.some(c => c.name === 'SortOrder')) {
+                    this.instance.prepare("ALTER TABLE Entry ADD COLUMN SortOrder REAL DEFAULT 0").run();
+                }
+
+                // Migration for Version on Entry (optimistic locking)
+                if (!entryCols.some(c => c.name === 'Version')) {
+                    this.instance.prepare("ALTER TABLE Entry ADD COLUMN Version INTEGER DEFAULT 1").run();
+                }
+
                 // Migration for ViewSettings in Category (Journal Tree State)
                 if (!cols.some(c => c.name === 'ViewSettings')) {
                     this.instance.prepare("ALTER TABLE Category ADD COLUMN ViewSettings TEXT").run();
@@ -47,7 +67,9 @@ class DBManager {
                 // Auto-create missing indexes for production scale
                 this.ensureIndexes(this.instance);
 
-            } catch (e) { /* silent migrate */ }
+            } catch (e) {
+                console.error('[DB] Migration error:', e);
+            }
 
             // Run initial maintenance
             this.runMaintenance(this.instance);

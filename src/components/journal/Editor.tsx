@@ -133,6 +133,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const quillRef = useRef<any>(null);
     // Track current cache key for dual-key cache invalidation on save
     const cacheKeyRef = useRef<string>('');
+    // Track entry version for optimistic locking (prevents concurrent edit data loss)
+    const versionRef = useRef<number | null>(null);
 
     // SAFETY GUARD
     const isFullyLoadedRef = useRef(false);
@@ -183,19 +185,27 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
             const derivedPreview = plainText.substring(0, 200);
 
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
             const res = await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
                 body: JSON.stringify({
                     userId,
                     content: delta,
                     html: html,
                     title: derivedTitle,
-                    preview: derivedPreview
+                    preview: derivedPreview,
+                    expectedVersion: versionRef.current ?? undefined
                 })
             });
+            clearTimeout(timeoutId);
 
             if (res.ok) {
+                const data = await res.json();
+                if (data.version) versionRef.current = data.version;
                 window.dispatchEvent(new CustomEvent('journal-entry-updated'));
                 isDirtyRef.current = false;
                 localStorage.removeItem('editor_backup');
@@ -206,6 +216,14 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     cacheEntry(cacheKeyRef.current, html, delta);
                 }
                 return true;
+            }
+            if (res.status === 409) {
+                // Version conflict — another tab/session modified this entry
+                const conflict = await res.json();
+                console.error("Save conflict:", conflict.message);
+                setSaveError(true);
+                // Don't retry on conflict — user must reload
+                return false;
             }
             throw new Error(`HTTP ${res.status}`);
 
@@ -577,6 +595,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         isDirtyRef.current = false;
         contentRef.current = '';
         deltaRef.current = null;
+        versionRef.current = null;
         setLoadingProgress(0);
 
         // Clear Quill editor immediately to prevent stale content flash
@@ -605,6 +624,10 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     // For cached entries, load content directly into Quill
                     if (urlEntryId) {
                         setEntryId(urlEntryId);
+                        // Fetch current version for optimistic locking even on cache hit
+                        fetch(`/api/entry/${urlEntryId}`).then(r => r.ok ? r.json() : null).then(d => {
+                            if (d?.Version) versionRef.current = d.Version;
+                        }).catch(() => {});
                         loadContentSafely(urlEntryId, cached.html, cached.delta, renderAbort.signal);
                     } else {
                         // For date-based entries, we need the ID — do a quick fetch
@@ -618,6 +641,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                             const data = await res.json();
                             const loadedId = data.EntryID || data.id;
                             setEntryId(loadedId);
+                            versionRef.current = data.Version ?? null;
                             loadContentSafely(loadedId, cached.html, cached.delta, renderAbort.signal);
                         }
                     }
@@ -697,6 +721,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     }
 
                     setEntryId(loadedId);
+                    versionRef.current = data.Version ?? null;
                     loadContentSafely(loadedId, loadedHtml, loadedDelta, renderAbort.signal);
 
                 } else {
