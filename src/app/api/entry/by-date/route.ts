@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
             title: 'New Entry',
             content: { ops: [{ insert: "\n" }] },
             html: '',
+            Version: 1,
             isNew: true
         });
 

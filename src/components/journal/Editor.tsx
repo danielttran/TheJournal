@@ -229,6 +229,11 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
         } catch (err) {
             console.error("Save failed", err);
+            // Don't retry on abort/timeout — server may have already processed the request
+            if ((err as Error).name === 'AbortError') {
+                setSaveError(true);
+                return false;
+            }
             if (retryCount < 3) {
                 await new Promise(r => setTimeout(r, 500 * Math.pow(2, retryCount)));
                 return performSave(id, isAutoSave, retryCount + 1);
@@ -286,7 +291,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     // Build the JSON payload for a save, given snapshotted data.
     // Extracted so both flushPendingSave and beforeunload/sendBeacon can use it.
-    const buildSavePayload = (id: number, delta: any, html: string) => {
+    const buildSavePayload = (id: number, delta: any, html: string, version: number | null) => {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html || '';
         const plainText = tempDiv.textContent || tempDiv.innerText || '';
@@ -300,7 +305,8 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 content: delta && (delta.ops ? delta : { ops: [{ insert: html }] }),
                 html: html,
                 title: derivedTitle,
-                preview: derivedPreview
+                preview: derivedPreview,
+                expectedVersion: version ?? undefined
             }
         };
     };
@@ -334,6 +340,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             const id = entryIdRef.current;
             const { delta, html } = snapshotEditorState();
             const currentCacheKey = cacheKeyRef.current;
+            const version = versionRef.current; // Snapshot before reset
 
             // Write a safety backup BEFORE attempting the network save.
             // This ensures data survives even if the fetch fails AND the tab closes.
@@ -349,7 +356,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
             console.log("Flushing save for entry", id, "before switch");
 
-            const { url, body } = buildSavePayload(id, delta, html);
+            const { url, body } = buildSavePayload(id, delta, html, version);
 
             // Attempt save with retry on failure
             const attemptSave = (attempt: number) => {
@@ -365,6 +372,9 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         if (currentCacheKey && currentCacheKey !== `entry-${id}`) {
                             cacheEntry(currentCacheKey, html, delta);
                         }
+                    } else if (res.status === 409) {
+                        console.error("Flush save conflict — another session modified this entry");
+                        // Don't retry on conflict — backup is preserved in localStorage
                     } else if (attempt < 2) {
                         // Retry once on server error
                         setTimeout(() => attemptSave(attempt + 1), 500);
@@ -391,7 +401,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
             const id = entryIdRef.current;
             const { delta, html } = snapshotEditorState();
-            const { url, body } = buildSavePayload(id, delta, html);
+            const { url, body } = buildSavePayload(id, delta, html, versionRef.current);
 
             // Always write localStorage backup first — this is synchronous and guaranteed
             localStorage.setItem('editor_backup', JSON.stringify({
@@ -402,7 +412,9 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             }));
 
             // sendBeacon survives tab close (unlike fetch which gets aborted)
-            const beaconSent = navigator.sendBeacon(url, JSON.stringify(body));
+            // Use Blob with application/json Content-Type so the server can parse it
+            const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
+            const beaconSent = navigator.sendBeacon(url, blob);
             if (!beaconSent) {
                 // Fallback: synchronous XHR (last resort, blocks UI but saves data)
                 try {
@@ -624,9 +636,10 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     // For cached entries, load content directly into Quill
                     if (urlEntryId) {
                         setEntryId(urlEntryId);
-                        // Fetch current version for optimistic locking even on cache hit
+                        // Fetch current version for optimistic locking even on cache hit.
+                        // Only set if versionRef is still null (avoids race with saves that already updated it).
                         fetch(`/api/entry/${urlEntryId}`).then(r => r.ok ? r.json() : null).then(d => {
-                            if (d?.Version) versionRef.current = d.Version;
+                            if (d?.Version && versionRef.current === null) versionRef.current = d.Version;
                         }).catch(() => {});
                         loadContentSafely(urlEntryId, cached.html, cached.delta, renderAbort.signal);
                     } else {
