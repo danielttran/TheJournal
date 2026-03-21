@@ -13,9 +13,22 @@ export async function PUT(req: NextRequest) {
         const body = await req.json();
         const { entryId, parentId, sortOrder } = MoveEntrySchema.parse(body);
 
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = parseInt(userIdCookie.value, 10);
+
+        // Verify entry belongs to user
+        const entry = db.prepare(`
+            SELECT 1 FROM Entry e JOIN Category c ON e.CategoryID = c.CategoryID
+            WHERE e.EntryID = ? AND c.UserID = ?
+        `).get(entryId, userId);
+        if (!entry) return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
+
         // Update Entry
         const result = db.prepare(`
-            UPDATE Entry 
+            UPDATE Entry
             SET ParentEntryID = ?, SortOrder = ?, ModifiedDate = CURRENT_TIMESTAMP
             WHERE EntryID = ?
         `).run(parentId, sortOrder, entryId);

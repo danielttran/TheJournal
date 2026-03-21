@@ -13,9 +13,19 @@ export async function GET(req: NextRequest) {
     }
 
     try {
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = parseInt(userIdCookie.value, 10);
+
+        // Verify category ownership
+        const category = db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
+        if (!category) return NextResponse.json({ error: "Category not found" }, { status: 404 });
+
         const entries = db.prepare(`
             SELECT EntryID, Title, ParentEntryID, EntryType, SortOrder, Icon, IsExpanded
-            FROM Entry 
+            FROM Entry
             WHERE CategoryID = ?
             ORDER BY SortOrder ASC
         `).all(categoryId);

@@ -334,11 +334,29 @@ export default function TabBar({ userId }: { userId: string }) {
     };
 
     const deleteTab = async (id: number) => {
-        if (!confirm("Are you sure? This deletes all entries.")) return;
-        setTabs(tabs.filter(t => t.CategoryID !== id)); // Optimistic
-        await fetch(`/api/category/${id}`, { method: 'DELETE' });
-        // Redirect if active...
-        if (pathname.includes(String(id))) router.push('/dashboard');
+        try {
+            // First call without confirmed=true to get entry count
+            const checkRes = await fetch(`/api/category/${id}`, { method: 'DELETE' });
+            if (checkRes.status === 409) {
+                const data = await checkRes.json();
+                // Show detailed confirmation with entry count
+                if (!confirm(data.message)) return;
+                // Second call with confirmation
+                const deleteRes = await fetch(`/api/category/${id}?confirmed=true`, { method: 'DELETE' });
+                if (!deleteRes.ok) {
+                    alert("Failed to delete category. Your data is safe.");
+                    return;
+                }
+            } else if (!checkRes.ok) {
+                alert("Failed to delete category.");
+                return;
+            }
+            // Success — update UI
+            setTabs(tabs.filter(t => t.CategoryID !== id));
+            if (pathname.includes(String(id))) router.push('/dashboard');
+        } catch (error) {
+            alert("Failed to delete category. Your data is safe.");
+        }
     };
 
     // Other Handlers (File Menu)

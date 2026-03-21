@@ -2,13 +2,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 
+// Max upload size: 50MB (matches Next.js serverActions bodySizeLimit)
+const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
+
 export async function POST(req: NextRequest) {
     try {
+        // Auth check
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
         const formData = await req.formData();
         const file = formData.get('file') as File;
 
         if (!file) {
             return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+        }
+
+        if (file.size > MAX_UPLOAD_SIZE) {
+            return NextResponse.json({ error: `File too large. Maximum size is ${MAX_UPLOAD_SIZE / 1024 / 1024}MB` }, { status: 413 });
         }
 
         const bytes = await file.arrayBuffer();
