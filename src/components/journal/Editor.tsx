@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import hljs from 'highlight.js';
-import 'react-quill-new/dist/quill.snow.css';
+import 'quill/dist/quill.snow.css';
 
 import katex from 'katex';
 import 'katex/dist/katex.min.css';

@@ -40,5 +40,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 /dist
-journal.db-wal
-journal.db
+journal.db*
