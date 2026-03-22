@@ -45,7 +45,9 @@ function LoginFormContent() {
             const username = formData.get("username") as string;
             const password = formData.get("password") as string;
 
-            await window.electron.saveSetting("userName", username);
+        const formData = new FormData(event.currentTarget);
+        const username = formData.get("username");
+        const password = formData.get("password");
 
             if (rememberMeRef.current) {
                 // Store optimistically — rolled back in useEffect if login fails
@@ -61,33 +63,63 @@ function LoginFormContent() {
         });
     }, [action]);
 
-    useEffect(() => {
-        if (typeof window !== "undefined" && window.electron) {
-            window.electron.getSettings().then(async (settings) => {
-                if (settings && settings.rememberMe) {
-                    setRememberMe(true);
-                    const savedUser = settings.userName || "";
-                    const savedPass = await window.electron.getStoredPassword();
+        await window.electron.saveSetting("userName", username);
 
-                    if (savedUser && savedPass) {
-                        const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement;
-                        const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement;
-
-                        if (usernameInput) usernameInput.value = savedUser;
-                        if (passwordInput) passwordInput.value = savedPass;
-
-                        const formData = new FormData();
-                        formData.append("username", savedUser);
-                        formData.append("password", savedPass);
-
-                        setTimeout(() => {
-                            handleSubmit(formData);
-                        }, 50);
-                    }
-                }
-            });
+        if (rememberMeRef.current) {
+            await window.electron.storePassword(password);
+            pendingCredentialsRef.current = { username, password, remember: true };
+        } else {
+            await window.electron.saveSetting("rememberMe", false);
+            await window.electron.saveSetting("savedPassword", "");
         }
     }, [handleSubmit]);
+
+    const autoSubmitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => {
+        return () => {
+            if (autoSubmitTimeoutRef.current) {
+                clearTimeout(autoSubmitTimeoutRef.current);
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (didAutoLoginRef.current) return;
+        if (typeof window === "undefined" || !window.electron) return;
+
+        didAutoLoginRef.current = true;
+        let isMounted = true;
+
+        const loadSavedCredentials = async () => {
+            const settings = await window.electron.getSettings();
+            if (!isMounted || !settings?.rememberMe) return;
+
+            setRememberMe(true);
+            const savedUser = settings.userName || "";
+            const savedPass = await window.electron.getStoredPassword();
+
+            if (!isMounted || !savedUser || !savedPass) return;
+
+            const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement | null;
+            const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement | null;
+
+            if (usernameInput) usernameInput.value = savedUser;
+            if (passwordInput) passwordInput.value = savedPass;
+
+            autoSubmitTimeoutRef.current = setTimeout(() => {
+                if (!isMounted) return;
+                formRef.current?.requestSubmit();
+            }, 50);
+        };
+
+        loadSavedCredentials();
+        return () => {
+            isMounted = false;
+            if (autoSubmitTimeoutRef.current) {
+                clearTimeout(autoSubmitTimeoutRef.current);
+            }
+        };
+    }, []);
 
     return (
         <main className="min-h-screen flex items-center justify-center relative overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-950 dark:to-gray-900 transition-colors duration-500">
@@ -112,7 +144,7 @@ function LoginFormContent() {
                     </p>
                 </div>
 
-                <form ref={formRef} action={handleSubmit} className="space-y-6">
+                <form ref={formRef} action={action} onSubmit={handleFormSubmit} className="space-y-6">
                     {registered && (
                         <div className="p-3 bg-green-100 border border-green-200 text-green-700 rounded-lg text-sm text-center font-medium">
                             Account created! Please sign in.
