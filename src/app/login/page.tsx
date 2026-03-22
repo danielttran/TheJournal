@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, startTransition, useCallback } from "react";
 
 function LoginFormContent() {
     const [state, action, isPending] = useActionState(login, null);
@@ -40,16 +40,28 @@ function LoginFormContent() {
         // If state is null, login succeeded (redirect happened) — no cleanup needed
     }, [state]);
 
-    const handleFormSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
-        if (typeof window === "undefined" || !window.electron) return;
+    const handleSubmit = useCallback(async (formData: FormData) => {
+        if (typeof window !== "undefined" && window.electron) {
+            const username = formData.get("username") as string;
+            const password = formData.get("password") as string;
 
         const formData = new FormData(event.currentTarget);
         const username = formData.get("username");
         const password = formData.get("password");
 
-        if (typeof username !== "string" || typeof password !== "string") {
-            return;
+            if (rememberMeRef.current) {
+                // Store optimistically — rolled back in useEffect if login fails
+                await window.electron.storePassword(password);
+                pendingCredentialsRef.current = { username, password, remember: true };
+            } else {
+                await window.electron.saveSetting("rememberMe", false);
+                await window.electron.saveSetting("savedPassword", "");
+            }
         }
+        startTransition(() => {
+            action(formData);
+        });
+    }, [action]);
 
         await window.electron.saveSetting("userName", username);
 
@@ -60,7 +72,7 @@ function LoginFormContent() {
             await window.electron.saveSetting("rememberMe", false);
             await window.electron.saveSetting("savedPassword", "");
         }
-    }, []);
+    }, [handleSubmit]);
 
     const autoSubmitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(() => {

@@ -183,7 +183,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                             onEmojiClick={onEmojiClick}
                             width={350}
                             height={450}
-                            theme={theme === 'dark' ? EmojiTheme.DARK : EmojiTheme.LIGHT}
+                            theme={theme === 'dark' ? 'dark' : 'light'}
                         />
                     </div>
                 </div>
