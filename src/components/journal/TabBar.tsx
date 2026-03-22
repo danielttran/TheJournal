@@ -43,6 +43,13 @@ interface SortableTabProps {
     onIconChange: (id: number, icon: string) => void;
 }
 
+function TabIcon({ category }: { category: Category }) {
+    if (category.Icon) return <span className="mr-2 text-base leading-none">{category.Icon}</span>;
+    return category.Type === 'Notebook'
+        ? <FileText size={14} className="mr-2 text-accent-primary" />
+        : <Book size={14} className="mr-2 text-accent-primary" />;
+}
+
 function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconChange }: SortableTabProps) {
     const {
         attributes,
@@ -99,12 +106,6 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
         setShowPicker(false);
     }
 
-    // Default Icon if none set
-    const DisplayIcon = () => {
-        if (category.Icon) return <span className="mr-2 text-base leading-none">{category.Icon}</span>;
-        return category.Type === 'Notebook' ? <FileText size={14} className="mr-2 text-accent-primary" /> : <Book size={14} className="mr-2 text-accent-primary" />;
-    };
-
     if (isEditing) {
         return (
             <div
@@ -118,7 +119,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                     }
                 `}
             >
-                <DisplayIcon />
+                <TabIcon category={category} />
                 <input
                     autoFocus
                     value={editName}
@@ -152,7 +153,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
             `}
         >
             <div onClick={togglePicker} className="hover:bg-bg-active/50 rounded p-0.5 cursor-pointer flex items-center justify-center">
-                <DisplayIcon />
+                <TabIcon category={category} />
             </div>
 
             <span className="truncate flex-1">{category.Name}</span>
@@ -181,7 +182,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                             onEmojiClick={onEmojiClick}
                             width={350}
                             height={450}
-                            theme={theme === 'dark' ? 'dark' : 'light' as any}
+                            theme={theme === 'dark' ? 'dark' : 'light'}
                         />
                     </div>
                 </div>
@@ -206,17 +207,57 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [isClient, setIsClient] = useState(false);
+    const [isClient] = useState(() => typeof window !== 'undefined');
 
     // Refs for clicking outside
     const fileInputRef = useRef<HTMLInputElement>(null);
     const fileMenuRef = useRef<HTMLDivElement>(null);
     const viewMenuRef = useRef<HTMLDivElement>(null);
 
-    // Initial Load & Hydration Check
+    const handleFileImport = useCallback(async (filePath: string) => {
+        if (!confirm("Overwrite data?")) return;
+        const formData = new FormData();
+        const response = await fetch(filePath);
+        const blob = await response.blob();
+        formData.append('file', blob, filePath.split(/[\\/]/).pop() || 'import.db');
+        const res = await fetch('/api/backup/import', { method: 'POST', body: formData });
+        if (res.ok) window.location.reload();
+        else alert("Import Failed");
+    }, []);
+
+    const handleLogout = useCallback(async () => {
+        if (window.electron) {
+            await window.electron.logout();
+        }
+        await logout();
+    }, []);
+
+    const handleExportClick = useCallback(() => {
+        window.open('/api/backup/export', '_blank');
+        setIsFileMenuOpen(false);
+    }, []);
+
+    // Initial data load
     useEffect(() => {
-        setIsClient(true);
-        fetchTabs();
+        let isMounted = true;
+
+        const loadTabs = async () => {
+            try {
+                const res = await fetch('/api/category');
+                const data = await res.json();
+                if (isMounted && Array.isArray(data)) {
+                    const sorted = data.sort((a, b) => (a.SortOrder || 0) - (b.SortOrder || 0));
+                    setTabs(sorted);
+                }
+            } catch {
+                // noop
+            }
+        };
+
+        loadTabs();
+        return () => {
+            isMounted = false;
+        };
     }, []);
 
     // Click away handlers using custom hook
@@ -229,44 +270,29 @@ export default function TabBar({ userId }: { userId: string }) {
     useEffect(() => {
         if (!window.electron) return;
 
-        let isMounted = true;
-
-        window.electron.onImportDB?.((filePath: string) => {
-            if (!isMounted) return;
+        const unsubscribeImport = window.electron.onImportDB?.((filePath: string) => {
             handleFileImport(filePath);
         });
 
-        window.electron.onExportDB?.(() => {
-            if (!isMounted) return;
+        const unsubscribeExport = window.electron.onExportDB?.(() => {
             handleExportClick();
         });
 
-        window.electron.onLogoutRequest?.(() => {
-            if (!isMounted) return;
+        const unsubscribeLogout = window.electron.onLogoutRequest?.(() => {
             handleLogout();
         });
 
-        window.electron.onOpenSettings?.(() => {
-            if (!isMounted) return;
+        const unsubscribeOpenSettings = window.electron.onOpenSettings?.(() => {
             setIsSettingsOpen(true);
         });
 
         return () => {
-            isMounted = false;
+            unsubscribeImport?.();
+            unsubscribeExport?.();
+            unsubscribeLogout?.();
+            unsubscribeOpenSettings?.();
         };
-    }, []);
-
-    const fetchTabs = async () => {
-        try {
-            const res = await fetch('/api/category');
-            const data = await res.json();
-            if (Array.isArray(data)) {
-                // Sort by SortOrder if available
-                const sorted = data.sort((a, b) => (a.SortOrder || 0) - (b.SortOrder || 0));
-                setTabs(sorted);
-            }
-        } catch (error) { /* silence */ }
-    };
+    }, [handleExportClick, handleFileImport, handleLogout]);
 
     // Drag and Drop Sensors
     const sensors = useSensors(
@@ -330,7 +356,7 @@ export default function TabBar({ userId }: { userId: string }) {
                 setNewTabName('');
                 router.push(`/journal/${newCat.id}`);
             }
-        } catch (error) { /* silence */ }
+        } catch { /* silence */ }
     };
 
     const deleteTab = async (id: number) => {
@@ -354,32 +380,12 @@ export default function TabBar({ userId }: { userId: string }) {
             // Success — update UI
             setTabs(tabs.filter(t => t.CategoryID !== id));
             if (pathname.includes(String(id))) router.push('/dashboard');
-        } catch (error) {
+        } catch {
             alert("Failed to delete category. Your data is safe.");
         }
     };
 
-    // Other Handlers (File Menu)
-    const handleFileImport = async (filePath: string) => {
-        if (!confirm("Overwrite data?")) return;
-        const formData = new FormData();
-        const response = await fetch(filePath);
-        const blob = await response.blob();
-        formData.append('file', blob, filePath.split(/[\\/]/).pop() || 'import.db');
-        const res = await fetch('/api/backup/import', { method: 'POST', body: formData });
-        if (res.ok) window.location.reload();
-        else alert("Import Failed");
-    };
-
-    const handleLogout = async () => {
-        if (window.electron) {
-            await window.electron.logout();
-        }
-        await logout();
-    };
-
     const handleImportClick = () => { fileInputRef.current?.click(); setIsFileMenuOpen(false); };
-    const handleExportClick = () => { window.open('/api/backup/export', '_blank'); setIsFileMenuOpen(false); };
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
