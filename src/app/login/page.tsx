@@ -2,13 +2,12 @@
 
 import { Suspense } from "react";
 import { login } from "@/app/actions";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotebookPen } from "lucide-react";
 import Link from "next/link";
 import { useActionState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { useEffect, useState, useRef, startTransition } from "react";
+import { useEffect, useState, useRef, startTransition, useCallback } from "react";
 
 function LoginFormContent() {
     const [state, action, isPending] = useActionState(login, null);
@@ -22,11 +21,12 @@ function LoginFormContent() {
     };
     const formRef = useRef<HTMLFormElement>(null);
 
-    const [pendingCredentials, setPendingCredentials] = useState<{ username: string; password: string; remember: boolean } | null>(null);
+    const pendingCredentialsRef = useRef<{ username: string; password: string; remember: boolean } | null>(null);
 
     // After login action returns, check if it failed.
     // If it did, roll back any credentials we saved optimistically.
     useEffect(() => {
+        const pendingCredentials = pendingCredentialsRef.current;
         if (!pendingCredentials) return;
         if (state && (state.message || state.errors)) {
             // Login failed — undo optimistic credential storage
@@ -34,12 +34,12 @@ function LoginFormContent() {
                 window.electron.saveSetting('rememberMe', false);
                 window.electron.saveSetting('savedPassword', '');
             }
-            setPendingCredentials(null);
+            pendingCredentialsRef.current = null;
         }
         // If state is null, login succeeded (redirect happened) — no cleanup needed
     }, [state]);
 
-    const handleSubmit = async (formData: FormData) => {
+    const handleSubmit = useCallback(async (formData: FormData) => {
         if (typeof window !== "undefined" && window.electron) {
             const username = formData.get("username") as string;
             const password = formData.get("password") as string;
@@ -49,7 +49,7 @@ function LoginFormContent() {
             if (rememberMeRef.current) {
                 // Store optimistically — rolled back in useEffect if login fails
                 await window.electron.storePassword(password);
-                setPendingCredentials({ username, password, remember: true });
+                pendingCredentialsRef.current = { username, password, remember: true };
             } else {
                 await window.electron.saveSetting("rememberMe", false);
                 await window.electron.saveSetting("savedPassword", "");
@@ -58,7 +58,7 @@ function LoginFormContent() {
         startTransition(() => {
             action(formData);
         });
-    };
+    }, [action]);
 
     useEffect(() => {
         if (typeof window !== "undefined" && window.electron) {
@@ -86,7 +86,7 @@ function LoginFormContent() {
                 }
             });
         }
-    }, []);
+    }, [handleSubmit]);
 
     return (
         <main className="min-h-screen flex items-center justify-center relative overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-950 dark:to-gray-900 transition-colors duration-500">
@@ -172,7 +172,7 @@ function LoginFormContent() {
                 </form>
 
                 <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                    Don't have an account?{" "}
+                    Don&apos;t have an account?{" "}
                     <Link href="/register" className="font-medium text-blue-600 dark:text-blue-400 hover:underline">
                         Create Account
                     </Link>

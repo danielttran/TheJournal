@@ -29,11 +29,11 @@ declare global {
             getSettings: () => Promise<any>;
             saveSetting: (key: string, value: any) => Promise<any>;
             logout: () => Promise<boolean>;
-            onImportDB: (callback: (filePath: string) => void) => void;
-            onExportDB: (callback: () => void) => void;
-            onLogoutRequest: (callback: () => void) => void;
-            onOpenSettings: (callback: () => void) => void;
-            onToggleTheme: (callback: () => void) => void;
+            onImportDB: (callback: (filePath: string) => void) => () => void;
+            onExportDB: (callback: () => void) => () => void;
+            onLogoutRequest: (callback: () => void) => () => void;
+            onOpenSettings: (callback: () => void) => () => void;
+            onToggleTheme: (callback: () => void) => () => void;
             selectFolder: () => Promise<string | null>;
             storePassword: (pwd: string) => Promise<boolean>;
             getStoredPassword: () => Promise<string | null>;
