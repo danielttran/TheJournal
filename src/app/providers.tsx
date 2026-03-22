@@ -20,22 +20,20 @@ function ThemeInitializer({ children }: { children: React.ReactNode }) {
             }
         });
 
-        // Listen for menu toggle - use mounted flag since IPC listeners can't be removed
-        if (window.electron.onToggleTheme) {
-            window.electron.onToggleTheme(() => {
-                if (!isMounted) return;
-                setTheme(currentTheme => {
-                    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-                    if (window.electron) {
-                        window.electron.saveSetting('theme', newTheme);
-                    }
-                    return newTheme;
-                });
+        const unsubscribeToggleTheme = window.electron.onToggleTheme?.(() => {
+            if (!isMounted) return;
+            setTheme(currentTheme => {
+                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                if (window.electron) {
+                    window.electron.saveSetting('theme', newTheme);
+                }
+                return newTheme;
             });
-        }
+        });
 
         return () => {
             isMounted = false;
+            unsubscribeToggleTheme?.();
         };
     }, [setTheme]);
 
