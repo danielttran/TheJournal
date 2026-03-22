@@ -20,6 +20,7 @@ function LoginFormContent() {
         rememberMeRef.current = val;
     };
     const formRef = useRef<HTMLFormElement>(null);
+    const didAutoLoginRef = useRef(false);
 
     const pendingCredentialsRef = useRef<{ username: string; password: string; remember: boolean } | null>(null);
 
