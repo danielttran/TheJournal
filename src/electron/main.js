@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, Menu, safeStorage } = require('electron');
 const path = require('path');
 const { createServer } = require('http');
 const { parse } = require('url');
@@ -88,7 +88,7 @@ function createMenu() {
                         if (mainWindow) {
                             dialog.showOpenDialog(mainWindow, {
                                 properties: ['openFile'],
-                                filters: [{ name: 'Database', extensions: ['db', 'sqlite'] }]
+                                filters: [{ name: 'Database', extensions: ['db', 'sqlite', 'tjdb'] }]
                             }).then(result => {
                                 if (!result.canceled && result.filePaths.length > 0) {
                                     mainWindow.webContents.send('import-db', result.filePaths[0]);
@@ -173,14 +173,11 @@ app.whenReady().then(async () => {
             return success ? settingsManager.getSettings() : false;
         });
         ipcMain.handle('logout', () => {
+            // Only clear credential-related settings.
+            // Preserve backup path, frequency, retention etc — they are NOT sensitive.
             settingsManager.saveSettings({
                 rememberMe: false,
-                userName: 'User',
                 savedPassword: '',
-                backupPath: '',
-                backupFrequency: 3,
-                retentionCount: 3,
-                autoBackupOnClose: false
             });
             return true;
         });
@@ -191,6 +188,27 @@ app.whenReady().then(async () => {
             });
             if (result.canceled || result.filePaths.length === 0) return null;
             return result.filePaths[0];
+        });
+
+        ipcMain.handle('store-password', (event, pwd) => {
+            if (safeStorage.isEncryptionAvailable()) {
+                const encrypted = safeStorage.encryptString(pwd);
+                settingsManager.saveSettings({ savedPassword: encrypted.toString('base64'), rememberMe: true });
+                return true;
+            }
+            return false;
+        });
+
+        ipcMain.handle('get-password', () => {
+            const sett = settingsManager.getSettings();
+            if (sett.rememberMe && sett.savedPassword && safeStorage.isEncryptionAvailable()) {
+                try {
+                    return safeStorage.decryptString(Buffer.from(sett.savedPassword, 'base64'));
+                } catch (e) {
+                    console.error('Failed to decrypt password. Might be on a different OS/user.', e);
+                }
+            }
+            return null;
         });
 
         // If dev, we assume user ran 'npm run dev' separately or we wait for it
@@ -252,7 +270,41 @@ app.on('before-quit', (e) => {
         if (fs.existsSync(dbPath)) {
             try {
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const backupName = `backup-${timestamp}.db`;
+                const backupName = `backup-${timestamp}.tjdb`;
+                
+                // DATA RETENTION LOGIC
+                const maxBackups = s.retentionCount > 0 ? s.retentionCount : 3;
+                
+                if (!fs.existsSync(s.backupPath)) {
+                    fs.mkdirSync(s.backupPath, { recursive: true });
+                }
+
+                // Fetch all .tjdb files
+                const files = fs.readdirSync(s.backupPath);
+                const tjdbFiles = [];
+                
+                for (const file of files) {
+                    if (file.endsWith('.tjdb')) {
+                        const fullPath = path.join(s.backupPath, file);
+                        const stat = fs.statSync(fullPath);
+                        tjdbFiles.push({ name: file, path: fullPath, ctimeMs: stat.ctimeMs });
+                    }
+                }
+                
+                // Sort oldest to newest
+                tjdbFiles.sort((a, b) => a.ctimeMs - b.ctimeMs);
+                
+                // Delete older files until we have exactly (maxBackups - 1) left
+                while (tjdbFiles.length > (maxBackups - 1) && tjdbFiles.length > 0) {
+                    const oldest = tjdbFiles.shift();
+                    try {
+                        fs.unlinkSync(oldest.path);
+                        console.log(`[Electron] Deleted old backup: ${oldest.name}`);
+                    } catch (e) {
+                        console.error(`[Electron] Failed to delete old backup ${oldest.name}:`, e);
+                    }
+                }
+
                 const dest = path.join(s.backupPath, backupName);
                 fs.copyFileSync(dbPath, dest);
                 console.log('[Electron] ✅ Auto-backup SUCCESS at:', dest);

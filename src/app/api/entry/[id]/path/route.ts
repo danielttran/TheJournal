@@ -19,7 +19,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         }
 
         // Verify entry belongs to user
-        const ownerCheck = db.prepare(`
+        const ownerCheck = await db.prepare(`
             SELECT 1 FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
             WHERE e.EntryID = ? AND c.UserID = ?
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         }
 
         // Recursive CTE to get the path
-        const path = db.prepare(`
+        const path = await db.prepare(`
             WITH RECURSIVE Path(EntryID, Title, ParentEntryID, EntryType, CategoryID, Depth) AS (
                 SELECT EntryID, Title, ParentEntryID, EntryType, CategoryID, 0
                 FROM Entry
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         // Get Category name
         const categoryId = path[0].CategoryID;
-        const category = db.prepare('SELECT CategoryID, Name, Type FROM Category WHERE CategoryID = ?').get(categoryId) as any;
+        const category = await db.prepare('SELECT CategoryID, Name, Type FROM Category WHERE CategoryID = ?').get(categoryId) as any;
 
         const breadcrumbs = [];
         if (category) {

@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
         const { date, categoryId, userId } = RequestSchema.parse(body);
 
         // Security check: Ensure category belongs to user
-        const category = db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
+        const category = await db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
 
         if (!category) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 403 });
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
         // We assume CreatedDate stores the "Journal Date". 
         // For a more robust app, we might want a separate 'EntryDate' column, 
         // but 'CreatedDate' works if we override it on creation.
-        const entry = db.prepare(`
+        const entry = await db.prepare(`
             SELECT e.EntryID, e.Title, ec.QuillDelta, ec.HtmlContent, e.Version
             FROM Entry e
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
@@ -44,16 +44,16 @@ export async function POST(req: NextRequest) {
 
         // Create Entry + Content atomically to prevent orphaned rows
         const initialDelta = JSON.stringify({ ops: [{ insert: "\n" }] });
-        const createEntry = db.transaction(() => {
+        const createEntry = db.transaction(async () => {
             // We explicitly set CreatedDate to the requested date (at 12:00 PM to avoid timezone edge cases if just date)
-            const newEntryResult = db.prepare(`
+            const newEntryResult = await db.prepare(`
                 INSERT INTO Entry (CategoryID, Title, PreviewText, CreatedDate)
                 VALUES (?, ?, ?, ?)
             `).run(categoryId, 'New Entry', 'Start writing...', `${date} 12:00:00`);
 
             const newEntryId = newEntryResult.lastInsertRowid;
 
-            db.prepare(`
+            await db.prepare(`
                 INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent)
                 VALUES (?, ?, ?)
             `).run(newEntryId, initialDelta, '');
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
             return newEntryId;
         });
 
-        const newEntryId = createEntry();
+        const newEntryId = await createEntry();
 
         return NextResponse.json({
             id: newEntryId,

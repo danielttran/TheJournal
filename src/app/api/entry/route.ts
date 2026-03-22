@@ -20,10 +20,10 @@ export async function GET(req: NextRequest) {
         const userId = parseInt(userIdCookie.value, 10);
 
         // Verify category ownership
-        const category = db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
+        const category = await db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
         if (!category) return NextResponse.json({ error: "Category not found" }, { status: 404 });
 
-        const entries = db.prepare(`
+        const entries = await db.prepare(`
             SELECT EntryID, Title, ParentEntryID, EntryType, SortOrder, Icon, IsExpanded
             FROM Entry
             WHERE CategoryID = ?

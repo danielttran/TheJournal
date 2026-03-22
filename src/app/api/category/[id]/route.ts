@@ -12,7 +12,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const userId = parseInt(userIdCookie.value, 10);
 
-        const category = db.prepare('SELECT * FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
+        const category = await db.prepare('SELECT * FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
 
         if (!category) {
             return NextResponse.json({ error: "Category not found" }, { status: 404 });
@@ -38,13 +38,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         const userId = parseInt(userIdCookie.value, 10);
 
         // Verify ownership
-        const category = db.prepare('SELECT Name FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as any;
+        const category = await db.prepare('SELECT Name FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as any;
         if (!category) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 404 });
         }
 
         // Count entries that will be destroyed (for client-side confirmation)
-        const entryCount = db.prepare('SELECT COUNT(*) as count FROM Entry WHERE CategoryID = ?').get(categoryId) as any;
+        const entryCount = await db.prepare('SELECT COUNT(*) as count FROM Entry WHERE CategoryID = ?').get(categoryId) as any;
         const count = entryCount?.count || 0;
 
         // Check if client confirmed deletion with entry count (prevents accidental cascade)
@@ -59,7 +59,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         }
 
         // CASCADE DELETE: Category → Entry → EntryContent (via foreign keys)
-        const result = db.prepare('DELETE FROM Category WHERE CategoryID = ? AND UserID = ?').run(categoryId, userId);
+        const result = await db.prepare('DELETE FROM Category WHERE CategoryID = ? AND UserID = ?').run(categoryId, userId);
 
         if (result.changes === 0) {
             return NextResponse.json({ error: "Delete failed" }, { status: 500 });
@@ -90,7 +90,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         // Handle viewSettings or lastSelectedEntryId
         if (viewSettings !== undefined || lastSelectedEntryId !== undefined) {
             // Fetch current settings
-            const category = db.prepare('SELECT ViewSettings FROM Category WHERE CategoryID = ?').get(categoryId) as any;
+            const category = await db.prepare('SELECT ViewSettings FROM Category WHERE CategoryID = ?').get(categoryId) as any;
             const currentSettings = category?.ViewSettings ? JSON.parse(category.ViewSettings) : {};
 
             // Merge updates
@@ -115,7 +115,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         values.push(categoryId, userId);
 
-        const result = db.prepare(`UPDATE Category SET ${updates.join(", ")} WHERE CategoryID = ? AND UserID = ?`)
+        const result = await db.prepare(`UPDATE Category SET ${updates.join(", ")} WHERE CategoryID = ? AND UserID = ?`)
             .run(...values);
 
         if (result.changes === 0) {

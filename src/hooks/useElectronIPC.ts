@@ -24,11 +24,11 @@ export function useElectronIPC<T = void>(
 
         let isMounted = true;
 
-        const listener = window.electron[eventName];
+        const listener = window.electron[eventName] as ((cb: (data?: any) => void) => void) | undefined;
         if (listener) {
-            listener((data: T) => {
+            listener((data?: any) => {
                 if (isMounted) {
-                    handlerRef.current(data);
+                    handlerRef.current(data as T);
                 }
             });
         }

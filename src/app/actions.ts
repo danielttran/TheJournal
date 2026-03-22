@@ -1,7 +1,7 @@
 "use server";
 
-import { db } from "@/lib/db";
-import { hashPassword, verifyPassword } from "@/lib/auth";
+import { db, dbManager } from "@/lib/db";
+import { deriveMasterKey } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -12,46 +12,32 @@ const FormSchema = z.object({
 
 export async function login(prevState: unknown, formData: FormData) {
     const username = formData.get("username");
-    const password = formData.get("password");
+    const password = formData.get("password") as string;
 
-    const validatedFields = FormSchema.safeParse({
-        username,
-        password,
-    });
+    const validatedFields = FormSchema.safeParse({ username, password });
 
     if (!validatedFields.success) {
-        return {
+        return { 
             errors: validatedFields.error.flatten().fieldErrors,
-            message: "Missing Fields. Failed to Login.",
+            message: "Missing Fields. Failed to Login." 
         };
     }
 
-    const { username: validUsername, password: validPassword } = validatedFields.data;
-
     try {
-        const user = db.prepare('SELECT * FROM User WHERE Username = ?').get(validUsername) as any;
+        const hexKey = await deriveMasterKey(validatedFields.data.password);
+        
+        try {
+            await dbManager.unlock(hexKey);
+        } catch (e) {
+            return { message: "Invalid credentials (unlock failed)." };
+        }
+
+        const user = await db.prepare('SELECT * FROM User WHERE Username = ?').get(validatedFields.data.username) as any;
 
         if (!user) {
-            return {
-                message: "Invalid credentials.",
-            };
+            return { message: "Invalid credentials." };
         }
 
-        // Verify Password
-        const isValid = verifyPassword(validPassword, user.PasswordHash, user.Salt, user.Iterations);
-
-        if (!isValid) {
-            return {
-                message: "Invalid credentials.",
-            };
-        }
-
-        // Success
-        // Success logic here (silent)
-
-        // Set cookie
-        // Note: In a real app, use a secure session ID or JWT properly signed.
-        // This is a simple implementation for demonstration.
         const { cookies } = await import("next/headers");
         (await cookies()).set("userId", user.UserID.toString(), {
             httpOnly: true,
@@ -62,30 +48,23 @@ export async function login(prevState: unknown, formData: FormData) {
         });
 
         redirect("/dashboard");
-
     } catch (error) {
-        if ((error as any).digest?.startsWith('NEXT_REDIRECT')) {
-            throw error;
-        }
-        /* silence */
-        return {
-            message: "Database error: " + (error as Error).message,
-        };
+        if ((error as any).digest?.startsWith('NEXT_REDIRECT')) throw error;
+        return { message: "Database error: " + (error as Error).message };
     }
 }
 
 export async function logout() {
+    dbManager.close(); // Disconnect and wipe key from RAM
     const { cookies } = await import("next/headers");
     (await cookies()).delete("userId");
     redirect("/login");
 }
 
-
-
 const RegisterSchema = z.object({
     username: z.string().min(3),
-    password: z.string().min(1), // Removing restriction
-    confirmPassword: z.string().min(1), // Removing restriction
+    password: z.string().min(1),
+    confirmPassword: z.string().min(1),
 }).refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
     path: ["confirmPassword"],
@@ -93,50 +72,33 @@ const RegisterSchema = z.object({
 
 export async function register(prevState: unknown, formData: FormData) {
     const username = formData.get("username");
-    const password = formData.get("password");
+    const password = formData.get("password") as string;
     const confirmPassword = formData.get("confirmPassword");
 
-    const validatedFields = RegisterSchema.safeParse({
-        username,
-        password,
-        confirmPassword,
-    });
+    const validatedFields = RegisterSchema.safeParse({ username, password, confirmPassword });
 
     if (!validatedFields.success) {
-        return {
+        return { 
             errors: validatedFields.error.flatten().fieldErrors,
-            message: "Missing Fields. Failed to Register.",
+            message: "Missing Fields. Failed to Register." 
         };
     }
 
-    const { username: validUsername, password: validPassword } = validatedFields.data;
-
     try {
-        const user = db.prepare('SELECT 1 FROM User WHERE Username = ?').get(validUsername);
+        const hexKey = await deriveMasterKey(validatedFields.data.password);
+        await dbManager.unlock(hexKey);
+
+        const user = await db.prepare('SELECT 1 FROM User WHERE Username = ?').get(validatedFields.data.username);
 
         if (user) {
-            return {
-                message: "Username already taken.",
-            };
+            return { message: "Username already taken." };
         }
 
-        const { hash, salt, iterations } = hashPassword(validPassword);
-
-        const stmt = db.prepare('INSERT INTO User (Username, PasswordHash, Salt, Iterations) VALUES (?, ?, ?, ?)');
-        const info = stmt.run(validUsername, hash, salt, iterations);
-
-        // Success logic here (silent)
-
-        // NO auto-login (no cookie set)
+        await db.prepare('INSERT INTO User (Username) VALUES (?)').run(validatedFields.data.username);
 
         redirect("/login?registered=true");
     } catch (error) {
-        if ((error as any).digest?.startsWith('NEXT_REDIRECT')) {
-            throw error;
-        }
-        /* silence */
-        return {
-            message: "Database error: " + (error as Error).message,
-        };
+        if ((error as any).digest?.startsWith('NEXT_REDIRECT')) throw error;
+        return { message: "Registration error: " + (error as Error).message };
     }
 }

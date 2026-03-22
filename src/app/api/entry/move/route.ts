@@ -20,14 +20,14 @@ export async function PUT(req: NextRequest) {
         const userId = parseInt(userIdCookie.value, 10);
 
         // Verify entry belongs to user
-        const entry = db.prepare(`
+        const entry = await db.prepare(`
             SELECT 1 FROM Entry e JOIN Category c ON e.CategoryID = c.CategoryID
             WHERE e.EntryID = ? AND c.UserID = ?
         `).get(entryId, userId);
         if (!entry) return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
 
         // Update Entry
-        const result = db.prepare(`
+        const result = await db.prepare(`
             UPDATE Entry
             SET ParentEntryID = ?, SortOrder = ?, ModifiedDate = CURRENT_TIMESTAMP
             WHERE EntryID = ?

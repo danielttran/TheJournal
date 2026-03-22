@@ -26,7 +26,6 @@ export interface Entry {
 declare global {
     interface Window {
         electron: {
-            saveFile: (content: string) => Promise<boolean>;
             getSettings: () => Promise<any>;
             saveSetting: (key: string, value: any) => Promise<any>;
             logout: () => Promise<boolean>;
@@ -34,7 +33,10 @@ declare global {
             onExportDB: (callback: () => void) => void;
             onLogoutRequest: (callback: () => void) => void;
             onOpenSettings: (callback: () => void) => void;
+            onToggleTheme: (callback: () => void) => void;
             selectFolder: () => Promise<string | null>;
+            storePassword: (pwd: string) => Promise<boolean>;
+            getStoredPassword: () => Promise<string | null>;
         };
     }
 }

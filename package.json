@@ -6,11 +6,11 @@
   "author": "User",
   "description": "TheJournal App",
   "scripts": {
-    "dev": "npm rebuild better-sqlite3 && next dev",
+    "dev": "npm rebuild @journeyapps/sqlcipher && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "dev:electron": "npm rebuild better-sqlite3 && concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev:electron": "npm rebuild @journeyapps/sqlcipher && concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build:electron": "next build",
     "build:installer": "node scripts/install-sqlite.js && electron-builder"
   },
@@ -18,7 +18,9 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "better-sqlite3": "^12.6.2",
+    "@journeyapps/sqlcipher": "^5.3.1",
+    "@types/argon2": "^0.14.1",
+    "argon2": "^0.44.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "emoji-picker-react": "^4.16.1",
@@ -39,7 +41,6 @@
   "devDependencies": {
     "@electron/rebuild": "^4.0.2",
     "@tailwindcss/postcss": "^4",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

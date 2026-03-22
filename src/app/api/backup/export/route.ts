@@ -1,8 +1,8 @@
 import { join } from 'path';
-import { readFile, unlink, stat } from 'fs/promises';
-import { NextRequest, NextResponse } from 'next/server';
+import { copyFile, unlink } from 'fs/promises';
+import { existsSync } from 'fs';
+import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import Database from 'better-sqlite3';
 
 export async function GET() {
     try {
@@ -13,41 +13,34 @@ export async function GET() {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        console.log("Export: Starting SQLite Backup...");
+        // 1. Locate the live encrypted DB file
+        const dbPath = process.env.JOURNAL_DB_PATH || join(process.cwd(), 'journal.db');
+        if (!existsSync(dbPath)) {
+            throw new Error("Database file not found.");
+        }
 
-        // 1. Validate Live DB has data
-        const liveCount = db.prepare("SELECT Count(*) as c FROM Category").get() as any;
+        // 2. Validate that there is data to export
+        const liveCount = await db.prepare("SELECT count(*) as c FROM Category").get() as any;
         if (liveCount.c === 0) {
             throw new Error("Export Aborted: The current database is empty.");
         }
 
+        // 3. Copy the encrypted DB file directly.
+        //    The copy IS encrypted (SQLCipher) — VACUUM INTO would have created a plain-text file.
         const timestamp = new Date().toISOString().split('T')[0];
-        const tempName = `backup-${Date.now()}.db`;
-        const tempPath = join(process.cwd(), tempName);
+        const tempPath = join(process.cwd(), `export-temp-${Date.now()}.tjdb`);
+        await copyFile(dbPath, tempPath);
 
-        // 2. Use VACUUM INTO for atomic snapshot
-        db.prepare('VACUUM INTO ?').run(tempPath);
-
-        // 3. Verify Snapshot
-        const verifyDb = new Database(tempPath);
-        try {
-            const verifyCount = verifyDb.prepare("SELECT Count(*) as c FROM Category").get() as any;
-            if (verifyCount.c === 0) {
-                await unlink(tempPath);
-                throw new Error(`Export Integrity Check Failed: Snapshot has 0 categories.`);
-            }
-        } finally {
-            verifyDb.close();
-        }
-
+        // 4. Read and return, then clean up
+        const { readFile } = await import('fs/promises');
         const fileBuffer = await readFile(tempPath);
         await unlink(tempPath);
 
-        const filename = `journal-backup-${timestamp}.db`;
+        const filename = `journal-backup-${timestamp}.tjdb`;
 
         return new NextResponse(fileBuffer, {
             headers: {
-                'Content-Type': 'application/x-sqlite3',
+                'Content-Type': 'application/octet-stream',
                 'Content-Disposition': `attachment; filename="${filename}"`
             }
         });

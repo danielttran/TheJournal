@@ -20,12 +20,12 @@ const ReactQuill = dynamic(async () => {
         window.hljs = hljs;
     }
 
-    const BlockEmbed = Quill.import('blots/block/embed');
-    const Link = Quill.import('formats/link');
+    const BlockEmbed = Quill.import('blots/block/embed') as any;
+    const Link = Quill.import('formats/link') as any;
 
-    const Size = Quill.import('attributors/style/size');
+    const Size = Quill.import('attributors/style/size') as any;
     Size.whitelist = ['8px', '9px', '10px', '11px', '12px', '14px', '16px', '18px', '20px', '22px', '24px', '26px', '28px', '36px', '48px', '72px'];
-    Quill.register(Size, true);
+    Quill.register(Size as any, true);
 
     class CustomVideo extends BlockEmbed {
         static create(value: string) {
@@ -45,9 +45,9 @@ const ReactQuill = dynamic(async () => {
             return Link.sanitize(url);
         }
     }
-    CustomVideo.blotName = 'video';
-    CustomVideo.tagName = 'iframe';
-    CustomVideo.className = 'ql-video';
+    (CustomVideo as any).blotName = 'video';
+    (CustomVideo as any).tagName = 'iframe';
+    (CustomVideo as any).className = 'ql-video';
 
     Quill.register(CustomVideo as any, true);
 
@@ -56,9 +56,8 @@ const ReactQuill = dynamic(async () => {
 
 declare global {
     interface Window {
-        katex: any;
-        hljs: any;
-        electron?: any;
+        katex?: any;
+        hljs?: any;
     }
 }
 
@@ -145,7 +144,10 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         window.hljs = hljs;
     }, []);
 
-    useEffect(() => { entryIdRef.current = entryId; }, [entryId]);
+    // entryIdRef is kept in sync by setting it directly alongside every setEntryId() call.
+    // Do NOT rely purely on a useEffect for this — there is a render-cycle gap where
+    // the ref is stale (null) even though state has the new ID. Fast switching in that
+    // gap causes flushPendingSave to see entryIdRef=null and silently skip the save.
 
     // Core Save Function. snapshot is populated on first call and reused across retries
     // to avoid re-reading refs that may point to a different note after a switch.
@@ -270,22 +272,27 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     }, [userId]);
 
     const handleChange = useCallback((_content: string, _delta: any, source: string, editor: any) => {
-        // ALWAYS update refs
+        // ALWAYS update refs on every change
         contentRef.current = editor.getHTML();
         deltaRef.current = editor.getContents();
 
-        if (source === 'user' && isFullyLoadedRef.current) {
+        if (source === 'user') {
+            // ALWAYS mark dirty on user input — even during loading.
+            // This ensures flushPendingSave captures content typed before isFullyLoaded.
             if (!isDirtyRef.current) {
                 isDirtyRef.current = true;
                 setSaveError(false);
             }
 
-            if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-            saveTimeoutRef.current = setTimeout(() => {
-                if (entryIdRef.current && isDirtyRef.current) {
-                    performSave(entryIdRef.current, true);
-                }
-            }, 1000);
+            // Only schedule auto-save once fully loaded to avoid premature saves
+            if (isFullyLoadedRef.current) {
+                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = setTimeout(() => {
+                    if (entryIdRef.current && isDirtyRef.current) {
+                        performSave(entryIdRef.current, true);
+                    }
+                }, 1000);
+            }
         }
     }, [performSave]);
 
@@ -350,14 +357,16 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = null;
         }
-        if (isDirtyRef.current && entryIdRef.current && isFullyLoadedRef.current) {
+        // Flush if dirty AND we have an entry ID.
+        // Do NOT require isFullyLoadedRef — content typed during loading is still in refs
+        // and must be saved before switching to avoid data loss.
+        if (isDirtyRef.current && entryIdRef.current) {
             const id = entryIdRef.current;
             const { delta, html } = snapshotEditorState();
             const currentCacheKey = cacheKeyRef.current;
             const version = versionRef.current; // Snapshot before reset
 
             // Write a safety backup BEFORE attempting the network save.
-            // This ensures data survives even if the fetch fails AND the tab closes.
             localStorage.setItem('editor_backup', JSON.stringify({
                 entryId: id,
                 content: html,
@@ -365,10 +374,18 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 timestamp: Date.now()
             }));
 
+            // *** KEY FIX: Update the cache IMMEDIATELY with the latest typed content. ***
+            // Without this, switching back before the PUT completes shows stale content
+            // from the cache (which only had whatever was last saved to the server).
+            cacheEntry(`entry-${id}`, html, delta);
+            if (currentCacheKey && currentCacheKey !== `entry-${id}`) {
+                cacheEntry(currentCacheKey, html, delta);
+            }
+
             // Mark clean immediately to prevent double saves
             isDirtyRef.current = false;
 
-            console.log("Flushing save for entry", id, "before switch");
+            console.log(`[Editor] FLUSHING entry ${id} (isDirty: ${isDirtyRef.current}) | CacheKey: ${currentCacheKey} | HTML: ${html.length} chars`);
 
             const { url, body } = buildSavePayload(id, delta, html, version);
 
@@ -380,30 +397,28 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     body: JSON.stringify(body)
                 }).then(res => {
                     if (res.ok) {
+                        console.log(`[Editor] Flush SUCCEEDED for entry ${id}`);
                         window.dispatchEvent(new CustomEvent('journal-entry-updated'));
-                        // Only remove backup if it still belongs to this entry (avoid deleting new note's backup)
+                        // Only remove backup if it still belongs to this entry
                         try {
                             const backup = JSON.parse(localStorage.getItem('editor_backup') || '{}');
                             if (backup.entryId === id) localStorage.removeItem('editor_backup');
                         } catch (e) { localStorage.removeItem('editor_backup'); }
-                        cacheEntry(`entry-${id}`, html, delta);
-                        if (currentCacheKey && currentCacheKey !== `entry-${id}`) {
-                            cacheEntry(currentCacheKey, html, delta);
-                        }
+                        // Cache already updated above — no need to re-write on success
                     } else if (res.status === 409) {
                         console.error("Flush save conflict — another session modified this entry");
-                        // Don't retry on conflict — backup is preserved in localStorage
                     } else if (attempt < 2) {
-                        // Retry once on server error
                         setTimeout(() => attemptSave(attempt + 1), 500);
                     } else {
                         console.error("Flush save failed after retries, backup preserved in localStorage");
+                        isDirtyRef.current = true;
                     }
                 }).catch(err => {
                     if (attempt < 2) {
                         setTimeout(() => attemptSave(attempt + 1), 500);
                     } else {
                         console.error("Flush save failed:", err, "— backup preserved in localStorage");
+                        isDirtyRef.current = true;
                     }
                 });
             };
@@ -605,30 +620,40 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
     }, [updateLoadingProgress]);
 
-    // Initial Load
+    // Initial Load useEffect:
+    // This effect manages the transition between notes.
     useEffect(() => {
-        // CRITICAL: Save any dirty content BEFORE resetting state for the new note.
-        // This snapshots content from refs/Quill before they get wiped.
-        flushPendingSave();
-
-        // Cancel any previous Quill rendering (but NOT the fetch — let it finish and cache)
-        if (renderAbortRef.current) {
-            renderAbortRef.current.abort();
-        }
-
-        const renderAbort = new AbortController();
-        renderAbortRef.current = renderAbort;
         let isMounted = true;
 
-        // Reset state for the new note
+        // 1. CRITICAL: Save any dirty content from the PREVIOUS note BEFORE we change any refs.
+        // This snapshots content from the old note's identity.
+        flushPendingSave();
+
+        // 2. NOW it is safe to reset state and refs for the new note
         isFullyLoadedRef.current = false;
+        // isDirtyRef should NOT be reset here if it was set during the render gap;
+        // but flushPendingSave already set it to false if it handled the old note.
+        // We'll set it to false here to be sure the new note starts clean.
         isDirtyRef.current = false;
         contentRef.current = '';
         deltaRef.current = null;
         versionRef.current = null;
+
+        // Cancel any previous Quill rendering controller
+        if (renderAbortRef.current) {
+            renderAbortRef.current.abort();
+        }
+        const renderAbort = new AbortController();
+        renderAbortRef.current = renderAbort;
+
         setLoadingProgress(0);
 
-        // Clear Quill editor immediately to prevent stale content flash
+        // 3. Update the cache key and entry ID refs for the new note
+        const cacheKey = urlEntryId ? `entry-${urlEntryId}` : `date-${categoryId}-${selectedDate}`;
+        cacheKeyRef.current = cacheKey;
+        if (urlEntryId) entryIdRef.current = urlEntryId;
+
+        // Clear Quill editor immediately to prevent stale content flash from previous note
         if (quillRef.current) {
             try {
                 const quill = quillRef.current.getEditor();
@@ -636,15 +661,11 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             } catch (e) { /* Quill not ready yet */ }
         }
 
-        // Build a cache key for this note and store in ref for save-time cache updates
-        const cacheKey = urlEntryId ? `entry-${urlEntryId}` : `date-${categoryId}-${selectedDate}`;
-        cacheKeyRef.current = cacheKey;
-
         const loadEntry = async () => {
             try {
                 setSaveError(false);
 
-                // Check cache first for instant loading
+                // Use the local cacheKey we just built to avoid any race with the ref
                 const cached = getCachedEntry(cacheKey);
                 if (cached) {
                     console.log("Cache hit for", cacheKey);
@@ -654,6 +675,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     // For cached entries, load content directly into Quill
                     if (urlEntryId) {
                         setEntryId(urlEntryId);
+                        entryIdRef.current = urlEntryId; // Set ref immediately — don't wait for useEffect
                         // Fetch current version for optimistic locking even on cache hit.
                         // Only set if versionRef is still null (avoids race with saves that already updated it).
                         fetch(`/api/entry/${urlEntryId}`).then(r => r.ok ? r.json() : null).then(d => {
@@ -672,6 +694,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                             const data = await res.json();
                             const loadedId = data.EntryID || data.id;
                             setEntryId(loadedId);
+                            entryIdRef.current = loadedId; // Set ref immediately
                             versionRef.current = data.Version ?? null;
                             loadContentSafely(loadedId, cached.html, cached.delta, renderAbort.signal);
                         }
@@ -752,6 +775,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     }
 
                     setEntryId(loadedId);
+                    entryIdRef.current = loadedId; // Set ref immediately — don't wait for useEffect
                     versionRef.current = data.Version ?? null;
                     loadContentSafely(loadedId, loadedHtml, loadedDelta, renderAbort.signal);
 
@@ -776,9 +800,13 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
         return () => {
             isMounted = false;
+            // CRITICAL: Flush any pending changes BEFORE clearing the timeout.
+            // This is what ensures data is saved when switching notes quickly.
+            flushPendingSave();
+
             // Only abort rendering, NOT the fetch — fetch continues to populate cache
             renderAbort.abort();
-            // Clear any pending auto-save timeout to prevent saves after unmount
+            // Clear any pending auto-save timeout to prevent redundant saves after unmount
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = null;
@@ -944,6 +972,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
 
             <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
                 <ReactQuill
+                    // @ts-expect-error — react-quill-new ref typings are incompatible with React 18 forwardRef
                     ref={quillRef}
                     theme="snow"
                     defaultValue={''}

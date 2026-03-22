@@ -1,29 +1,24 @@
-import { pbkdf2Sync, randomBytes, timingSafeEqual } from "crypto";
+import argon2 from 'argon2';
+import { createHash } from 'crypto';
 import { cookies } from "next/headers";
 
-const ITERATIONS = 600000;
-const KEYLEN = 64;
-const DIGEST = "sha256";
+const PEPPER = "TheJournalPepper2026";
 
-export function hashPassword(password: string) {
-    const salt = randomBytes(16).toString("hex");
-    const hash = pbkdf2Sync(password, salt, ITERATIONS, KEYLEN, DIGEST).toString("hex");
+export async function deriveMasterKey(password: string): Promise<string> {
+    // 1. Generate deterministic 16-byte salt from password + pepper
+    const salt = createHash('sha256').update(password + PEPPER).digest().slice(0, 16);
+    
+    // 2. Derive 32-byte key using Argon2id
+    const rawKey = await argon2.hash(password, {
+        type: argon2.argon2id,
+        salt: salt,
+        raw: true,
+        memoryCost: 65536, // 64 MB
+        timeCost: 3,       // 3 iterations
+        parallelism: 4     // 4 threads
+    });
 
-    return {
-        hash,
-        salt,
-        iterations: ITERATIONS,
-    };
-}
-
-export function verifyPassword(password: string, hash: string, salt: string, iterations: number) {
-    const derivedHash = pbkdf2Sync(password, salt, iterations, KEYLEN, DIGEST).toString("hex");
-
-    // Timing safe comparison to prevent timing attacks
-    const derivedHashBuff = Buffer.from(derivedHash, 'hex');
-    const originalHashBuff = Buffer.from(hash, 'hex');
-
-    return timingSafeEqual(derivedHashBuff, originalHashBuff);
+    return rawKey.toString('hex');
 }
 
 export async function getSessionUserId(): Promise<number | null> {

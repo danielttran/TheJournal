@@ -21,14 +21,14 @@ export async function PUT(req: NextRequest) {
         const { updates } = ReorderSchema.parse(body);
 
         // Only update categories belonging to this user
-        const transaction = db.transaction(() => {
-            const stmt = db.prepare('UPDATE Category SET SortOrder = ? WHERE CategoryID = ? AND UserID = ?');
+        const transaction = db.transaction(async () => {
+            const stmt = await db.prepare('UPDATE Category SET SortOrder = ? WHERE CategoryID = ? AND UserID = ?');
             for (const update of updates) {
                 stmt.run(update.sortOrder, update.id, userId);
             }
         });
 
-        transaction();
+        await transaction();
 
         return NextResponse.json({ success: true });
     } catch (error) {

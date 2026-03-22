@@ -30,23 +30,23 @@ export async function POST(req: NextRequest) {
 
         // 2. ATTACH the uploaded database
         try {
-            db.prepare(`ATTACH DATABASE ? AS imported`).run(tempPath);
+            await db.prepare(`ATTACH DATABASE ? AS imported`).run(tempPath);
         } catch (e: any) {
             console.error("Import: Failed to attach", e);
             throw new Error("Could not read uploaded database file.");
         }
 
         // 3. Perform Restore Transaction
-        const transaction = db.transaction(() => {
+        const transaction = db.transaction(async () => {
             // A. Clear current user's data
-            db.prepare('DELETE FROM Category WHERE UserID = ?').run(userId);
+            await db.prepare('DELETE FROM Category WHERE UserID = ?').run(userId);
 
             // B. ID Remapping Strategy
-            const importedCats = db.prepare("SELECT * FROM imported.Category").all() as any[];
+            const importedCats = await db.prepare("SELECT * FROM imported.Category").all() as any[];
             const idMap = new Map<number, number>(); // OldCatID -> NewCatID
 
             for (const cat of importedCats) {
-                const newCat = db.prepare(`
+                const newCat = await db.prepare(`
                     INSERT INTO main.Category (UserID, Name, Color, IsPrivate, Type, Icon, ViewSettings, SortOrder)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                  `).run(userId, cat.Name, cat.Color, cat.IsPrivate, cat.Type || 'Journal', cat.Icon, cat.ViewSettings, cat.SortOrder || 0);
@@ -55,14 +55,14 @@ export async function POST(req: NextRequest) {
             }
 
             // C. Copy Entries
-            const importedEntries = db.prepare("SELECT * FROM imported.Entry").all() as any[];
+            const importedEntries = await db.prepare("SELECT * FROM imported.Entry").all() as any[];
             const entryIdMap = new Map<number, number>(); // OldEntryID -> NewEntryID
 
             for (const entry of importedEntries) {
                 const newCatId = idMap.get(entry.CategoryID);
                 if (!newCatId) continue; // Orphaned entry
 
-                const newEntry = db.prepare(`
+                const newEntry = await db.prepare(`
                     INSERT INTO main.Entry(CategoryID, Title, PreviewText, IsLocked, CreatedDate, ModifiedDate, EntryType, SortOrder, Icon, IsExpanded)
                     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         `).run(
@@ -82,12 +82,12 @@ export async function POST(req: NextRequest) {
             }
 
             // D. Copy Content
-            const importedContent = db.prepare("SELECT * FROM imported.EntryContent").all() as any[];
+            const importedContent = await db.prepare("SELECT * FROM imported.EntryContent").all() as any[];
             for (const content of importedContent) {
                 const newEntryId = entryIdMap.get(content.EntryID);
                 if (!newEntryId) continue;
 
-                db.prepare(`
+                await db.prepare(`
                     INSERT INTO main.EntryContent(EntryID, QuillDelta, HtmlContent)
                     VALUES(?, ?, ?)
                         `).run(newEntryId, content.QuillDelta, content.HtmlContent);
@@ -100,17 +100,17 @@ export async function POST(req: NextRequest) {
                     const newParentId = entryIdMap.get(entry.ParentEntryID);
 
                     if (newEntryId && newParentId) {
-                        db.prepare("UPDATE main.Entry SET ParentEntryID = ? WHERE EntryID = ?")
+                        await db.prepare("UPDATE main.Entry SET ParentEntryID = ? WHERE EntryID = ?")
                             .run(newParentId, newEntryId);
                     }
                 }
             }
         });
 
-        transaction();
+        await transaction();
 
         // 4. DETACH
-        db.prepare("DETACH imported").run();
+        await db.prepare("DETACH imported").run();
 
         // 5. Cleanup
         await unlink(tempPath);
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
         console.error("Import failed", error);
 
         // Try cleanup
-        try { db.prepare("DETACH imported").run(); } catch (e) { }
+        try { await db.prepare("DETACH imported").run(); } catch (e) { }
         try { if (tempPath) await unlink(tempPath); } catch (e) { }
 
         return NextResponse.json({ error: "Failed to import", details: error.message }, { status: 500 });

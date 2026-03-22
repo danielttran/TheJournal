@@ -396,7 +396,7 @@ export default function TabBar({ userId }: { userId: string }) {
     return (
         <div className="flex flex-col w-full bg-bg-sidebar border-b border-border-primary transition-colors duration-200">
             {/* Hidden file input for imports */}
-            <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite" onChange={handleFileChange} />
+            <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite,.tjdb" onChange={handleFileChange} />
 
             {/* FILE MENU & HEADER - Show in web, but hide in Electron to avoid duplicate menu */}
             {isClient && typeof window !== 'undefined' && !window.electron && (

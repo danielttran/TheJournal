@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import JournalView from '@/components/journal/JournalView';
 
 async function getCategory(categoryId: string, userId: string): Promise<any> {
-    const category = db.prepare('SELECT * FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as any;
+    const category = await db.prepare('SELECT * FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as any;
     return category;
 }
 
@@ -32,7 +32,7 @@ export default async function JournalPage({ params, searchParams }: {
         const sectionId = typeof sp.section === 'string' ? sp.section : sp.section[0];
         // Fetch children of this section
         dataUrl = `/api/entry/children?parentId=${sectionId}`;
-        gridEntries = db.prepare(`
+        gridEntries = await db.prepare(`
             SELECT EntryID, Title, CreatedDate, Icon, PreviewText, EntryType
             FROM Entry 
             WHERE ParentEntryID = ?
@@ -40,14 +40,14 @@ export default async function JournalPage({ params, searchParams }: {
         `).all(sectionId) as any[];
 
         // Get Section Title for header
-        const section = db.prepare('SELECT Title FROM Entry WHERE EntryID = ?').get(sectionId) as any;
+        const section = await db.prepare('SELECT Title FROM Entry WHERE EntryID = ?').get(sectionId) as any;
         gridTitle = section ? section.Title : "Section";
 
     } else if (sp.month) {
         const monthKey = typeof sp.month === 'string' ? sp.month : sp.month[0]; // "YYYY-MM"
         // Fetch entries for this month
         dataUrl = `/api/entry/dates?categoryId=${categoryId}&month=${monthKey}`;
-        gridEntries = db.prepare(`
+        gridEntries = await db.prepare(`
             SELECT EntryID, Title, CreatedDate, Icon, PreviewText
             FROM Entry 
             WHERE CategoryID = ? AND strftime('%Y-%m', CreatedDate) = ?

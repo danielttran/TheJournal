@@ -22,20 +22,34 @@ function LoginFormContent() {
     };
     const formRef = useRef<HTMLFormElement>(null);
 
-    // Save settings when login is successful (detected by redirect or lack of error)
-    // However, since it's a server action redirect, we might need a better way.
-    // For now, we save it on submit if rememberMe is checked.
+    const [pendingCredentials, setPendingCredentials] = useState<{ username: string; password: string; remember: boolean } | null>(null);
+
+    // After login action returns, check if it failed.
+    // If it did, roll back any credentials we saved optimistically.
+    useEffect(() => {
+        if (!pendingCredentials) return;
+        if (state && (state.message || state.errors)) {
+            // Login failed — undo optimistic credential storage
+            if (typeof window !== 'undefined' && window.electron) {
+                window.electron.saveSetting('rememberMe', false);
+                window.electron.saveSetting('savedPassword', '');
+            }
+            setPendingCredentials(null);
+        }
+        // If state is null, login succeeded (redirect happened) — no cleanup needed
+    }, [state]);
+
     const handleSubmit = async (formData: FormData) => {
-        if (window.electron) {
+        if (typeof window !== "undefined" && window.electron) {
             const username = formData.get("username") as string;
             const password = formData.get("password") as string;
 
-            // Always sync the userName setting as requested
             await window.electron.saveSetting("userName", username);
 
             if (rememberMeRef.current) {
-                await window.electron.saveSetting("rememberMe", true);
-                await window.electron.saveSetting("savedPassword", password);
+                // Store optimistically — rolled back in useEffect if login fails
+                await window.electron.storePassword(password);
+                setPendingCredentials({ username, password, remember: true });
             } else {
                 await window.electron.saveSetting("rememberMe", false);
                 await window.electron.saveSetting("savedPassword", "");
@@ -46,33 +60,28 @@ function LoginFormContent() {
         });
     };
 
-    // Load settings on mount
     useEffect(() => {
-        if (window.electron) {
-            window.electron.getSettings().then((settings) => {
+        if (typeof window !== "undefined" && window.electron) {
+            window.electron.getSettings().then(async (settings) => {
                 if (settings && settings.rememberMe) {
                     setRememberMe(true);
-                    const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement;
-                    const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement;
+                    const savedUser = settings.userName || "";
+                    const savedPass = await window.electron.getStoredPassword();
 
-                    if (usernameInput && passwordInput) {
-                        const savedUser = settings.userName || "";
-                        const savedPass = settings.savedPassword || "";
+                    if (savedUser && savedPass) {
+                        const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement;
+                        const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement;
 
-                        usernameInput.value = savedUser;
-                        passwordInput.value = savedPass;
+                        if (usernameInput) usernameInput.value = savedUser;
+                        if (passwordInput) passwordInput.value = savedPass;
 
-                        // Auto-login if both are present
-                        if (savedUser && savedPass) {
-                            const formData = new FormData();
-                            formData.append("username", savedUser);
-                            formData.append("password", savedPass);
+                        const formData = new FormData();
+                        formData.append("username", savedUser);
+                        formData.append("password", savedPass);
 
-                            // Small timeout to ensure form is ready and user sees what's happening
-                            setTimeout(() => {
-                                handleSubmit(formData);
-                            }, 50);
-                        }
+                        setTimeout(() => {
+                            handleSubmit(formData);
+                        }, 50);
                     }
                 }
             });

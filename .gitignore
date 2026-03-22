@@ -40,4 +40,17 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 /dist
+
+# database and backups
 journal.db*
+*.tjdb
+*.sqlite
+*.db.bak
+
+# logs and reports
+lint_report.txt
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log

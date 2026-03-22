@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
         const userId = parseInt(userIdCookie.value, 10);
 
         // Verify category ownership
-        const category = db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
+        const category = await db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
         if (!category) return NextResponse.json({ error: "Category not found" }, { status: 404 });
 
         let query = `
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 
         query += ` ORDER BY CreatedDate DESC`;
 
-        const entries = db.prepare(query).all(...params) as Entry[];
+        const entries = await db.prepare(query).all(...params) as Entry[];
 
         return NextResponse.json(entries);
     } catch (error) {

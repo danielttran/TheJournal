@@ -21,13 +21,13 @@ const UpdateSchema = z.object({
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     // Recursive helper to get all descendant IDs
-    const getAllDescendantIds = (rootId: number): number[] => {
+    const getAllDescendantIds = async (rootId: number): Promise<number[]> => {
         const descendants: number[] = [];
         const queue = [rootId];
         while (queue.length > 0) {
             const current = queue.shift()!;
             descendants.push(current);
-            const children = db.prepare('SELECT EntryID FROM Entry WHERE ParentEntryID = ?').all(current) as { EntryID: number }[];
+            const children = await db.prepare('SELECT EntryID FROM Entry WHERE ParentEntryID = ?').all(current) as { EntryID: number }[];
             for (const child of children) {
                 queue.push(child.EntryID);
             }
@@ -48,7 +48,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         const userId = parseInt(userIdCookie.value, 10);
 
         // Security Check
-        const entry = db.prepare(`
+        const entry = await db.prepare(`
             SELECT 1 FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
             WHERE e.EntryID = ? AND c.UserID = ?
@@ -58,16 +58,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
             return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
         }
 
-        const deleteTransaction = db.transaction(() => {
+        const deleteTransaction = db.transaction(async () => {
             // 1. Identify all IDs to delete (Self + Descendants)
-            const idsToDelete = getAllDescendantIds(entryId);
+            const idsToDelete = await getAllDescendantIds(entryId);
 
             if (idsToDelete.length === 0) return;
 
             const placeholders = idsToDelete.map(() => '?').join(',');
 
             // 2. Delete Content
-            db.prepare(`DELETE FROM EntryContent WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
+            await db.prepare(`DELETE FROM EntryContent WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
 
             // 3. Delete Entries
             // We can delete all in one go. Foreign keys might complain if we don't do bottom-up, 
@@ -76,10 +76,10 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
             // If we just DELETE FROM Entry WHERE EntryID IN (...), order matters if self-referencing FK is restrictive.
             // But usually, deleting parent with CASCADE works. If NO ACTION/RESTRICT, we must delete children first.
             // Let's assume standard behavior: delete the set. If fails, we might need reverse sort by hierarchy.
-            db.prepare(`DELETE FROM Entry WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
+            await db.prepare(`DELETE FROM Entry WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
         });
 
-        deleteTransaction();
+        await deleteTransaction();
 
         return NextResponse.json({ success: true });
     } catch (error) {
@@ -99,7 +99,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const userId = parseInt(userIdCookie.value, 10);
 
-        const entry = db.prepare(`
+        const entry = await db.prepare(`
             SELECT e.EntryID, e.Title, ec.HtmlContent, ec.QuillDelta, e.Icon, e.Version
             FROM Entry e
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
@@ -142,7 +142,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const { content, html, title, preview, userId, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, expectedVersion } = result.data;
 
         // 2. Security Check
-        const entry = db.prepare(`
+        const entry = await db.prepare(`
             SELECT e.Version FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
             WHERE e.EntryID = ? AND c.UserID = ?
@@ -163,18 +163,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         // Wrap in transaction
         let newVersion = (entry.Version ?? 1) + 1;
-        const updateTransaction = db.transaction(() => {
+        const updateTransaction = db.transaction(async () => {
             // 4. Update Content (if provided)
             if (content !== undefined) {
                 const deltaString = JSON.stringify(content);
-                const updateContent = db.prepare(`
+                const updateContent = await db.prepare(`
                     UPDATE EntryContent
                     SET QuillDelta = ?, HtmlContent = ?
                     WHERE EntryID = ?
                 `).run(deltaString, html || '', entryId);
 
                 if (updateContent.changes === 0) {
-                    db.prepare(`
+                    await db.prepare(`
                         INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent)
                         VALUES (?, ?, ?)
                     `).run(entryId, deltaString, html || '');
@@ -195,14 +195,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             if (isExpanded !== undefined) { updates.push("IsExpanded = ?"); values.push(isExpanded ? 1 : 0); }
 
             values.push(entryId);
-            const updateResult = db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
+            const updateResult = await db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
 
             if (updateResult.changes === 0) {
                 throw new Error(`UPDATE affected 0 rows for EntryID ${entryId}`);
             }
         });
 
-        updateTransaction();
+        await updateTransaction();
 
         return NextResponse.json({ success: true, version: newVersion });
 

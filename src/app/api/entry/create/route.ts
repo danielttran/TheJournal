@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
         const { categoryId, userId, title, parentEntryId, entryType } = CreateEntrySchema.parse(body);
 
         // Security check: Ensure category belongs to user
-        const category = db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
+        const category = await db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
 
         if (!category) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 403 });
@@ -24,15 +24,15 @@ export async function POST(req: NextRequest) {
 
         // Create Entry + Content atomically to prevent orphaned rows
         const initialDelta = JSON.stringify({ ops: [{ insert: "\n" }] });
-        const createEntry = db.transaction(() => {
-            const result = db.prepare(`
+        const createEntry = db.transaction(async () => {
+            const result = await db.prepare(`
                 INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType)
                 VALUES (?, ?, ?, ?, ?)
             `).run(categoryId, title, 'Start writing...', parentEntryId || null, entryType);
 
             const newEntryId = result.lastInsertRowid;
 
-            db.prepare(`
+            await db.prepare(`
                 INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent)
                 VALUES (?, ?, ?)
             `).run(newEntryId, initialDelta, '');
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
             return newEntryId;
         });
 
-        const newEntryId = createEntry();
+        const newEntryId = await createEntry();
 
         return NextResponse.json({
             id: newEntryId,
