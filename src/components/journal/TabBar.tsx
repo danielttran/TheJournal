@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { X, Plus, Book, FileText, LogOut, Settings } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { Theme as EmojiTheme } from 'emoji-picker-react';
 import { useClickOutside } from '@/hooks';
 import SettingsModal from '../SettingsModal';
 import {
@@ -182,7 +183,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                             onEmojiClick={onEmojiClick}
                             width={350}
                             height={450}
-                            theme={theme === 'dark' ? 'dark' : 'light'}
+                            theme={theme === 'dark' ? EmojiTheme.DARK : EmojiTheme.LIGHT}
                         />
                     </div>
                 </div>

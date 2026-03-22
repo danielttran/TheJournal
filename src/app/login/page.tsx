@@ -21,7 +21,6 @@ function LoginFormContent() {
     };
     const formRef = useRef<HTMLFormElement>(null);
     const didAutoLoginRef = useRef(false);
-    const submitRef = useRef<(formData: FormData) => Promise<void>>(async () => { });
 
     const pendingCredentialsRef = useRef<{ username: string; password: string; remember: boolean } | null>(null);
 
@@ -62,10 +61,6 @@ function LoginFormContent() {
         });
     }, [action]);
     useEffect(() => {
-        submitRef.current = handleSubmit;
-    }, [handleSubmit]);
-
-    useEffect(() => {
         if (didAutoLoginRef.current) return;
         if (typeof window === "undefined" || !window.electron) return;
 
@@ -88,13 +83,9 @@ function LoginFormContent() {
             if (usernameInput) usernameInput.value = savedUser;
             if (passwordInput) passwordInput.value = savedPass;
 
-            const formData = new FormData();
-            formData.append("username", savedUser);
-            formData.append("password", savedPass);
-
             setTimeout(() => {
                 if (!isMounted) return;
-                submitRef.current(formData);
+                formRef.current?.requestSubmit();
             }, 50);
         };
 
