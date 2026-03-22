@@ -60,40 +60,34 @@ function LoginFormContent() {
             action(formData);
         });
     }, [action]);
+
     useEffect(() => {
-        if (didAutoLoginRef.current) return;
-        if (typeof window === "undefined" || !window.electron) return;
+        if (typeof window !== "undefined" && window.electron) {
+            window.electron.getSettings().then(async (settings) => {
+                if (settings && settings.rememberMe) {
+                    setRememberMe(true);
+                    const savedUser = settings.userName || "";
+                    const savedPass = await window.electron.getStoredPassword();
 
-        didAutoLoginRef.current = true;
-        let isMounted = true;
+                    if (savedUser && savedPass) {
+                        const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement;
+                        const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement;
 
-        const loadSavedCredentials = async () => {
-            const settings = await window.electron.getSettings();
-            if (!isMounted || !settings?.rememberMe) return;
+                        if (usernameInput) usernameInput.value = savedUser;
+                        if (passwordInput) passwordInput.value = savedPass;
 
-            setRememberMe(true);
-            const savedUser = settings.userName || "";
-            const savedPass = await window.electron.getStoredPassword();
+                        const formData = new FormData();
+                        formData.append("username", savedUser);
+                        formData.append("password", savedPass);
 
-            if (!isMounted || !savedUser || !savedPass) return;
-
-            const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement | null;
-            const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement | null;
-
-            if (usernameInput) usernameInput.value = savedUser;
-            if (passwordInput) passwordInput.value = savedPass;
-
-            setTimeout(() => {
-                if (!isMounted) return;
-                formRef.current?.requestSubmit();
-            }, 50);
-        };
-
-        loadSavedCredentials();
-        return () => {
-            isMounted = false;
-        };
-    }, []);
+                        setTimeout(() => {
+                            handleSubmit(formData);
+                        }, 50);
+                    }
+                }
+            });
+        }
+    }, [handleSubmit]);
 
     return (
         <main className="min-h-screen flex items-center justify-center relative overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-950 dark:to-gray-900 transition-colors duration-500">
