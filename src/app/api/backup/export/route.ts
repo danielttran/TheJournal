@@ -14,7 +14,7 @@ export async function GET() {
         }
 
         // 1. Locate the live encrypted DB file
-        const dbPath = process.env.JOURNAL_DB_PATH || join(process.cwd(), 'journal.db');
+        const dbPath = process.env.JOURNAL_DB_PATH || join(process.cwd(), 'journal.tjdb');
         if (!existsSync(dbPath)) {
             throw new Error("Database file not found.");
         }

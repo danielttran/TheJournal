@@ -10,6 +10,17 @@ const FormSchema = z.object({
     password: z.string().min(1),
 });
 
+async function setSession(userId: number) {
+    const { cookies } = await import("next/headers");
+    (await cookies()).set("userId", userId.toString(), {
+        httpOnly: true,
+        path: "/",
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+    });
+}
+
 export async function login(prevState: unknown, formData: FormData) {
     const username = formData.get("username");
     const password = formData.get("password") as string;
@@ -24,29 +35,26 @@ export async function login(prevState: unknown, formData: FormData) {
     }
 
     try {
+        console.log(`[Action:Login] Attempting login for: ${validatedFields.data.username}`);
         const hexKey = await deriveMasterKey(validatedFields.data.password);
         
         try {
-            await dbManager.unlock(hexKey);
+            // Use force=true to ensure we replace any stale/wrongly-keyed instance
+            await dbManager.unlock(hexKey, true);
         } catch (e) {
+            console.error("[Action:Login] Unlock failed:", e);
             return { message: "Invalid credentials (unlock failed)." };
         }
 
         const user = await db.prepare('SELECT * FROM User WHERE Username = ?').get(validatedFields.data.username) as any;
 
         if (!user) {
+            console.warn("[Action:Login] User not found");
             return { message: "Invalid credentials." };
         }
 
-        const { cookies } = await import("next/headers");
-        (await cookies()).set("userId", user.UserID.toString(), {
-            httpOnly: true,
-            path: "/",
-            sameSite: "lax",
-            secure: process.env.NODE_ENV === "production",
-            maxAge: 60 * 60 * 24 * 30, // 30 days
-        });
-
+        await setSession(user.UserID);
+        console.log("[Action:Login] Success, redirecting to dashboard");
         redirect("/dashboard");
     } catch (error) {
         if ((error as any).digest?.startsWith('NEXT_REDIRECT')) throw error;
@@ -85,18 +93,24 @@ export async function register(prevState: unknown, formData: FormData) {
     }
 
     try {
+        console.log(`[Action:Register] Attempting registration for: ${validatedFields.data.username}`);
         const hexKey = await deriveMasterKey(validatedFields.data.password);
-        await dbManager.unlock(hexKey);
+        
+        // Unlock (creates DB if needed)
+        await dbManager.unlock(hexKey, true);
 
-        const user = await db.prepare('SELECT 1 FROM User WHERE Username = ?').get(validatedFields.data.username);
+        const existingUser = await db.prepare('SELECT 1 FROM User WHERE Username = ?').get(validatedFields.data.username);
 
-        if (user) {
+        if (existingUser) {
             return { message: "Username already taken." };
         }
 
-        await db.prepare('INSERT INTO User (Username) VALUES (?)').run(validatedFields.data.username);
-
-        redirect("/login?registered=true");
+        const result = await db.prepare('INSERT INTO User (Username) VALUES (?)').run(validatedFields.data.username);
+        
+        // Auto-login after successful registration
+        await setSession(result.lastInsertRowid);
+        console.log("[Action:Register] Success, auto-logged in, redirecting to dashboard");
+        redirect("/dashboard");
     } catch (error) {
         if ((error as any).digest?.startsWith('NEXT_REDIRECT')) throw error;
         return { message: "Registration error: " + (error as Error).message };

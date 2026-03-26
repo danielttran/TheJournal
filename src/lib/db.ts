@@ -64,11 +64,14 @@ class DBManager {
     private mutex = new AsyncMutex();
 
     constructor() {
-        this.dbPath = process.env.JOURNAL_DB_PATH || join(process.cwd(), 'journal.db');
+        this.dbPath = process.env.JOURNAL_DB_PATH || join(process.cwd(), 'journal.tjdb');
     }
 
-    async unlock(hexKey: string): Promise<void> {
-        if (this.instance) return;
+    async unlock(hexKey: string, force = false): Promise<void> {
+        if (this.instance && !force) return;
+        if (this.instance && force) {
+            this.close();
+        }
 
         return new Promise((resolve, reject) => {
             const tempDb = new Database(this.dbPath, (err) => {

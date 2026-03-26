@@ -2,15 +2,24 @@
 
 A cross-platform journaling and note-taking application built with Next.js and Electron. Features both journal-style date-based entries and notebook-style hierarchical pages.
 
+## Screenshots
+
+![Secure Login](screenshot/create%20account.png)
+*Privacy-first authentication with local-only storage.*
+
+![Notebook Mode](screenshot/notebook.png)
+*Organize your thoughts with hierarchical pages and sections.*
+
 ## Features
 
 - 📅 **Journal Mode** - Date-based entries with calendar navigation
 - 📓 **Notebook Mode** - Hierarchical pages and sections with drag-and-drop
+- 🔒 **End-to-End Local Encryption** - Full database encryption via SQLCipher (AES-256)
+- 🔑 **Secure Key Derivation** - Argon2id master key derivation for maximum security
 - 🎨 **Rich Text Editor** - Full formatting with Quill.js
 - 🌙 **Dark/Light Themes** - System-aware with manual toggle
 - 💾 **Auto-Save** - Content saved automatically with crash recovery
-- 🔒 **Local Storage** - All data stored locally in SQLite
-- 📦 **Import/Export** - Backup and restore your data
+- 📦 **Import/Export** - Encrypted backups of your entire journal
 
 ## Getting Started
 
@@ -72,7 +81,8 @@ src/
 │   └── index.ts            # Barrel export
 │
 ├── lib/
-│   ├── db.ts               # SQLite database connection
+│   ├── db.ts               # Encrypted SQLite connection (SQLCipher)
+│   ├── auth.ts             # Argon2id key derivation & hashing
 │   └── types.ts            # TypeScript interfaces
 │
 └── electron/               # Electron main process
@@ -101,6 +111,7 @@ src/
 - **Frontend**: Next.js 16, React 19, TypeScript
 - **Editor**: react-quill-new
 - **Styling**: Tailwind CSS with CSS variables
-- **Database**: better-sqlite3 (local SQLite)
+- **Database**: @journeyapps/sqlcipher (AES-256 Encrypted)
+- **Key Derivation**: Argon2id
 - **Desktop**: Electron 35
 - **DnD**: @dnd-kit

@@ -6,8 +6,48 @@ import { NotebookPen } from "lucide-react";
 import Link from "next/link";
 import { useActionState } from "react";
 
+import { useEffect, useState, useRef, startTransition, useCallback } from "react";
+
 export default function RegisterPage() {
     const [state, action, isPending] = useActionState(register, null);
+    const [rememberMe, _setRememberMe] = useState(false);
+    const rememberMeRef = useRef(false);
+    const setRememberMe = (val: boolean) => {
+        _setRememberMe(val);
+        rememberMeRef.current = val;
+    };
+
+    const pendingCredentialsRef = useRef<{ username: string; password: string; remember: boolean } | null>(null);
+
+    // Roll back if registration fails (similar to login page)
+    useEffect(() => {
+        if (state && (state.message || state.errors)) {
+            if (typeof window !== 'undefined' && window.electron && pendingCredentialsRef.current) {
+                window.electron.saveSetting('rememberMe', false);
+                window.electron.saveSetting('savedPassword', '');
+            }
+            pendingCredentialsRef.current = null;
+        }
+    }, [state]);
+
+    const handleFormSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const formData = new FormData(event.currentTarget);
+        const username = formData.get("username") as string;
+        const password = formData.get("password") as string;
+
+        if (typeof window !== "undefined" && window.electron) {
+            await window.electron.saveSetting("userName", username);
+            if (rememberMeRef.current) {
+                await window.electron.storePassword(password);
+                pendingCredentialsRef.current = { username, password, remember: true };
+            }
+        }
+
+        startTransition(() => {
+            action(formData);
+        });
+    }, [action]);
 
     return (
         <main className="min-h-screen flex items-center justify-center relative overflow-hidden bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-950 dark:to-gray-900 transition-colors duration-500">
@@ -34,7 +74,7 @@ export default function RegisterPage() {
                     </p>
                 </div>
 
-                <form action={action} className="space-y-6">
+                <form action={action} onSubmit={handleFormSubmit} className="space-y-6">
                     {state?.message && (
                         <div className="p-3 bg-red-100 border border-red-200 text-red-700 rounded-lg text-sm text-center">
                             {state.message}
@@ -75,6 +115,19 @@ export default function RegisterPage() {
                             className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all"
                         />
                         {state?.errors?.confirmPassword && <p className="text-red-500 text-xs ml-1">{state.errors.confirmPassword}</p>}
+                    </div>
+
+                    <div className="flex items-center space-x-2 ml-1">
+                        <input
+                            id="remember"
+                            type="checkbox"
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                        />
+                        <label htmlFor="remember" className="text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
+                            Remember Password
+                        </label>
                     </div>
 
                     <div className="space-y-4">

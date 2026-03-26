@@ -42,10 +42,9 @@ next-env.d.ts
 /dist
 
 # database and backups
-journal.db*
-*.tjdb
+*.db*
+*.tjdb*
 *.sqlite
-*.db.bak
 
 # logs and reports
 lint_report.txt

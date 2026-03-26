@@ -16,7 +16,7 @@ async function startServer() {
     // Set DB Path for Next.js to use
     if (!dev) {
         const dbPath = settings.dbPath === 'default'
-            ? path.join(app.getPath('userData'), 'journal.db')
+            ? path.join(app.getPath('userData'), 'journal.tjdb')
             : settings.dbPath;
 
         process.env.JOURNAL_DB_PATH = dbPath;
@@ -259,10 +259,10 @@ app.on('before-quit', (e) => {
         let dbPath;
 
         if (dev) {
-            dbPath = path.join(dir, 'journal.db');
-            if (!fs.existsSync(dbPath)) dbPath = path.join(app.getPath('userData'), 'journal.db');
+            dbPath = path.join(dir, 'journal.tjdb');
+            if (!fs.existsSync(dbPath)) dbPath = path.join(app.getPath('userData'), 'journal.tjdb');
         } else {
-            dbPath = process.env.JOURNAL_DB_PATH || path.join(app.getPath('userData'), 'journal.db');
+            dbPath = process.env.JOURNAL_DB_PATH || path.join(app.getPath('userData'), 'journal.tjdb');
         }
 
         console.log('[Electron] Attempting backup from:', dbPath);

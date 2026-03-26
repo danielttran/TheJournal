@@ -40,14 +40,14 @@ function LoginFormContent() {
         // If state is null, login succeeded (redirect happened) — no cleanup needed
     }, [state]);
 
-    const handleSubmit = useCallback(async (formData: FormData) => {
-        if (typeof window !== "undefined" && window.electron) {
-            const username = formData.get("username") as string;
-            const password = formData.get("password") as string;
-
+    const handleFormSubmit = useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
         const formData = new FormData(event.currentTarget);
-        const username = formData.get("username");
-        const password = formData.get("password");
+        const username = formData.get("username") as string;
+        const password = formData.get("password") as string;
+
+        if (typeof window !== "undefined" && window.electron) {
+            await window.electron.saveSetting("userName", username);
 
             if (rememberMeRef.current) {
                 // Store optimistically — rolled back in useEffect if login fails
@@ -62,17 +62,6 @@ function LoginFormContent() {
             action(formData);
         });
     }, [action]);
-
-        await window.electron.saveSetting("userName", username);
-
-        if (rememberMeRef.current) {
-            await window.electron.storePassword(password);
-            pendingCredentialsRef.current = { username, password, remember: true };
-        } else {
-            await window.electron.saveSetting("rememberMe", false);
-            await window.electron.saveSetting("savedPassword", "");
-        }
-    }, [handleSubmit]);
 
     const autoSubmitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEffect(() => {
