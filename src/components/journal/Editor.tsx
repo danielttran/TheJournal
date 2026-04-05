@@ -622,10 +622,14 @@ export default function Editor({
         window.addEventListener('mouseup', onMouseUp);
     }, []);
 
-    // When split mode turns on, seed the bottom pane with the current document.
+    // Seed the bottom pane when split mode first turns on.
+    // finishLoading() handles the re-seed on every subsequent entry navigation,
+    // so this effect only needs to handle the initial "split just opened" case.
     useEffect(() => {
         if (!isSplitMode) return;
+        let aborted = false;
         const seed = () => {
+            if (aborted) return;
             if (!quillRef2.current) { setTimeout(seed, 50); return; }
             try {
                 const q2 = quillRef2.current.getEditor();
@@ -635,6 +639,7 @@ export default function Editor({
             } catch { }
         };
         seed();
+        return () => { aborted = true; };
     }, [isSplitMode]);
 
     // Bottom-pane change handler — mirrors the primary handler but syncs UP to top pane.
@@ -857,6 +862,17 @@ export default function Editor({
             updateLoadingProgress(null, null);
             isFullyLoadedRef.current = true;
             console.log("Loading complete, content length:", contentRef.current.length);
+            // Sync bottom pane — this is the authoritative place because deltaRef is
+            // guaranteed to be populated here, unlike the seed effect which fires
+            // at isSplitMode toggle time when loading may not have finished yet.
+            if (isSplitModeRef.current && quillRef2.current) {
+                try {
+                    const q2 = quillRef2.current.getEditor();
+                    const d = deltaRef.current;
+                    if (d?.ops) { q2.setContents(d, 'api'); }
+                    else if (contentRef.current) { q2.clipboard.dangerouslyPasteHTML(contentRef.current, 'api'); }
+                } catch { }
+            }
         }
 
     }, [updateLoadingProgress]);
@@ -895,12 +911,12 @@ export default function Editor({
         cacheKeyRef.current = cacheKey;
         if (urlEntryId) entryIdRef.current = urlEntryId;
 
-        // Clear Quill editor immediately to prevent stale content flash from previous note
+        // Clear both panes immediately to prevent stale content flash from previous note
         if (quillRef.current) {
-            try {
-                const quill = quillRef.current.getEditor();
-                quill.setText('');
-            } catch (e) { /* Quill not ready yet */ }
+            try { quillRef.current.getEditor().setText(''); } catch { }
+        }
+        if (quillRef2.current) {
+            try { quillRef2.current.getEditor().setText(''); } catch { }
         }
 
         const loadEntry = async () => {
@@ -1417,26 +1433,30 @@ export default function Editor({
                     setContextMenu({ x, y });
                 }}
             >
-                {isSplitMode ? (
-                    <>
-                        {/* Top pane */}
-                        <div
-                            style={{ height: `${splitRatio}%` }}
-                            className="flex flex-col min-h-0 overflow-hidden"
-                        >
-                            <ReactQuill
-                                // @ts-expect-error — react-quill-new ref typings
-                                ref={quillRef}
-                                theme="snow"
-                                defaultValue={''}
-                                onChange={handleChange}
-                                modules={modules}
-                                className="flex-1 flex flex-col bg-transparent border-none min-h-0"
-                                placeholder="Start writing..."
-                            />
-                        </div>
+                {/*
+                  * Top pane wrapper is ALWAYS the first child here so React never
+                  * unmounts/remounts the ReactQuill instance when split mode toggles.
+                  * Only its height changes via inline style.
+                  */}
+                <div
+                    style={{ height: isSplitMode ? `${splitRatio}%` : '100%' }}
+                    className="flex flex-col min-h-0 overflow-hidden"
+                >
+                    <ReactQuill
+                        // @ts-expect-error — react-quill-new ref typings
+                        ref={quillRef}
+                        theme="snow"
+                        defaultValue={''}
+                        onChange={handleChange}
+                        modules={modules}
+                        className="flex-1 flex flex-col bg-transparent border-none min-h-0"
+                        placeholder="Start writing..."
+                    />
+                </div>
 
-                        {/* Horizontal resize divider */}
+                {/* Divider + bottom pane — conditionally appended, never affects the top pane's tree position */}
+                {isSplitMode && (
+                    <>
                         <div
                             onMouseDown={handleDividerMouseDown}
                             className="h-1 bg-border-primary hover:bg-accent-primary cursor-row-resize flex-shrink-0 transition-colors relative"
@@ -1444,8 +1464,6 @@ export default function Editor({
                         >
                             <div className="absolute inset-x-0 -top-1 -bottom-1" />
                         </div>
-
-                        {/* Bottom pane — same entry, independent scroll, no toolbar */}
                         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                             <ReactQuill
                                 // @ts-expect-error — react-quill-new ref typings
@@ -1459,17 +1477,6 @@ export default function Editor({
                             />
                         </div>
                     </>
-                ) : (
-                    <ReactQuill
-                        // @ts-expect-error — react-quill-new ref typings are incompatible with React 18 forwardRef
-                        ref={quillRef}
-                        theme="snow"
-                        defaultValue={''}
-                        onChange={handleChange}
-                        modules={modules}
-                        className="flex-1 flex flex-col bg-transparent border-none min-h-0"
-                        placeholder="Start writing..."
-                    />
                 )}
             </div>
         </div>
