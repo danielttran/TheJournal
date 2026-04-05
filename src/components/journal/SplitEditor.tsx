@@ -117,7 +117,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userId, content: delta, html, title, preview,
+                    content: delta, html, title, preview,
                     expectedVersion: versionRef.current ?? undefined,
                 }),
             });
@@ -156,7 +156,6 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
             tempDiv.innerHTML = html || '';
             const plainText = tempDiv.textContent || '';
             const body = {
-                userId,
                 content: delta,
                 html,
                 title: plainText.split('\n')[0].substring(0, 100) || 'Untitled',
@@ -181,6 +180,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
     // between setSelectedId() and the ref becoming available. We retry with a short
     // interval and guard with the targetId so a quick double-click can't corrupt state.
     const tryLoadContent = useCallback((targetId: number, delta: any, html: string) => {
+        if (!isMountedRef.current) return;            // component unmounted — stop retry loop
         if (currentIdRef.current !== targetId) return; // user switched away
 
         if (!quillRef.current) {

@@ -3,18 +3,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 const UpdateSchema = z.object({
-    content: z.any().optional(), // JSON object (Quill Delta) - OPTIONAL for metadata-only updates
+    content: z.any().optional(),
     html: z.string().optional(),
     title: z.string().optional(),
     preview: z.string().optional(),
-    userId: z.number().or(z.string().transform(val => parseInt(val, 10))),
     icon: z.string().optional(),
     sortOrder: z.number().optional(),
     parentEntryId: z.number().nullable().optional(),
     isLocked: z.boolean().optional(),
     entryType: z.enum(['Page', 'Section']).optional(),
     isExpanded: z.boolean().optional(),
-    expectedVersion: z.number().optional(), // Optimistic locking
+    expectedVersion: z.number().optional(),
 });
 
 // ... imports
@@ -108,26 +107,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const entryId = parseInt(id, 10);
 
-        const body = await req.json();
+        // Auth: always read userId from session cookie — never trust the request body.
+        // sendBeacon (POST alias below) also sends cookies for same-origin requests.
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = parseInt(userIdCookie.value, 10);
+        if (isNaN(userId)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-        // Debug logging for large payloads - OPTIMIZED to prevent crash
-        if (body.content) {
-            const contentLength = req.headers.get('content-length') || 'unknown';
-            console.log(`[API] PUT Entry ${entryId} - Content update (Length: ${contentLength})`);
-        } else {
-            console.log(`[API] PUT Entry ${entryId} - Metadata update`);
-        }
+        const body = await req.json();
 
         // 1. Validation
         const result = UpdateSchema.safeParse(body);
         if (!result.success) {
-            console.error(`[API] Validation failed for Entry ${entryId}:`, result.error.issues);
             return NextResponse.json({ error: result.error.issues }, { status: 400 });
         }
 
-        const { content, html, title, preview, userId, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, expectedVersion } = result.data;
+        const { content, html, title, preview, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, expectedVersion } = result.data;
 
-        // 2. Ownership check — quick pre-flight (inside transaction we re-check atomically)
+        // 2. Ownership check — quick pre-flight (authoritative re-check is inside the transaction)
         const ownerCheck = await db.prepare(`
             SELECT 1 FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
