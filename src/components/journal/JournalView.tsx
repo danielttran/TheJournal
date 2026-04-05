@@ -36,6 +36,9 @@ export default function JournalView({
     // Ratio is the percentage width of the primary (left) pane; clamped 25–75.
     const [splitRatio, setSplitRatio] = useState(50);
     const containerRef = useRef<HTMLDivElement>(null);
+    // Track the active entry in the primary pane so split view can pre-load it.
+    const currentEntryIdRef = useRef<number | null>(null);
+    const [splitInitialEntryId, setSplitInitialEntryId] = useState<number | null>(null);
 
     const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
@@ -60,7 +63,14 @@ export default function JournalView({
         window.addEventListener('mouseup', onMouseUp);
     }, []);
 
-    const toggleSplitMode = useCallback(() => setIsSplitMode(v => !v), []);
+    const handleEntryChange = useCallback((id: number | null) => {
+        currentEntryIdRef.current = id;
+    }, []);
+
+    const toggleSplitMode = useCallback(() => {
+        setSplitInitialEntryId(currentEntryIdRef.current);
+        setIsSplitMode(v => !v);
+    }, []);
     const exitSplitMode = useCallback(() => setIsSplitMode(false), []);
     const openSearch = useCallback(() => setShowSearch(true), []);
     const closeSearch = useCallback(() => setShowSearch(false), []);
@@ -96,6 +106,7 @@ export default function JournalView({
                                 onEnterSplitMode={toggleSplitMode}
                                 isSplitMode={isSplitMode}
                                 onOpenSearch={openSearch}
+                                onEntryChange={handleEntryChange}
                             />
                         )}
                     </main>
@@ -120,6 +131,7 @@ export default function JournalView({
                                 userId={userId}
                                 categoryType={categoryType}
                                 onClose={exitSplitMode}
+                                initialEntryId={splitInitialEntryId}
                             />
                         </main>
                     )}

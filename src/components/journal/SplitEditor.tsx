@@ -50,13 +50,16 @@ interface SplitEditorProps {
     userId: string;
     categoryType: string;
     onClose: () => void;
+    /** When set, the split pane opens pre-loaded with this entry. */
+    initialEntryId?: number | null;
 }
 
-export default function SplitEditor({ categoryId, userId, categoryType, onClose }: SplitEditorProps) {
+export default function SplitEditor({ categoryId, userId, categoryType, onClose, initialEntryId }: SplitEditorProps) {
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [selectedLabel, setSelectedLabel] = useState('');
     const [entries, setEntries] = useState<EntryOption[]>([]);
-    const [showPicker, setShowPicker] = useState(true);
+    // If an initial entry is provided (split opened from current view), skip the picker entirely.
+    const [showPicker, setShowPicker] = useState(!initialEntryId);
     const [searchQuery, setSearchQuery] = useState('');
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
@@ -230,6 +233,9 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
             if (!res.ok || currentIdRef.current !== id) return; // entry switched mid-fetch
             const data = await res.json();
 
+            // Update label from server title once content arrives
+            if (data.Title && isMountedRef.current) setSelectedLabel(data.Title);
+
             // Capture version for optimistic locking
             if (data.Version) versionRef.current = data.Version;
 
@@ -242,6 +248,17 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
             tryLoadContent(id, loadedDelta, data.HtmlContent || '');
         } catch { }
     }, [performSave, tryLoadContent]);
+
+    // Auto-load the primary pane's current entry on mount.
+    const didAutoLoadRef = useRef(false);
+    useEffect(() => {
+        if (initialEntryId && !didAutoLoadRef.current) {
+            didAutoLoadRef.current = true;
+            loadEntry(initialEntryId, '');
+        }
+    // loadEntry is stable (useCallback); initialEntryId only changes on remount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handleChange = useCallback((_content: string, _delta: any, source: string, editor: any) => {
         contentRef.current = editor.getHTML();
