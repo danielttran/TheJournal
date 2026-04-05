@@ -191,6 +191,7 @@ export default function Editor({
     onEnterSplitMode: onToggleSplitMode,
     isSplitMode = false,
     onOpenSearch,
+    onEntryChange,
 }: {
     categoryId: string;
     userId: string;
@@ -199,6 +200,8 @@ export default function Editor({
     isSplitMode?: boolean;
     /** Open the global search panel. */
     onOpenSearch?: () => void;
+    /** Notifies parent of the currently loaded entry ID (null while loading). */
+    onEntryChange?: (id: number | null) => void;
 }) {
     const searchParams = useSearchParams();
     const urlDate = searchParams.get('date');
@@ -827,6 +830,7 @@ export default function Editor({
                     // For cached entries, load content directly into Quill
                     if (urlEntryId) {
                         setEntryId(urlEntryId);
+                        onEntryChange?.(urlEntryId);
                         entryIdRef.current = urlEntryId; // Set ref immediately — don't wait for useEffect
                         // Fetch current version for optimistic locking even on cache hit.
                         // Only set if versionRef is still null (avoids race with saves that already updated it).
@@ -846,6 +850,7 @@ export default function Editor({
                             const data = await res.json();
                             const loadedId = data.EntryID || data.id;
                             setEntryId(loadedId);
+                            onEntryChange?.(loadedId);
                             entryIdRef.current = loadedId; // Set ref immediately
                             versionRef.current = data.Version ?? null;
                             loadContentSafely(loadedId, cached.html, cached.delta, renderAbort.signal);
@@ -927,6 +932,7 @@ export default function Editor({
                     }
 
                     setEntryId(loadedId);
+                    onEntryChange?.(loadedId);
                     entryIdRef.current = loadedId; // Set ref immediately — don't wait for useEffect
                     versionRef.current = data.Version ?? null;
                     if (data.isNew) setIsNewEntry(true);
