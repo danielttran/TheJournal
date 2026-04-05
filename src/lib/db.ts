@@ -1,6 +1,5 @@
 import { Database } from '@journeyapps/sqlcipher';
 import { join } from 'path';
-import { redirect } from 'next/navigation';
 
 export class AsyncStatement {
     constructor(private db: Database, private query: string) {}
@@ -58,13 +57,14 @@ class AsyncMutex {
     }
 }
 
-class DBManager {
+export class DBManager {
     public instance: Database | null = null;
     private dbPath: string;
     private mutex = new AsyncMutex();
 
-    constructor() {
-        this.dbPath = process.env.JOURNAL_DB_PATH || join(process.cwd(), 'journal.tjdb');
+    /** Pass a custom path to create isolated test instances. */
+    constructor(customPath?: string) {
+        this.dbPath = customPath ?? process.env.JOURNAL_DB_PATH ?? join(process.cwd(), 'journal.tjdb');
     }
 
     async unlock(hexKey: string, force = false): Promise<void> {
@@ -198,14 +198,22 @@ class DBManager {
 
     prepare(query: string): AsyncStatement {
         if (!this.instance) {
-            redirect('/login');
+            // In Next.js app context redirect to login; in test/node context throw.
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const { redirect } = require('next/navigation');
+                redirect('/login');
+            } catch (e: any) {
+                if (e?.digest?.startsWith('NEXT_REDIRECT')) throw e;
+            }
+            throw new Error('Database is not unlocked');
         }
         return new AsyncStatement(this.instance, query);
     }
-    
+
     transaction<T>(cb: (...args: any[]) => Promise<T>): (...args: any[]) => Promise<T> {
         return async (...args: any[]) => {
-            if (!this.instance) redirect('/login');
+            if (!this.instance) throw new Error('Database is not unlocked');
             await this.mutex.acquire();
             await this.prepare('BEGIN IMMEDIATE').run();
             try {

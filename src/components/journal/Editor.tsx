@@ -358,7 +358,6 @@ export default function Editor({
                 headers: { 'Content-Type': 'application/json' },
                 signal: controller.signal,
                 body: JSON.stringify({
-                    userId,
                     content: delta,
                     html: html,
                     title: derivedTitle,
@@ -475,7 +474,6 @@ export default function Editor({
         return {
             url: `/api/entry/${id}`,
             body: {
-                userId,
                 content: delta && (delta.ops ? delta : { ops: [{ insert: html }] }),
                 html: html,
                 title: derivedTitle,
@@ -841,7 +839,7 @@ export default function Editor({
                         const res = await fetch('/api/entry/by-date', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ date: selectedDate, categoryId, userId }),
+                            body: JSON.stringify({ date: selectedDate, categoryId }),
                         });
                         if (!isMounted || renderAbort.signal.aborted) return;
                         if (res.ok) {
@@ -866,7 +864,7 @@ export default function Editor({
                     const res = await fetch('/api/entry/by-date', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ date: selectedDate, categoryId, userId }),
+                        body: JSON.stringify({ date: selectedDate, categoryId }),
                     });
                     if (res.ok) data = await res.json();
                 }

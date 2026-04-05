@@ -3,15 +3,8 @@
 import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { Search, X, ChevronDown, ChevronUp, SlidersHorizontal, Calendar, Tag, FileText, AlignLeft, BookOpen } from 'lucide-react';
 import { format } from 'date-fns';
-import { useRouter } from 'next/navigation';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
-interface Category {
-    CategoryID: number;
-    Name: string;
-    Type: string;
-}
 
 interface SearchResult {
     EntryID: number;
@@ -62,7 +55,6 @@ export default function SearchPanel({
     onClose,
     onNavigate,
 }: SearchPanelProps) {
-    const router = useRouter();
     const inputId = useId();
 
     // ── Query state ──────────────────────────────────────────────────────────
@@ -86,21 +78,18 @@ export default function SearchPanel({
     const [error, setError] = useState(false);
     const [searched, setSearched] = useState(false); // true once first search fired
 
-    // ── Categories for filter dropdown ───────────────────────────────────────
-    const [categories, setCategories] = useState<Category[]>([]);
-    useEffect(() => {
-        fetch('/api/category')
-            .then(r => r.json())
-            .then(data => { if (Array.isArray(data)) setCategories(data); })
-            .catch(() => {});
-    }, []);
-
     // ── Refs ──────────────────────────────────────────────────────────────────
     const inputRef = useRef<HTMLInputElement>(null);
     const abortRef = useRef<AbortController | null>(null);
     const offsetRef = useRef(0);
 
     useEffect(() => { inputRef.current?.focus(); }, []);
+
+    // Abort any in-flight search when the panel unmounts (e.g. user closes it
+    // while a slow query is still running) to avoid state updates on dead component.
+    useEffect(() => {
+        return () => { abortRef.current?.abort(); };
+    }, []);
 
     // ── Search execution ──────────────────────────────────────────────────────
     const executeSearch = useCallback(async (q: string, append = false) => {

@@ -67,9 +67,6 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ results: [], total: 0, hasMore: false });
         }
 
-        // Build the LIKE pattern. For whole-word matching we check word boundaries in app code.
-        const likePattern = matchCase ? `%${q}%` : `%${q.toLowerCase()}%`;
-
         // Build WHERE clauses
         const conditions: string[] = ['c.UserID = ?'];
         const params: any[] = [userId];
