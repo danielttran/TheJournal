@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Book, FileText, ChevronDown, ChevronRight as ChevronRightIcon, Plus, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Book, FileText, ChevronDown, ChevronRight as ChevronRightIcon, Plus, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Search } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -265,6 +265,8 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     });
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
+    const [searchQuery, setSearchQuery] = useState('');
+
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -466,6 +468,30 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         return acc;
     }, {});
 
+    // Fuzzy match: all query chars must appear in target in order (case-insensitive)
+    const fuzzyMatch = (query: string, target: string): boolean => {
+        if (!query) return true;
+        const q = query.toLowerCase(), t = target.toLowerCase();
+        let qi = 0;
+        for (let i = 0; i < t.length && qi < q.length; i++) { if (t[i] === q[qi]) qi++; }
+        return qi === q.length;
+    };
+
+    // Flattened notebook tree for search results
+    const flattenPages = (entries: Entry[]): Entry[] =>
+        entries.flatMap(e => [e, ...(e.children ? flattenPages(e.children) : [])]);
+
+    const filteredJournalEntries = searchQuery
+        ? journalEntries.filter(e => {
+            const dateStr = e.CreatedDate ? format(new Date(e.CreatedDate), 'd MMM yyyy EEEE') : '';
+            return fuzzyMatch(searchQuery, dateStr) || fuzzyMatch(searchQuery, e.Title || '');
+          })
+        : null;
+
+    const filteredNotebookEntries = searchQuery
+        ? flattenPages(pages).filter(e => fuzzyMatch(searchQuery, e.Title || e.EntryType || ''))
+        : null;
+
     const createEntryWithContent = async (parentId: number | null, entryType: 'Page' | 'Section', template?: Template | null) => {
         const res = await fetch('/api/entry/create', {
             method: 'POST',
@@ -584,9 +610,25 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                             })}
                         </div>
                     </div>
-                    {/* Journal Tree */}
+                    {/* Journal Tree / Search Results */}
                     <div className="flex-1 overflow-y-auto p-2">
-                        {Object.keys(groupedEntries).sort((a, b) => a.localeCompare(b)).map(year => {
+                        {filteredJournalEntries ? (
+                            filteredJournalEntries.length === 0 ? (
+                                <div className="text-center py-6 text-text-muted text-sm">No entries found</div>
+                            ) : filteredJournalEntries.map(entry => (
+                                <div
+                                    key={entry.EntryID}
+                                    onClick={() => onDateClick(new Date(entry.CreatedDate!))}
+                                    className={`px-2 py-1.5 rounded cursor-pointer text-sm flex items-center gap-2 ${isSameDay(new Date(entry.CreatedDate!), selectedDate) ? 'bg-accent-primary text-white font-medium' : 'text-text-secondary hover:bg-bg-hover'}`}
+                                >
+                                    {entry.Icon && <span className="text-xs flex-shrink-0">{entry.Icon}</span>}
+                                    <span className="truncate">
+                                        {format(new Date(entry.CreatedDate!), 'MMM d, yyyy')}
+                                        {entry.Title && entry.Title !== 'Untitled' ? ` — ${entry.Title}` : ''}
+                                    </span>
+                                </div>
+                            ))
+                        ) : Object.keys(groupedEntries).sort((a, b) => a.localeCompare(b)).map(year => {
                             const isYearOpen = journalExpanded[year] !== false; // Default Open if undefined? Or default closed. Let's say default Open.
                             // If user never toggled, it's undefined. If I want default open: use !== false. 
                             return (
@@ -646,61 +688,96 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                 </>
             ) : (
                 <>
-                    {/* Notebook Tree */}
-                    <div className="flex-1 overflow-y-auto p-2 pb-20">
+                    {/* Notebook Tree / Search Results */}
+                    <div className="flex-1 overflow-y-auto p-2">
                         <div className="flex items-center justify-between px-2 mb-2">
                             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Notebook</span>
-                            <div className="flex space-x-1">
-                                <button onClick={() => onCreateEntry(null, 'Page')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><File className="w-3 h-3" /></button>
-                                <button onClick={() => onCreateEntry(null, 'Section')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><Folder className="w-3 h-3" /></button>
-                            </div>
+                            {!searchQuery && (
+                                <div className="flex space-x-1">
+                                    <button onClick={() => onCreateEntry(null, 'Page')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><File className="w-3 h-3" /></button>
+                                    <button onClick={() => onCreateEntry(null, 'Section')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><Folder className="w-3 h-3" /></button>
+                                </div>
+                            )}
                         </div>
-                        <div className="space-y-0.5">
-                            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-                                <SortableContext items={rootIds} strategy={verticalListSortingStrategy}>
-                                    {pages.map(entry => (
-                                        <SortableNotebookItem
+                        {filteredNotebookEntries ? (
+                            filteredNotebookEntries.length === 0 ? (
+                                <div className="text-center py-6 text-text-muted text-sm">No pages found</div>
+                            ) : (
+                                <div className="space-y-0.5">
+                                    {filteredNotebookEntries.map(entry => (
+                                        <div
                                             key={entry.EntryID}
-                                            entry={entry}
-                                            level={0}
-                                            onSelect={async (id, type) => {
-                                                router.push(`?${type === 'Section' ? 'section' : 'entry'}=${id}`);
-
-                                                // Save last selected entry for notebooks
-                                                if (type === 'Page') {
-                                                    try {
-                                                        await fetch(`/api/category/${categoryId}`, {
-                                                            method: 'PUT',
-                                                            headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ lastSelectedEntryId: id })
-                                                        });
-                                                    } catch { /* silent fail */ }
-                                                }
-                                            }}
-                                            onAddPage={(pid) => onCreateEntry(pid, 'Page')}
-                                            onAddSection={(pid) => onCreateEntry(pid, 'Section')}
-                                            selectedId={selectedId}
-                                            onContextMenu={handleContextMenu}
-                                            onRename={handleRename}
-                                            onToggleExpand={handleNotebookExpandToggle}
-                                            loadingEntryId={loadingState.entryId}
-                                            loadingProgress={loadingState.progress}
-                                        />
+                                            onClick={() => router.push(`?${entry.EntryType === 'Section' ? 'section' : 'entry'}=${entry.EntryID}`)}
+                                            className={`px-2 py-1.5 rounded cursor-pointer text-sm flex items-center gap-2 ${selectedId === entry.EntryID ? 'bg-accent-primary text-white font-medium' : 'text-text-secondary hover:bg-bg-hover'}`}
+                                        >
+                                            {entry.EntryType === 'Section'
+                                                ? <Folder className="w-3.5 h-3.5 flex-shrink-0 text-text-muted" />
+                                                : <File className="w-3.5 h-3.5 flex-shrink-0 text-text-muted" />}
+                                            <span className="truncate">
+                                                {entry.Icon ? `${entry.Icon} ` : ''}{entry.Title || 'Untitled'}
+                                            </span>
+                                        </div>
                                     ))}
-                                </SortableContext>
-                                {/* DragOverlay also needs update, passing dummy onRename */}
-                                <DragOverlay dropAnimation={dropAnimation}>{activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddSection={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} onRename={() => { }} onToggleExpand={() => { }} loadingEntryId={null} loadingProgress={null} /> : null}</DragOverlay>
-                            </DndContext>
-                            {pages.length === 0 && <div className="text-center py-4 text-text-muted text-sm">Empty notebook</div>}
-                        </div>
+                                </div>
+                            )
+                        ) : (
+                            <div className="space-y-0.5">
+                                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+                                    <SortableContext items={rootIds} strategy={verticalListSortingStrategy}>
+                                        {pages.map(entry => (
+                                            <SortableNotebookItem
+                                                key={entry.EntryID}
+                                                entry={entry}
+                                                level={0}
+                                                onSelect={async (id, type) => {
+                                                    router.push(`?${type === 'Section' ? 'section' : 'entry'}=${id}`);
+                                                    if (type === 'Page') {
+                                                        try {
+                                                            await fetch(`/api/category/${categoryId}`, {
+                                                                method: 'PUT',
+                                                                headers: { 'Content-Type': 'application/json' },
+                                                                body: JSON.stringify({ lastSelectedEntryId: id })
+                                                            });
+                                                        } catch { /* silent fail */ }
+                                                    }
+                                                }}
+                                                onAddPage={(pid) => onCreateEntry(pid, 'Page')}
+                                                onAddSection={(pid) => onCreateEntry(pid, 'Section')}
+                                                selectedId={selectedId}
+                                                onContextMenu={handleContextMenu}
+                                                onRename={handleRename}
+                                                onToggleExpand={handleNotebookExpandToggle}
+                                                loadingEntryId={loadingState.entryId}
+                                                loadingProgress={loadingState.progress}
+                                            />
+                                        ))}
+                                    </SortableContext>
+                                    <DragOverlay dropAnimation={dropAnimation}>{activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddSection={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} onRename={() => { }} onToggleExpand={() => { }} loadingEntryId={null} loadingProgress={null} /> : null}</DragOverlay>
+                                </DndContext>
+                                {pages.length === 0 && <div className="text-center py-4 text-text-muted text-sm">Empty notebook</div>}
+                            </div>
+                        )}
                     </div>
                 </>
             )
             }
 
-            {/* Footer */}
-            <div className="p-4 border-t border-border-primary text-xs text-text-muted">
-                <span>{type} Mode</span>
+            {/* Search footer — replaces the old "{type} Mode" label */}
+            <div className="border-t border-border-primary p-2 flex-shrink-0">
+                <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-bg-active border border-border-primary focus-within:border-accent-primary transition-colors">
+                    <Search className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                    <input
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        placeholder={`Search ${type === 'Journal' ? 'entries' : 'pages'}…`}
+                        className="flex-1 bg-transparent text-sm text-text-primary focus:outline-none placeholder:text-text-muted"
+                    />
+                    {searchQuery && (
+                        <button onClick={() => setSearchQuery('')} className="text-text-muted hover:text-text-primary transition-colors">
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Context Menu */}
