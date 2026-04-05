@@ -303,6 +303,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 localStorage.setItem('editor_backup', JSON.stringify({
                     entryId: entryIdRef.current,
                     content: contentRef.current,
+                    delta: deltaRef.current,
                     timestamp: Date.now()
                 }));
             }

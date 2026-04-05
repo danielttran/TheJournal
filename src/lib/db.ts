@@ -175,6 +175,9 @@ class DBManager {
             `ALTER TABLE Category ADD COLUMN Color TEXT DEFAULT '#6366f1'`,
             `ALTER TABLE Entry ADD COLUMN IsLocked BOOLEAN DEFAULT 0`,
             `ALTER TABLE Entry ADD COLUMN ModifiedDate DATETIME DEFAULT CURRENT_TIMESTAMP`,
+            // Prevent duplicate journal entries for the same date in a category.
+            // Silently ignored if creation fails due to pre-existing duplicates.
+            `CREATE UNIQUE INDEX IF NOT EXISTS "Idx_Entry_Journal_UniqueDate" ON "Entry" ("CategoryID", date("CreatedDate"))`,
         ];
         for (const migration of migrations) {
             await new Promise<void>((res) => this.instance!.run(migration, () => res()));

@@ -20,31 +20,20 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 403 });
         }
 
-        // Check if entry exists for this date (using SQLite date function)
-        // We assume CreatedDate stores the "Journal Date". 
-        // For a more robust app, we might want a separate 'EntryDate' column, 
-        // but 'CreatedDate' works if we override it on creation.
-        const entry = await db.prepare(`
-            SELECT e.EntryID, e.Title, ec.QuillDelta, ec.HtmlContent, e.Version
-            FROM Entry e
-            LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
-            WHERE e.CategoryID = ? AND date(e.CreatedDate) = ?
-        `).get(categoryId, date) as any;
-
-        if (entry) {
-            return NextResponse.json({
-                id: entry.EntryID,
-                title: entry.Title,
-                content: entry.QuillDelta ? JSON.parse(entry.QuillDelta) : null,
-                html: entry.HtmlContent,
-                Version: entry.Version ?? 1,
-                isNew: false
-            });
-        }
-
-        // Create Entry + Content atomically to prevent orphaned rows
+        // Check and create atomically inside a transaction to prevent duplicate entries
+        // from concurrent requests for the same date (TOCTOU race condition).
         const initialDelta = JSON.stringify({ ops: [{ insert: "\n" }] });
-        const createEntry = db.transaction(async () => {
+        const getOrCreateEntry = db.transaction(async () => {
+            // Re-check inside the transaction so the SELECT + INSERT are atomic
+            const existing = await db.prepare(`
+                SELECT e.EntryID, e.Title, ec.QuillDelta, ec.HtmlContent, e.Version
+                FROM Entry e
+                LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
+                WHERE e.CategoryID = ? AND date(e.CreatedDate) = ?
+            `).get(categoryId, date) as any;
+
+            if (existing) return { entry: existing, isNew: false };
+
             // We explicitly set CreatedDate to the requested date (at 12:00 PM to avoid timezone edge cases if just date)
             const newEntryResult = await db.prepare(`
                 INSERT INTO Entry (CategoryID, Title, PreviewText, CreatedDate)
@@ -58,18 +47,18 @@ export async function POST(req: NextRequest) {
                 VALUES (?, ?, ?)
             `).run(newEntryId, initialDelta, '');
 
-            return newEntryId;
+            return { entry: { EntryID: newEntryId, Title: 'New Entry', QuillDelta: initialDelta, HtmlContent: '', Version: 1 }, isNew: true };
         });
 
-        const newEntryId = await createEntry();
+        const { entry, isNew } = await getOrCreateEntry();
 
         return NextResponse.json({
-            id: newEntryId,
-            title: 'New Entry',
-            content: { ops: [{ insert: "\n" }] },
-            html: '',
-            Version: 1,
-            isNew: true
+            id: entry.EntryID,
+            title: entry.Title,
+            content: entry.QuillDelta ? JSON.parse(entry.QuillDelta) : null,
+            html: entry.HtmlContent,
+            Version: entry.Version ?? 1,
+            isNew
         });
 
     } catch (error) {
