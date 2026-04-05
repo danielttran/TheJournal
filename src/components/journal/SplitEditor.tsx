@@ -68,6 +68,9 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
     const isLoadedRef = useRef(false);
     const contentRef = useRef('');
     const deltaRef = useRef<any>(null);
+    // Guard setState calls after unmount
+    const isMountedRef = useRef(true);
+    useEffect(() => { return () => { isMountedRef.current = false; }; }, []);
 
     // Fetch entry list for picker
     useEffect(() => {
@@ -78,7 +81,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
         fetch(endpoint)
             .then(r => r.json())
             .then((data: any[]) => {
-                if (!Array.isArray(data)) return;
+                if (!Array.isArray(data) || !isMountedRef.current) return;
                 const options: EntryOption[] = data
                     .filter(e => categoryType !== 'Notebook' || e.EntryType === 'Page')
                     .map(e => ({
@@ -94,8 +97,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
 
     const performSave = useCallback(async () => {
         if (!currentIdRef.current || !isDirtyRef.current) return;
-        setSaving(true);
-        setSaveError(false);
+        if (isMountedRef.current) { setSaving(true); setSaveError(false); }
 
         const id = currentIdRef.current;
         const delta = deltaRef.current;
@@ -116,46 +118,103 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
             if (res.ok) {
                 isDirtyRef.current = false;
                 window.dispatchEvent(new CustomEvent('journal-entry-updated'));
+                if (isMountedRef.current) setSaveError(false);
             } else {
-                setSaveError(true);
+                if (isMountedRef.current) setSaveError(true);
             }
         } catch {
-            setSaveError(true);
+            if (isMountedRef.current) setSaveError(true);
         } finally {
-            setSaving(false);
+            if (isMountedRef.current) setSaving(false);
         }
     }, [userId]);
 
-    // Flush on unmount
+    // On unmount: use sendBeacon for reliability (fetch is aborted on navigation).
+    // This mirrors the primary Editor's beforeunload strategy.
     useEffect(() => {
         return () => {
             if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-            if (isDirtyRef.current) performSave();
+            if (!isDirtyRef.current || !currentIdRef.current) return;
+
+            const id = currentIdRef.current;
+            const delta = deltaRef.current;
+            const html = contentRef.current;
+
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html || '';
+            const plainText = tempDiv.textContent || '';
+            const body = {
+                userId,
+                content: delta,
+                html,
+                title: plainText.split('\n')[0].substring(0, 100) || 'Untitled',
+                preview: plainText.substring(0, 200),
+            };
+
+            const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
+            if (!navigator.sendBeacon(`/api/entry/${id}`, blob)) {
+                // sendBeacon unavailable — fall back to synchronous XHR
+                try {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('POST', `/api/entry/${id}`, false);
+                    xhr.setRequestHeader('Content-Type', 'application/json');
+                    xhr.send(JSON.stringify(body));
+                } catch { }
+            }
         };
-    }, [performSave]);
+    }, [userId]);
+
+    // Load content into Quill once it mounts.
+    // Quill is only rendered after selectedId is set, so there is a render-cycle gap
+    // between setSelectedId() and the ref becoming available. We retry with a short
+    // interval and guard with the targetId so a quick double-click can't corrupt state.
+    const tryLoadContent = useCallback((targetId: number, delta: any, html: string) => {
+        if (currentIdRef.current !== targetId) return; // user switched away
+
+        if (!quillRef.current) {
+            setTimeout(() => tryLoadContent(targetId, delta, html), 50);
+            return;
+        }
+
+        try {
+            const quill = quillRef.current.getEditor();
+            if (delta?.ops) {
+                quill.setContents(delta, 'api');
+            } else if (html) {
+                quill.clipboard.dangerouslyPasteHTML(html, 'api');
+            }
+            contentRef.current = quill.root.innerHTML;
+            deltaRef.current = quill.getContents();
+        } catch { }
+
+        isLoadedRef.current = true;
+    }, []);
 
     const loadEntry = useCallback(async (id: number, label: string) => {
-        // Flush any unsaved changes from the previous entry before switching
+        // Flush unsaved changes from the previous entry before switching
         if (isDirtyRef.current && currentIdRef.current) {
             if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
             await performSave();
         }
 
-        setSelectedId(id);
-        setSelectedLabel(label);
-        setShowPicker(false);
-        setSearchQuery('');
+        if (isMountedRef.current) {
+            setSelectedId(id);
+            setSelectedLabel(label);
+            setShowPicker(false);
+            setSearchQuery('');
+        }
         currentIdRef.current = id;
         isLoadedRef.current = false;
         isDirtyRef.current = false;
 
+        // Clear editor immediately to avoid stale content flash
         if (quillRef.current) {
             try { quillRef.current.getEditor().setText(''); } catch { }
         }
 
         try {
             const res = await fetch(`/api/entry/${id}`);
-            if (!res.ok) return;
+            if (!res.ok || currentIdRef.current !== id) return; // entry switched mid-fetch
             const data = await res.json();
 
             let loadedDelta: any = null;
@@ -163,19 +222,10 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
                 try { loadedDelta = typeof data.QuillDelta === 'string' ? JSON.parse(data.QuillDelta) : data.QuillDelta; } catch { }
             }
 
-            if (quillRef.current) {
-                const quill = quillRef.current.getEditor();
-                if (loadedDelta?.ops) {
-                    quill.setContents(loadedDelta, 'api');
-                } else if (data.HtmlContent) {
-                    quill.clipboard.dangerouslyPasteHTML(data.HtmlContent, 'api');
-                }
-                contentRef.current = quill.root.innerHTML;
-                deltaRef.current = quill.getContents();
-            }
-            isLoadedRef.current = true;
+            // tryLoadContent retries until Quill is mounted, guards against switched entries
+            tryLoadContent(id, loadedDelta, data.HtmlContent || '');
         } catch { }
-    }, [performSave]);
+    }, [performSave, tryLoadContent]);
 
     const handleChange = useCallback((_content: string, _delta: any, source: string, editor: any) => {
         contentRef.current = editor.getHTML();
@@ -183,7 +233,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
 
         if (source === 'user' && isLoadedRef.current) {
             isDirtyRef.current = true;
-            setSaveError(false);
+            if (isMountedRef.current) setSaveError(false);
             if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = setTimeout(performSave, 1000);
         }
@@ -225,7 +275,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
                 <button
                     onClick={onClose}
                     className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-red-400 flex-shrink-0 transition-colors"
-                    title="Close split view (Ctrl+\\)"
+                    title="Close split view (Ctrl+\)"
                 >
                     <X className="w-4 h-4" />
                 </button>
@@ -285,7 +335,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
                 </div>
             )}
 
-            {/* Quill editor */}
+            {/* Quill editor — only rendered once an entry is selected */}
             {selectedId && (
                 <div
                     className="flex-1 overflow-hidden flex flex-col min-h-0"

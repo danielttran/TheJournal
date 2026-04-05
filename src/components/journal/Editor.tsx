@@ -1264,10 +1264,13 @@ export default function Editor({
                     )}
                 </div>
             )}
-            {/* Dismiss context menu + view menu on outside click */}
+            {/* Dismiss context menu + view menu on outside click.
+                Must be BELOW both menus in z-order so clicks on menu items
+                reach the menu before the backdrop: context-menu z-[300],
+                ViewMenu dropdown z-[200], this backdrop z-[150]. */}
             {(contextMenu || showViewMenu) && (
                 <div
-                    className="fixed inset-0 z-[299]"
+                    className="fixed inset-0 z-[150]"
                     onClick={() => { setContextMenu(null); setShowViewMenu(false); }}
                 />
             )}
@@ -1276,7 +1279,12 @@ export default function Editor({
                 className={`flex-1 relative flex flex-col ${isDistractionFree ? 'df-mode overflow-y-auto' : 'overflow-hidden min-h-0'} ${isDistractionFree && !showDfToolbar ? 'df-toolbar-hidden' : ''}`}
                 onContextMenu={e => {
                     e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY });
+                    // Menu is ~220px wide, ~120px tall — clamp so it never overflows viewport
+                    const menuW = 224;
+                    const menuH = 130;
+                    const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
+                    const y = Math.min(e.clientY, window.innerHeight - menuH - 8);
+                    setContextMenu({ x, y });
                 }}
             >
                 <ReactQuill

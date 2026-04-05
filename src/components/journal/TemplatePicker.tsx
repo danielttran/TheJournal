@@ -139,15 +139,13 @@ export default function TemplatePicker({ onSelect, onClose, currentHtml, current
                                     onClick={() => renamingId !== t.TemplateID && onSelect(t)}
                                     className="group relative border border-border-primary rounded-lg p-4 hover:border-accent-primary hover:bg-bg-hover transition-colors cursor-pointer flex flex-col"
                                 >
-                                    {/* Preview snippet */}
-                                    <div
-                                        className="text-xs text-text-muted mb-2 line-clamp-3 leading-relaxed select-none pointer-events-none flex-1"
-                                        dangerouslySetInnerHTML={{
-                                            __html: t.HtmlContent
-                                                ? t.HtmlContent.replace(/<[^>]+>/g, ' ').substring(0, 120)
-                                                : '<em>Empty template</em>'
-                                        }}
-                                    />
+                                    {/* Preview snippet — safe text extraction, no HTML injection */}
+                                    <div className="text-xs text-text-muted mb-2 line-clamp-3 leading-relaxed select-none pointer-events-none flex-1">
+                                        {t.HtmlContent
+                                            ? (() => { const d = document.createElement('div'); d.innerHTML = t.HtmlContent; return (d.textContent || '').substring(0, 120); })()
+                                            : <em>Empty template</em>
+                                        }
+                                    </div>
 
                                     {/* Name / rename input */}
                                     {renamingId === t.TemplateID ? (

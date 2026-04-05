@@ -1,17 +1,27 @@
 import { db } from "@/lib/db";
+import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 const RequestSchema = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD
     categoryId: z.number().or(z.string().transform(val => parseInt(val, 10))),
-    userId: z.number().or(z.string().transform(val => parseInt(val, 10))),
 });
 
 export async function POST(req: NextRequest) {
     try {
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get('userId');
+        if (!userIdCookie?.value) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const userId = parseInt(userIdCookie.value, 10);
+        if (isNaN(userId)) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
         const body = await req.json();
-        const { date, categoryId, userId } = RequestSchema.parse(body);
+        const { date, categoryId } = RequestSchema.parse(body);
 
         // Security check: Ensure category belongs to user
         const category = await db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);

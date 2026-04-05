@@ -185,9 +185,11 @@ class DBManager {
             `ALTER TABLE Category ADD COLUMN Color TEXT DEFAULT '#6366f1'`,
             `ALTER TABLE Entry ADD COLUMN IsLocked BOOLEAN DEFAULT 0`,
             `ALTER TABLE Entry ADD COLUMN ModifiedDate DATETIME DEFAULT CURRENT_TIMESTAMP`,
-            // Prevent duplicate journal entries for the same date in a category.
-            // Silently ignored if creation fails due to pre-existing duplicates.
-            `CREATE UNIQUE INDEX IF NOT EXISTS "Idx_Entry_Journal_UniqueDate" ON "Entry" ("CategoryID", date("CreatedDate"))`,
+            // Remove the previously-added UNIQUE index: it covered ALL entry types, so creating
+            // a second Notebook page on the same calendar day would fail at the DB level.
+            // Duplicate-date prevention for Journal entries is handled entirely in the
+            // by-date transaction (SELECT-then-INSERT inside BEGIN IMMEDIATE).
+            `DROP INDEX IF EXISTS "Idx_Entry_Journal_UniqueDate"`,
         ];
         for (const migration of migrations) {
             await new Promise<void>((res) => this.instance!.run(migration, () => res()));
