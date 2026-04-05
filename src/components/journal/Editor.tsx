@@ -9,7 +9,7 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useSearchParams } from 'next/navigation';
 
-import { Maximize2, Minimize2, X as XIcon } from 'lucide-react';
+import { Maximize2, Minimize2, Columns, ChevronDown } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import { useLoading } from '@/contexts/LoadingContext';
@@ -63,6 +63,77 @@ declare global {
     }
 }
 
+// ─── View Menu ───────────────────────────────────────────────────────────────
+// Dropdown shown in both header bars; lists Templates, Focus Mode, and Split View
+// with their keyboard shortcuts. Rendered as a local component so it can share
+// the Lucide imports from this file without a separate module.
+function ViewMenu({
+    isSplitMode,
+    isOpen,
+    onToggle,
+    onClose,
+    onTemplates,
+    onFocus,
+    onSplit,
+}: {
+    isSplitMode: boolean;
+    isOpen: boolean;
+    onToggle: () => void;
+    onClose: () => void;
+    onTemplates: () => void;
+    onFocus: () => void;
+    onSplit: () => void;
+}) {
+    return (
+        <div className="relative">
+            <button
+                onClick={onToggle}
+                className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${isOpen ? 'bg-bg-hover text-text-primary' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}
+                title="View options"
+            >
+                View
+                <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <div className="absolute right-0 top-full mt-1 z-[200] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[230px]">
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-text-muted font-semibold">View</div>
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={onTemplates}
+                    >
+                        <span className="flex items-center gap-2">
+                            <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Templates…
+                        </span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+Shift+T</kbd>
+                    </button>
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={onFocus}
+                    >
+                        <span className="flex items-center gap-2">
+                            <Maximize2 className="w-3.5 h-3.5 text-text-muted" />
+                            Focus Mode
+                        </span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">F11</kbd>
+                    </button>
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={onSplit}
+                    >
+                        <span className="flex items-center gap-2">
+                            <Columns className="w-3.5 h-3.5 text-text-muted" />
+                            {isSplitMode ? 'Close Split' : 'Split View'}
+                        </span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+\</kbd>
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ─── Entry content cache ──────────────────────────────────────────────────────
 // Module-level cache for fetched note content so background fetches persist across switches.
 // No hard cap on number of entries — only TTL-based eviction + lazy cleanup.
 // Disk is the only real limit; this cache holds references, not duplicates of disk data.
@@ -101,7 +172,18 @@ function getCachedEntry(key: string) {
     return cached;
 }
 
-export default function Editor({ categoryId, userId }: { categoryId: string, userId: string }) {
+export default function Editor({
+    categoryId,
+    userId,
+    onEnterSplitMode: onToggleSplitMode,
+    isSplitMode = false,
+}: {
+    categoryId: string;
+    userId: string;
+    /** Toggle callback — called for both enter and exit. */
+    onEnterSplitMode?: () => void;
+    isSplitMode?: boolean;
+}) {
     const searchParams = useSearchParams();
     const urlDate = searchParams.get('date');
     const selectedDate = urlDate || new Date().toISOString().split('T')[0];
@@ -120,6 +202,10 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     // Distraction-free / focus mode
     const [isDistractionFree, setIsDistractionFree] = useState(false);
     const [showDfToolbar, setShowDfToolbar] = useState(false);
+    // View menu dropdown
+    const [showViewMenu, setShowViewMenu] = useState(false);
+    // Right-click context menu
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
     // Helper to update both local and context loading state
     const updateLoadingProgress = useCallback((entryId: number | null, progress: number | null) => {
@@ -152,24 +238,41 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         window.hljs = hljs;
     }, []);
 
-    // Keyboard shortcut: F11 to toggle focus mode, Escape to exit
+    // Keyboard shortcuts
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
+            // F11 → toggle distraction-free
             if (e.key === 'F11') {
                 e.preventDefault();
                 setIsDistractionFree(v => {
-                    if (v) setShowDfToolbar(false); // reset toolbar visibility on exit
+                    if (v) setShowDfToolbar(false);
                     return !v;
                 });
+                return;
             }
-            if (e.key === 'Escape' && isDistractionFree) {
-                setIsDistractionFree(false);
-                setShowDfToolbar(false);
+            // Escape → exit distraction-free, close menus
+            if (e.key === 'Escape') {
+                if (isDistractionFree) { setIsDistractionFree(false); setShowDfToolbar(false); }
+                setShowViewMenu(false);
+                setContextMenu(null);
+                return;
+            }
+            // Ctrl+Shift+T → Templates
+            if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+                e.preventDefault();
+                setShowTemplatePicker(true);
+                return;
+            }
+            // Ctrl+\ → Split view
+            if (e.ctrlKey && e.key === '\\') {
+                e.preventDefault();
+                onToggleSplitMode?.();
+                return;
             }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [isDistractionFree]);
+    }, [isDistractionFree, onToggleSplitMode]);
 
     // entryIdRef is kept in sync by setting it directly alongside every setEntryId() call.
     // Do NOT rely purely on a useEffect for this — there is a render-cycle gap where
@@ -1011,27 +1114,20 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     <div className="flex-1 overflow-hidden">
                         <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
                     </div>
-                    <div className="flex items-center ml-4 flex-shrink-0 gap-4">
-                        <button
-                            onClick={() => setShowTemplatePicker(true)}
-                            className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
-                            title="Templates"
-                        >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                            Templates
-                        </button>
-                        <button
-                            onClick={() => setIsDistractionFree(true)}
-                            className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
-                            title="Focus mode (F11)"
-                        >
-                            <Maximize2 className="w-3.5 h-3.5" />
-                            Focus
-                        </button>
+                    <div className="flex items-center ml-4 flex-shrink-0 gap-3">
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
                             <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
                             {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
                         </span>
+                        <ViewMenu
+                            isSplitMode={isSplitMode}
+                            isOpen={showViewMenu}
+                            onToggle={() => setShowViewMenu(v => !v)}
+                            onClose={() => setShowViewMenu(false)}
+                            onTemplates={() => { setShowViewMenu(false); setShowTemplatePicker(true); }}
+                            onFocus={() => { setShowViewMenu(false); setIsDistractionFree(true); }}
+                            onSplit={() => { setShowViewMenu(false); onToggleSplitMode?.(); }}
+                        />
                     </div>
                 </div>
             )}
@@ -1042,24 +1138,15 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
                         {saveError ? 'Error Saving' : saving ? 'Saving...' : 'Saved'}
                     </span>
-                    <div className="flex items-center gap-4">
-                        <button
-                            onClick={() => setShowTemplatePicker(true)}
-                            className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
-                            title="Templates"
-                        >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                            Templates
-                        </button>
-                        <button
-                            onClick={() => setIsDistractionFree(true)}
-                            className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
-                            title="Focus mode (F11)"
-                        >
-                            <Maximize2 className="w-3.5 h-3.5" />
-                            Focus
-                        </button>
-                    </div>
+                    <ViewMenu
+                        isSplitMode={isSplitMode}
+                        isOpen={showViewMenu}
+                        onToggle={() => setShowViewMenu(v => !v)}
+                        onClose={() => setShowViewMenu(false)}
+                        onTemplates={() => { setShowViewMenu(false); setShowTemplatePicker(true); }}
+                        onFocus={() => { setShowViewMenu(false); setIsDistractionFree(true); }}
+                        onSplit={() => { setShowViewMenu(false); onToggleSplitMode?.(); }}
+                    />
                 </div>
             )}
 
@@ -1145,7 +1232,53 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 </div>
             )}
 
-            <div className={`flex-1 relative flex flex-col ${isDistractionFree ? 'df-mode overflow-y-auto' : 'overflow-hidden min-h-0'} ${isDistractionFree && !showDfToolbar ? 'df-toolbar-hidden' : ''}`}>
+            {/* Right-click context menu */}
+            {contextMenu && (
+                <div
+                    className="fixed z-[300] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[220px]"
+                    style={{ top: contextMenu.y, left: contextMenu.x }}
+                    onClick={() => setContextMenu(null)}
+                >
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={() => setShowTemplatePicker(true)}
+                    >
+                        <span>Templates…</span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+Shift+T</kbd>
+                    </button>
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={() => setIsDistractionFree(true)}
+                    >
+                        <span>Focus Mode</span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">F11</kbd>
+                    </button>
+                    {onToggleSplitMode && (
+                        <button
+                            className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                            onClick={() => onToggleSplitMode()}
+                        >
+                            <span>Split View</span>
+                            <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+\</kbd>
+                        </button>
+                    )}
+                </div>
+            )}
+            {/* Dismiss context menu + view menu on outside click */}
+            {(contextMenu || showViewMenu) && (
+                <div
+                    className="fixed inset-0 z-[299]"
+                    onClick={() => { setContextMenu(null); setShowViewMenu(false); }}
+                />
+            )}
+
+            <div
+                className={`flex-1 relative flex flex-col ${isDistractionFree ? 'df-mode overflow-y-auto' : 'overflow-hidden min-h-0'} ${isDistractionFree && !showDfToolbar ? 'df-toolbar-hidden' : ''}`}
+                onContextMenu={e => {
+                    e.preventDefault();
+                    setContextMenu({ x: e.clientX, y: e.clientY });
+                }}
+            >
                 <ReactQuill
                     // @ts-expect-error — react-quill-new ref typings are incompatible with React 18 forwardRef
                     ref={quillRef}
