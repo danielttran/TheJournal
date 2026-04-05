@@ -622,10 +622,14 @@ export default function Editor({
         window.addEventListener('mouseup', onMouseUp);
     }, []);
 
-    // When split mode turns on, seed the bottom pane with the current document.
+    // Seed the bottom pane when split mode first turns on.
+    // finishLoading() handles the re-seed on every subsequent entry navigation,
+    // so this effect only needs to handle the initial "split just opened" case.
     useEffect(() => {
         if (!isSplitMode) return;
+        let aborted = false;
         const seed = () => {
+            if (aborted) return;
             if (!quillRef2.current) { setTimeout(seed, 50); return; }
             try {
                 const q2 = quillRef2.current.getEditor();
@@ -635,6 +639,7 @@ export default function Editor({
             } catch { }
         };
         seed();
+        return () => { aborted = true; };
     }, [isSplitMode]);
 
     // Bottom-pane change handler — mirrors the primary handler but syncs UP to top pane.
@@ -857,6 +862,17 @@ export default function Editor({
             updateLoadingProgress(null, null);
             isFullyLoadedRef.current = true;
             console.log("Loading complete, content length:", contentRef.current.length);
+            // Sync bottom pane — this is the authoritative place because deltaRef is
+            // guaranteed to be populated here, unlike the seed effect which fires
+            // at isSplitMode toggle time when loading may not have finished yet.
+            if (isSplitModeRef.current && quillRef2.current) {
+                try {
+                    const q2 = quillRef2.current.getEditor();
+                    const d = deltaRef.current;
+                    if (d?.ops) { q2.setContents(d, 'api'); }
+                    else if (contentRef.current) { q2.clipboard.dangerouslyPasteHTML(contentRef.current, 'api'); }
+                } catch { }
+            }
         }
 
     }, [updateLoadingProgress]);
@@ -895,12 +911,12 @@ export default function Editor({
         cacheKeyRef.current = cacheKey;
         if (urlEntryId) entryIdRef.current = urlEntryId;
 
-        // Clear Quill editor immediately to prevent stale content flash from previous note
+        // Clear both panes immediately to prevent stale content flash from previous note
         if (quillRef.current) {
-            try {
-                const quill = quillRef.current.getEditor();
-                quill.setText('');
-            } catch (e) { /* Quill not ready yet */ }
+            try { quillRef.current.getEditor().setText(''); } catch { }
+        }
+        if (quillRef2.current) {
+            try { quillRef2.current.getEditor().setText(''); } catch { }
         }
 
         const loadEntry = async () => {
