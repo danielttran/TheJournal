@@ -1417,26 +1417,30 @@ export default function Editor({
                     setContextMenu({ x, y });
                 }}
             >
-                {isSplitMode ? (
-                    <>
-                        {/* Top pane */}
-                        <div
-                            style={{ height: `${splitRatio}%` }}
-                            className="flex flex-col min-h-0 overflow-hidden"
-                        >
-                            <ReactQuill
-                                // @ts-expect-error — react-quill-new ref typings
-                                ref={quillRef}
-                                theme="snow"
-                                defaultValue={''}
-                                onChange={handleChange}
-                                modules={modules}
-                                className="flex-1 flex flex-col bg-transparent border-none min-h-0"
-                                placeholder="Start writing..."
-                            />
-                        </div>
+                {/*
+                  * Top pane wrapper is ALWAYS the first child here so React never
+                  * unmounts/remounts the ReactQuill instance when split mode toggles.
+                  * Only its height changes via inline style.
+                  */}
+                <div
+                    style={{ height: isSplitMode ? `${splitRatio}%` : '100%' }}
+                    className="flex flex-col min-h-0 overflow-hidden"
+                >
+                    <ReactQuill
+                        // @ts-expect-error — react-quill-new ref typings
+                        ref={quillRef}
+                        theme="snow"
+                        defaultValue={''}
+                        onChange={handleChange}
+                        modules={modules}
+                        className="flex-1 flex flex-col bg-transparent border-none min-h-0"
+                        placeholder="Start writing..."
+                    />
+                </div>
 
-                        {/* Horizontal resize divider */}
+                {/* Divider + bottom pane — conditionally appended, never affects the top pane's tree position */}
+                {isSplitMode && (
+                    <>
                         <div
                             onMouseDown={handleDividerMouseDown}
                             className="h-1 bg-border-primary hover:bg-accent-primary cursor-row-resize flex-shrink-0 transition-colors relative"
@@ -1444,8 +1448,6 @@ export default function Editor({
                         >
                             <div className="absolute inset-x-0 -top-1 -bottom-1" />
                         </div>
-
-                        {/* Bottom pane — same entry, independent scroll, no toolbar */}
                         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                             <ReactQuill
                                 // @ts-expect-error — react-quill-new ref typings
@@ -1459,17 +1461,6 @@ export default function Editor({
                             />
                         </div>
                     </>
-                ) : (
-                    <ReactQuill
-                        // @ts-expect-error — react-quill-new ref typings are incompatible with React 18 forwardRef
-                        ref={quillRef}
-                        theme="snow"
-                        defaultValue={''}
-                        onChange={handleChange}
-                        modules={modules}
-                        className="flex-1 flex flex-col bg-transparent border-none min-h-0"
-                        placeholder="Start writing..."
-                    />
                 )}
             </div>
         </div>
