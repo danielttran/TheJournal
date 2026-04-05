@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { LoadingProvider } from '@/contexts/LoadingContext';
 import Sidebar from '@/components/journal/Sidebar';
 import Editor from '@/components/journal/Editor';
 import EntryGrid from '@/components/journal/EntryGrid';
 import SplitEditor from '@/components/journal/SplitEditor';
+import SearchPanel from '@/components/journal/SearchPanel';
 
 interface JournalViewProps {
     categoryId: string;
@@ -28,7 +30,9 @@ export default function JournalView({
     gridTitle,
     dataUrl
 }: JournalViewProps) {
+    const router = useRouter();
     const [isSplitMode, setIsSplitMode] = useState(false);
+    const [showSearch, setShowSearch] = useState(false);
     // Ratio is the percentage width of the primary (left) pane; clamped 25–75.
     const [splitRatio, setSplitRatio] = useState(50);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -58,6 +62,14 @@ export default function JournalView({
 
     const toggleSplitMode = useCallback(() => setIsSplitMode(v => !v), []);
     const exitSplitMode = useCallback(() => setIsSplitMode(false), []);
+    const openSearch = useCallback(() => setShowSearch(true), []);
+    const closeSearch = useCallback(() => setShowSearch(false), []);
+
+    // Navigate to a search result via URL — Editor already responds to ?entry=ID
+    // for both Journal and Notebook entry types.
+    const handleSearchNavigate = useCallback((targetCategoryId: number, entryId: number, _categoryType: string) => {
+        router.push(`/journal/${targetCategoryId}?entry=${entryId}`);
+    }, [router]);
 
     return (
         <LoadingProvider>
@@ -83,6 +95,7 @@ export default function JournalView({
                                 userId={userId}
                                 onEnterSplitMode={toggleSplitMode}
                                 isSplitMode={isSplitMode}
+                                onOpenSearch={openSearch}
                             />
                         )}
                     </main>
@@ -111,6 +124,16 @@ export default function JournalView({
                         </main>
                     )}
                 </div>
+
+                {/* Search panel — rendered at root so it overlays both panes */}
+                {showSearch && (
+                    <SearchPanel
+                        currentCategoryId={categoryId}
+                        currentCategoryType={categoryType}
+                        onClose={closeSearch}
+                        onNavigate={handleSearchNavigate}
+                    />
+                )}
             </div>
         </LoadingProvider>
     );

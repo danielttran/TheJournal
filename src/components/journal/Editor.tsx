@@ -75,6 +75,7 @@ function ViewMenu({
     onTemplates,
     onFocus,
     onSplit,
+    onSearch,
 }: {
     isSplitMode: boolean;
     isOpen: boolean;
@@ -83,6 +84,7 @@ function ViewMenu({
     onTemplates: () => void;
     onFocus: () => void;
     onSplit: () => void;
+    onSearch?: () => void;
 }) {
     return (
         <div className="relative">
@@ -97,6 +99,19 @@ function ViewMenu({
             {isOpen && (
                 <div className="absolute right-0 top-full mt-1 z-[200] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[230px]">
                     <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-text-muted font-semibold">View</div>
+                    {onSearch && (
+                        <button
+                            className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                            onClick={onSearch}
+                        >
+                            <span className="flex items-center gap-2">
+                                <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" strokeWidth={2}/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35"/></svg>
+                                Search…
+                            </span>
+                            <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+F</kbd>
+                        </button>
+                    )}
+                    <div className="mx-3 my-1 border-t border-border-primary" />
                     <button
                         className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
                         onClick={onTemplates}
@@ -177,12 +192,15 @@ export default function Editor({
     userId,
     onEnterSplitMode: onToggleSplitMode,
     isSplitMode = false,
+    onOpenSearch,
 }: {
     categoryId: string;
     userId: string;
     /** Toggle callback — called for both enter and exit. */
     onEnterSplitMode?: () => void;
     isSplitMode?: boolean;
+    /** Open the global search panel. */
+    onOpenSearch?: () => void;
 }) {
     const searchParams = useSearchParams();
     const urlDate = searchParams.get('date');
@@ -269,10 +287,16 @@ export default function Editor({
                 onToggleSplitMode?.();
                 return;
             }
+            // Ctrl+F → Search
+            if (e.ctrlKey && !e.shiftKey && e.key === 'f') {
+                e.preventDefault();
+                onOpenSearch?.();
+                return;
+            }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [isDistractionFree, onToggleSplitMode]);
+    }, [isDistractionFree, onToggleSplitMode, onOpenSearch]);
 
     // entryIdRef is kept in sync by setting it directly alongside every setEntryId() call.
     // Do NOT rely purely on a useEffect for this — there is a render-cycle gap where
@@ -1127,6 +1151,7 @@ export default function Editor({
                             onTemplates={() => { setShowViewMenu(false); setShowTemplatePicker(true); }}
                             onFocus={() => { setShowViewMenu(false); setIsDistractionFree(true); }}
                             onSplit={() => { setShowViewMenu(false); onToggleSplitMode?.(); }}
+                            onSearch={() => { setShowViewMenu(false); onOpenSearch?.(); }}
                         />
                     </div>
                 </div>
@@ -1146,6 +1171,7 @@ export default function Editor({
                         onTemplates={() => { setShowViewMenu(false); setShowTemplatePicker(true); }}
                         onFocus={() => { setShowViewMenu(false); setIsDistractionFree(true); }}
                         onSplit={() => { setShowViewMenu(false); onToggleSplitMode?.(); }}
+                        onSearch={() => { setShowViewMenu(false); onOpenSearch?.(); }}
                     />
                 </div>
             )}
@@ -1239,6 +1265,18 @@ export default function Editor({
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                     onClick={() => setContextMenu(null)}
                 >
+                    {onOpenSearch && (
+                        <>
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                                onClick={() => onOpenSearch()}
+                            >
+                                <span>Search…</span>
+                                <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+F</kbd>
+                            </button>
+                            <div className="mx-3 my-1 border-t border-border-primary" />
+                        </>
+                    )}
                     <button
                         className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
                         onClick={() => setShowTemplatePicker(true)}
