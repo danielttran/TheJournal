@@ -159,10 +159,20 @@ class DBManager {
                 content='EntryContent',
                 content_rowid='EntryID'
             )`,
+            `CREATE TABLE IF NOT EXISTS Template (
+                TemplateID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                Name TEXT NOT NULL,
+                QuillDelta TEXT,
+                HtmlContent TEXT,
+                CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
             `CREATE INDEX IF NOT EXISTS "Idx_Entry_Parent" ON "Entry" ("ParentEntryID")`,
             `CREATE INDEX IF NOT EXISTS "Idx_Entry_Category_Date" ON "Entry" ("CategoryID", "CreatedDate")`,
             `CREATE INDEX IF NOT EXISTS "Idx_Category_User" ON "Category" ("UserID")`,
-            `CREATE INDEX IF NOT EXISTS "Idx_Entry_Type" ON "Entry" ("CategoryID", "EntryType")`
+            `CREATE INDEX IF NOT EXISTS "Idx_Entry_Type" ON "Entry" ("CategoryID", "EntryType")`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Template_User" ON "Template" ("UserID")`
         ];
 
         for (const query of queries) {
@@ -175,6 +185,11 @@ class DBManager {
             `ALTER TABLE Category ADD COLUMN Color TEXT DEFAULT '#6366f1'`,
             `ALTER TABLE Entry ADD COLUMN IsLocked BOOLEAN DEFAULT 0`,
             `ALTER TABLE Entry ADD COLUMN ModifiedDate DATETIME DEFAULT CURRENT_TIMESTAMP`,
+            // Remove the previously-added UNIQUE index: it covered ALL entry types, so creating
+            // a second Notebook page on the same calendar day would fail at the DB level.
+            // Duplicate-date prevention for Journal entries is handled entirely in the
+            // by-date transaction (SELECT-then-INSERT inside BEGIN IMMEDIATE).
+            `DROP INDEX IF EXISTS "Idx_Entry_Journal_UniqueDate"`,
         ];
         for (const migration of migrations) {
             await new Promise<void>((res) => this.instance!.run(migration, () => res()));

@@ -20,34 +20,17 @@ const UpdateSchema = z.object({
 // ... imports
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-    // Recursive helper to get all descendant IDs
-    const getAllDescendantIds = async (rootId: number): Promise<number[]> => {
-        const descendants: number[] = [];
-        const queue = [rootId];
-        while (queue.length > 0) {
-            const current = queue.shift()!;
-            descendants.push(current);
-            const children = await db.prepare('SELECT EntryID FROM Entry WHERE ParentEntryID = ?').all(current) as { EntryID: number }[];
-            for (const child of children) {
-                queue.push(child.EntryID);
-            }
-        }
-        return descendants;
-    };
-
     try {
         const { id } = await params;
         const entryId = parseInt(id, 10);
 
-        // Optional: Check ownership here if we had session info easily available
-        // For strictness, we should extract userId from cookie similar to other routes
         const { cookies } = await import("next/headers");
         const cookieStore = await cookies();
         const userIdCookie = cookieStore.get("userId");
         if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const userId = parseInt(userIdCookie.value, 10);
 
-        // Security Check
+        // Ownership check
         const entry = await db.prepare(`
             SELECT 1 FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
@@ -59,23 +42,26 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         }
 
         const deleteTransaction = db.transaction(async () => {
-            // 1. Identify all IDs to delete (Self + Descendants)
-            const idsToDelete = await getAllDescendantIds(entryId);
+            // Single recursive CTE collects the full subtree in one query — no N+1 BFS loop.
+            // Running inside BEGIN IMMEDIATE ensures no new children can be inserted
+            // between the tree walk and the delete.
+            const rows = await db.prepare(`
+                WITH RECURSIVE subtree(id) AS (
+                    SELECT ?
+                    UNION ALL
+                    SELECT e.EntryID FROM Entry e JOIN subtree s ON e.ParentEntryID = s.id
+                )
+                SELECT id FROM subtree
+            `).all(entryId) as { id: number }[];
 
-            if (idsToDelete.length === 0) return;
+            if (rows.length === 0) return;
 
+            const idsToDelete = rows.map(r => r.id);
             const placeholders = idsToDelete.map(() => '?').join(',');
 
-            // 2. Delete Content
+            // Delete content first (EntryContent FK has ON DELETE CASCADE from Entry,
+            // but explicit deletion is clearer and avoids relying purely on cascade order).
             await db.prepare(`DELETE FROM EntryContent WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
-
-            // 3. Delete Entries
-            // We can delete all in one go. Foreign keys might complain if we don't do bottom-up, 
-            // but with standard SQLite FKs ON, deleting parents might auto-cascade or fail. 
-            // Safest: Delete all Entry rows in the set.
-            // If we just DELETE FROM Entry WHERE EntryID IN (...), order matters if self-referencing FK is restrictive.
-            // But usually, deleting parent with CASCADE works. If NO ACTION/RESTRICT, we must delete children first.
-            // Let's assume standard behavior: delete the set. If fails, we might need reverse sort by hierarchy.
             await db.prepare(`DELETE FROM Entry WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
         });
 
@@ -141,29 +127,39 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         const { content, html, title, preview, userId, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, expectedVersion } = result.data;
 
-        // 2. Security Check
-        const entry = await db.prepare(`
-            SELECT e.Version FROM Entry e
+        // 2. Ownership check — quick pre-flight (inside transaction we re-check atomically)
+        const ownerCheck = await db.prepare(`
+            SELECT 1 FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
             WHERE e.EntryID = ? AND c.UserID = ?
-        `).get(entryId, userId) as { Version: number } | undefined;
+        `).get(entryId, userId);
 
-        if (!entry) {
+        if (!ownerCheck) {
             return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
         }
 
-        // 3. Optimistic locking: if client sends expectedVersion, reject if stale
-        if (expectedVersion !== undefined && entry.Version !== expectedVersion) {
-            return NextResponse.json({
-                error: "conflict",
-                message: "This entry was modified in another tab or session. Please reload and try again.",
-                serverVersion: entry.Version
-            }, { status: 409 });
-        }
-
-        // Wrap in transaction
-        let newVersion = (entry.Version ?? 1) + 1;
+        // 3. Perform version check + write atomically inside a single BEGIN IMMEDIATE
+        // transaction. Checking version outside then writing inside creates a TOCTOU
+        // window where a concurrent save could slip through between the check and write.
+        let newVersion = 1;
         const updateTransaction = db.transaction(async () => {
+            // Re-read version inside the transaction — this is the authoritative check
+            const entry = await db.prepare(
+                'SELECT Version FROM Entry WHERE EntryID = ?'
+            ).get(entryId) as { Version: number } | undefined;
+
+            if (!entry) throw Object.assign(new Error('not_found'), { status: 404 });
+
+            if (expectedVersion !== undefined && entry.Version !== expectedVersion) {
+                throw Object.assign(new Error('conflict'), {
+                    status: 409,
+                    serverVersion: entry.Version,
+                    message: 'This entry was modified in another tab or session. Please reload and try again.',
+                });
+            }
+
+            newVersion = (entry.Version ?? 1) + 1;
+
             // 4. Update Content (if provided)
             if (content !== undefined) {
                 const deltaString = JSON.stringify(content);
@@ -202,7 +198,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             }
         });
 
-        await updateTransaction();
+        try {
+            await updateTransaction();
+        } catch (txErr: any) {
+            if (txErr.status === 409) {
+                return NextResponse.json({
+                    error: 'conflict',
+                    message: txErr.message,
+                    serverVersion: txErr.serverVersion,
+                }, { status: 409 });
+            }
+            if (txErr.status === 404) {
+                return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+            }
+            throw txErr; // re-throw unexpected errors
+        }
 
         return NextResponse.json({ success: true, version: newVersion });
 

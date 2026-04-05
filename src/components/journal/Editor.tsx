@@ -9,7 +9,9 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useSearchParams } from 'next/navigation';
 
+import { Maximize2, Minimize2, Columns, ChevronDown } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
+import TemplatePicker, { type Template } from './TemplatePicker';
 import { useLoading } from '@/contexts/LoadingContext';
 
 const ReactQuill = dynamic(async () => {
@@ -61,30 +63,113 @@ declare global {
     }
 }
 
-// Module-level cache for fetched note content so background fetches persist across switches.
-// No hard cap on number of entries — only TTL-based eviction + lazy cleanup.
-// Disk is the only real limit; this cache holds references, not duplicates of disk data.
-const entryContentCache = new Map<string, { html: string; delta: any; timestamp: number }>();
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const CACHE_CLEANUP_INTERVAL_MS = 2 * 60 * 1000; // Sweep expired entries every 2 minutes
-
-// Lazy cleanup: periodically evict expired entries to free memory
-let lastCleanup = Date.now();
-
-function cacheCleanup() {
-    const now = Date.now();
-    if (now - lastCleanup < CACHE_CLEANUP_INTERVAL_MS) return;
-    lastCleanup = now;
-    for (const [key, entry] of entryContentCache) {
-        if (now - entry.timestamp > CACHE_TTL_MS) {
-            entryContentCache.delete(key);
-        }
-    }
+// ─── View Menu ───────────────────────────────────────────────────────────────
+// Dropdown shown in both header bars; lists Templates, Focus Mode, and Split View
+// with their keyboard shortcuts. Rendered as a local component so it can share
+// the Lucide imports from this file without a separate module.
+function ViewMenu({
+    isSplitMode,
+    isOpen,
+    onToggle,
+    onClose,
+    onTemplates,
+    onFocus,
+    onSplit,
+    onSearch,
+}: {
+    isSplitMode: boolean;
+    isOpen: boolean;
+    onToggle: () => void;
+    onClose: () => void;
+    onTemplates: () => void;
+    onFocus: () => void;
+    onSplit: () => void;
+    onSearch?: () => void;
+}) {
+    return (
+        <div className="relative">
+            <button
+                onClick={onToggle}
+                className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${isOpen ? 'bg-bg-hover text-text-primary' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}
+                title="View options"
+            >
+                View
+                <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <div className="absolute right-0 top-full mt-1 z-[200] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[230px]">
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-text-muted font-semibold">View</div>
+                    {onSearch && (
+                        <button
+                            className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                            onClick={onSearch}
+                        >
+                            <span className="flex items-center gap-2">
+                                <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" strokeWidth={2}/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35"/></svg>
+                                Search…
+                            </span>
+                            <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+F</kbd>
+                        </button>
+                    )}
+                    <div className="mx-3 my-1 border-t border-border-primary" />
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={onTemplates}
+                    >
+                        <span className="flex items-center gap-2">
+                            <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Templates…
+                        </span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+Shift+T</kbd>
+                    </button>
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={onFocus}
+                    >
+                        <span className="flex items-center gap-2">
+                            <Maximize2 className="w-3.5 h-3.5 text-text-muted" />
+                            Focus Mode
+                        </span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">F11</kbd>
+                    </button>
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={onSplit}
+                    >
+                        <span className="flex items-center gap-2">
+                            <Columns className="w-3.5 h-3.5 text-text-muted" />
+                            {isSplitMode ? 'Close Split' : 'Split View'}
+                        </span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+\</kbd>
+                    </button>
+                </div>
+            )}
+        </div>
+    );
 }
 
+// ─── Entry content cache ──────────────────────────────────────────────────────
+// Module-level LRU cache for fetched note content so background fetches persist
+// across entry switches without re-fetching from the server.
+//
+// Bounds: max 200 entries (hard cap) + 10-minute TTL.
+// On every write we evict the oldest entry once the cap is reached, ensuring the
+// cache memory footprint stays bounded even in long sessions browsing large notebooks.
+const entryContentCache = new Map<string, { html: string; delta: any; timestamp: number }>();
+const CACHE_TTL_MS = 10 * 60 * 1000;        // 10 minutes
+const CACHE_MAX_ENTRIES = 200;               // hard cap — prevents unbounded growth
+
 function cacheEntry(key: string, html: string, delta: any) {
+    // Delete-then-reinsert moves the key to the end of Map insertion order (newest)
+    entryContentCache.delete(key);
     entryContentCache.set(key, { html, delta, timestamp: Date.now() });
-    cacheCleanup();
+
+    // Evict: remove entries that are expired OR push the oldest out when over cap
+    const now = Date.now();
+    for (const [k, v] of entryContentCache) {
+        if (entryContentCache.size <= CACHE_MAX_ENTRIES && now - v.timestamp <= CACHE_TTL_MS) break;
+        entryContentCache.delete(k);
+    }
 }
 
 function getCachedEntry(key: string) {
@@ -94,12 +179,27 @@ function getCachedEntry(key: string) {
         entryContentCache.delete(key);
         return null;
     }
-    // Refresh timestamp on access (LRU behavior)
-    cached.timestamp = Date.now();
+    // Refresh timestamp + move to end (LRU touch)
+    entryContentCache.delete(key);
+    entryContentCache.set(key, { ...cached, timestamp: Date.now() });
     return cached;
 }
 
-export default function Editor({ categoryId, userId }: { categoryId: string, userId: string }) {
+export default function Editor({
+    categoryId,
+    userId,
+    onEnterSplitMode: onToggleSplitMode,
+    isSplitMode = false,
+    onOpenSearch,
+}: {
+    categoryId: string;
+    userId: string;
+    /** Toggle callback — called for both enter and exit. */
+    onEnterSplitMode?: () => void;
+    isSplitMode?: boolean;
+    /** Open the global search panel. */
+    onOpenSearch?: () => void;
+}) {
     const searchParams = useSearchParams();
     const urlDate = searchParams.get('date');
     const selectedDate = urlDate || new Date().toISOString().split('T')[0];
@@ -112,6 +212,16 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
+    // Template picker state
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+    const [isNewEntry, setIsNewEntry] = useState(false); // true when today's journal entry was just created
+    // Distraction-free / focus mode
+    const [isDistractionFree, setIsDistractionFree] = useState(false);
+    const [showDfToolbar, setShowDfToolbar] = useState(false);
+    // View menu dropdown
+    const [showViewMenu, setShowViewMenu] = useState(false);
+    // Right-click context menu
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
     // Helper to update both local and context loading state
     const updateLoadingProgress = useCallback((entryId: number | null, progress: number | null) => {
@@ -143,6 +253,48 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         window.katex = katex;
         window.hljs = hljs;
     }, []);
+
+    // Keyboard shortcuts
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            // F11 → toggle distraction-free
+            if (e.key === 'F11') {
+                e.preventDefault();
+                setIsDistractionFree(v => {
+                    if (v) setShowDfToolbar(false);
+                    return !v;
+                });
+                return;
+            }
+            // Escape → exit distraction-free, close menus
+            if (e.key === 'Escape') {
+                if (isDistractionFree) { setIsDistractionFree(false); setShowDfToolbar(false); }
+                setShowViewMenu(false);
+                setContextMenu(null);
+                return;
+            }
+            // Ctrl+Shift+T → Templates
+            if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+                e.preventDefault();
+                setShowTemplatePicker(true);
+                return;
+            }
+            // Ctrl+\ → Split view
+            if (e.ctrlKey && e.key === '\\') {
+                e.preventDefault();
+                onToggleSplitMode?.();
+                return;
+            }
+            // Ctrl+F → Search
+            if (e.ctrlKey && !e.shiftKey && e.key === 'f') {
+                e.preventDefault();
+                onOpenSearch?.();
+                return;
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [isDistractionFree, onToggleSplitMode, onOpenSearch]);
 
     // entryIdRef is kept in sync by setting it directly alongside every setEntryId() call.
     // Do NOT rely purely on a useEffect for this — there is a render-cycle gap where
@@ -303,6 +455,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 localStorage.setItem('editor_backup', JSON.stringify({
                     entryId: entryIdRef.current,
                     content: contentRef.current,
+                    delta: deltaRef.current,
                     timestamp: Date.now()
                 }));
             }
@@ -638,6 +791,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         contentRef.current = '';
         deltaRef.current = null;
         versionRef.current = null;
+        setIsNewEntry(false);
 
         // Cancel any previous Quill rendering controller
         if (renderAbortRef.current) {
@@ -777,6 +931,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     setEntryId(loadedId);
                     entryIdRef.current = loadedId; // Set ref immediately — don't wait for useEffect
                     versionRef.current = data.Version ?? null;
+                    if (data.isNew) setIsNewEntry(true);
                     loadContentSafely(loadedId, loadedHtml, loadedDelta, renderAbort.signal);
 
                 } else {
@@ -839,6 +994,29 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         return () => window.removeEventListener('font-size-changed', handleSizeChange);
     }, []);
 
+    const applyTemplate = useCallback((template: Template) => {
+        if (!quillRef.current) return;
+        try {
+            const quill = quillRef.current.getEditor();
+            let delta: any = null;
+            if (template.QuillDelta) {
+                try { delta = JSON.parse(template.QuillDelta); } catch { /* fall through to html */ }
+            }
+            if (delta?.ops) {
+                quill.setContents(delta, 'api');
+            } else if (template.HtmlContent) {
+                quill.clipboard.dangerouslyPasteHTML(template.HtmlContent, 'api');
+            }
+            contentRef.current = quill.root.innerHTML;
+            deltaRef.current = quill.getContents();
+            isDirtyRef.current = true;
+            // Persist immediately so the template content isn't lost on a quick navigation
+            if (entryIdRef.current) performSave(entryIdRef.current, true);
+        } catch (e) {
+            console.error('Failed to apply template', e);
+        }
+    }, [performSave]);
+
     const imageHandler = useCallback(() => {
         const input = document.createElement('input');
         input.setAttribute('type', 'file');
@@ -900,20 +1078,24 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     `).join('');
 
     return (
-        <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
+        <div className={`flex flex-col bg-bg-app transition-all duration-300 ${
+            isDistractionFree
+                ? 'fixed inset-0 z-[100]'
+                : 'h-full'
+        }`}>
             <style>{`
                 .ql-container { font-size: ${defaultFontSize}px !important; }
-                .ql-container.ql-snow { 
-                    font-size: ${defaultFontSize}px !important; 
+                .ql-container.ql-snow {
+                    font-size: ${defaultFontSize}px !important;
                     border: none !important;
                     display: flex !important;
                     flex-direction: column;
                     flex: 1;
-                    min-height: 0; 
+                    min-height: 0;
                     overflow: hidden;
                     height: 100% !important;
                 }
-                .ql-editor { 
+                .ql-editor {
                     font-size: ${defaultFontSize}px !important;
                     flex: 1;
                     overflow-y: auto;
@@ -927,29 +1109,68 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 }
                 .ql-snow .ql-picker.ql-size { width: 70px; }
                 .ql-toolbar { flex-shrink: 0; }
+
+                /* Distraction-free mode overrides */
+                .df-toolbar-hidden .ql-toolbar.ql-snow {
+                    display: none !important;
+                }
+                .df-mode .ql-container.ql-snow {
+                    overflow-y: auto !important;
+                    height: auto !important;
+                    flex: unset !important;
+                }
+                .df-mode .ql-editor {
+                    max-width: 720px;
+                    margin: 0 auto;
+                    padding: 3rem 2.5rem !important;
+                    min-height: 100vh;
+                    height: auto !important;
+                    overflow: visible !important;
+                    line-height: 1.8 !important;
+                }
             `}</style>
 
-            {/* Breadcrumb Header */}
-            {urlEntryId && (
+            {/* Breadcrumb Header — hidden in distraction-free mode */}
+            {urlEntryId && !isDistractionFree && (
                 <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200">
                     <div className="flex-1 overflow-hidden">
                         <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
                     </div>
-                    <div className="flex items-center ml-4 flex-shrink-0 gap-4">
+                    <div className="flex items-center ml-4 flex-shrink-0 gap-3">
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
                             <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
                             {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
                         </span>
+                        <ViewMenu
+                            isSplitMode={isSplitMode}
+                            isOpen={showViewMenu}
+                            onToggle={() => setShowViewMenu(v => !v)}
+                            onClose={() => setShowViewMenu(false)}
+                            onTemplates={() => { setShowViewMenu(false); setShowTemplatePicker(true); }}
+                            onFocus={() => { setShowViewMenu(false); setIsDistractionFree(true); }}
+                            onSplit={() => { setShowViewMenu(false); onToggleSplitMode?.(); }}
+                            onSearch={() => { setShowViewMenu(false); onOpenSearch?.(); }}
+                        />
                     </div>
                 </div>
             )}
 
-            {!urlEntryId && (
-                <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
+            {!urlEntryId && !isDistractionFree && (
+                <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200 flex-shrink-0">
                     <span className={`text-xs flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
-                        {saveError ? 'Error' : saving ? 'Saving...' : 'Saved'}
+                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                        {saveError ? 'Error Saving' : saving ? 'Saving...' : 'Saved'}
                     </span>
+                    <ViewMenu
+                        isSplitMode={isSplitMode}
+                        isOpen={showViewMenu}
+                        onToggle={() => setShowViewMenu(v => !v)}
+                        onClose={() => setShowViewMenu(false)}
+                        onTemplates={() => { setShowViewMenu(false); setShowTemplatePicker(true); }}
+                        onFocus={() => { setShowViewMenu(false); setIsDistractionFree(true); }}
+                        onSplit={() => { setShowViewMenu(false); onToggleSplitMode?.(); }}
+                        onSearch={() => { setShowViewMenu(false); onOpenSearch?.(); }}
+                    />
                 </div>
             )}
 
@@ -970,7 +1191,138 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 </div>
             )}
 
-            <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
+            {/* New-entry template banner — shown when today's entry was just created */}
+            {isNewEntry && !showTemplatePicker && (
+                <div className="flex items-center justify-between px-4 py-2 bg-accent-primary/10 border-b border-accent-primary/20 flex-shrink-0">
+                    <span className="text-sm text-text-secondary">Start from a template?</span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setShowTemplatePicker(true)}
+                            className="text-sm px-3 py-1 rounded bg-accent-primary text-white hover:bg-accent-primary/80 transition-colors"
+                        >
+                            Choose template
+                        </button>
+                        <button
+                            onClick={() => setIsNewEntry(false)}
+                            className="text-sm text-text-muted hover:text-text-primary transition-colors"
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Template picker modal */}
+            {showTemplatePicker && (
+                <TemplatePicker
+                    onSelect={(template) => {
+                        setShowTemplatePicker(false);
+                        setIsNewEntry(false);
+                        if (template) applyTemplate(template);
+                    }}
+                    onClose={() => {
+                        setShowTemplatePicker(false);
+                        setIsNewEntry(false);
+                    }}
+                    currentHtml={isFullyLoadedRef.current ? contentRef.current : undefined}
+                    currentDelta={isFullyLoadedRef.current ? deltaRef.current : undefined}
+                />
+            )}
+
+            {/* Floating controls — only visible in distraction-free mode */}
+            {isDistractionFree && (
+                <div className="fixed top-4 right-6 z-[110] flex items-center gap-2 opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300">
+                    {/* Save indicator */}
+                    <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center ${saveError ? 'text-red-400' : saving ? 'text-yellow-400' : 'text-green-400'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-400' : saving ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'}`} />
+                        {saveError ? 'Error' : saving ? 'Saving' : 'Saved'}
+                    </span>
+                    {/* Toolbar toggle */}
+                    <button
+                        onClick={() => setShowDfToolbar(v => !v)}
+                        className="px-2.5 py-1.5 rounded-lg bg-bg-card border border-border-primary text-text-muted hover:text-accent-primary shadow-md text-xs font-semibold transition-colors"
+                        title={showDfToolbar ? 'Hide toolbar' : 'Show toolbar'}
+                    >
+                        Aa
+                    </button>
+                    {/* Exit focus mode */}
+                    <button
+                        onClick={() => { setIsDistractionFree(false); setShowDfToolbar(false); }}
+                        className="p-1.5 rounded-lg bg-bg-card border border-border-primary text-text-muted hover:text-red-400 shadow-md transition-colors"
+                        title="Exit focus mode (Esc or F11)"
+                    >
+                        <Minimize2 className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
+
+            {/* Right-click context menu */}
+            {contextMenu && (
+                <div
+                    className="fixed z-[300] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[220px]"
+                    style={{ top: contextMenu.y, left: contextMenu.x }}
+                    onClick={() => setContextMenu(null)}
+                >
+                    {onOpenSearch && (
+                        <>
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                                onClick={() => onOpenSearch()}
+                            >
+                                <span>Search…</span>
+                                <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+F</kbd>
+                            </button>
+                            <div className="mx-3 my-1 border-t border-border-primary" />
+                        </>
+                    )}
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={() => setShowTemplatePicker(true)}
+                    >
+                        <span>Templates…</span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+Shift+T</kbd>
+                    </button>
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                        onClick={() => setIsDistractionFree(true)}
+                    >
+                        <span>Focus Mode</span>
+                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">F11</kbd>
+                    </button>
+                    {onToggleSplitMode && (
+                        <button
+                            className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
+                            onClick={() => onToggleSplitMode()}
+                        >
+                            <span>Split View</span>
+                            <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+\</kbd>
+                        </button>
+                    )}
+                </div>
+            )}
+            {/* Dismiss context menu + view menu on outside click.
+                Must be BELOW both menus in z-order so clicks on menu items
+                reach the menu before the backdrop: context-menu z-[300],
+                ViewMenu dropdown z-[200], this backdrop z-[150]. */}
+            {(contextMenu || showViewMenu) && (
+                <div
+                    className="fixed inset-0 z-[150]"
+                    onClick={() => { setContextMenu(null); setShowViewMenu(false); }}
+                />
+            )}
+
+            <div
+                className={`flex-1 relative flex flex-col ${isDistractionFree ? 'df-mode overflow-y-auto' : 'overflow-hidden min-h-0'} ${isDistractionFree && !showDfToolbar ? 'df-toolbar-hidden' : ''}`}
+                onContextMenu={e => {
+                    e.preventDefault();
+                    // Menu is ~220px wide, ~120px tall — clamp so it never overflows viewport
+                    const menuW = 224;
+                    const menuH = 130;
+                    const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
+                    const y = Math.min(e.clientY, window.innerHeight - menuH - 8);
+                    setContextMenu({ x, y });
+                }}
+            >
                 <ReactQuill
                     // @ts-expect-error — react-quill-new ref typings are incompatible with React 18 forwardRef
                     ref={quillRef}

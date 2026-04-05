@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, addYears, subYears } from 'date-fns';
 import dynamic from 'next/dynamic';
+import TemplatePicker, { type Template } from '@/components/journal/TemplatePicker';
 import {
     DndContext,
     closestCenter,
@@ -254,6 +255,10 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     const [activeDragItem, setActiveDragItem] = useState<Entry | null>(null);
     const [journalEntries, setJournalEntries] = useState<Entry[]>([]);
 
+    // Template picker state (Notebook new-page creation)
+    const [templatePickerParentId, setTemplatePickerParentId] = useState<number | null | undefined>(undefined);
+    // undefined = closed; null = creating at root level; number = creating under parent
+
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; entryId: number | null }>({
         visible: false, x: 0, y: 0, entryId: null
@@ -461,16 +466,32 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         return acc;
     }, {});
 
-    const onCreateEntry = async (parentId: number | null, entryType: 'Page' | 'Section') => {
+    const createEntryWithContent = async (parentId: number | null, entryType: 'Page' | 'Section', template?: Template | null) => {
         const res = await fetch('/api/entry/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ categoryId, userId, title: entryType === 'Section' ? 'New Section' : 'Untitled Page', parentEntryId: parentId, entryType })
+            body: JSON.stringify({
+                categoryId, userId,
+                title: entryType === 'Section' ? 'New Section' : (template?.Name ?? 'Untitled Page'),
+                parentEntryId: parentId,
+                entryType,
+                templateId: template?.TemplateID ?? null,
+            })
         });
         const newEntry = await res.json();
         if (newEntry.id) {
             fetchPages();
             if (entryType === 'Page') router.push(`?entry=${newEntry.id}`);
+        }
+    };
+
+    const onCreateEntry = (parentId: number | null, entryType: 'Page' | 'Section') => {
+        if (entryType === 'Section') {
+            // Sections never use templates
+            createEntryWithContent(parentId, 'Section');
+        } else {
+            // Open template picker; remember the intended parent
+            setTemplatePickerParentId(parentId);
         }
     };
 
@@ -712,6 +733,18 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                     </div>
                 )
             }
+
+            {/* Template Picker (Notebook new page) */}
+            {templatePickerParentId !== undefined && (
+                <TemplatePicker
+                    onSelect={(template) => {
+                        const parentId = templatePickerParentId;
+                        setTemplatePickerParentId(undefined);
+                        createEntryWithContent(parentId, 'Page', template);
+                    }}
+                    onClose={() => setTemplatePickerParentId(undefined)}
+                />
+            )}
 
             {/* Emoji Picker Fixed Modal */}
             {
