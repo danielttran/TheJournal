@@ -10,6 +10,7 @@ import 'katex/dist/katex.min.css';
 import { useSearchParams } from 'next/navigation';
 
 import Breadcrumbs from './Breadcrumbs';
+import TemplatePicker, { type Template } from './TemplatePicker';
 import { useLoading } from '@/contexts/LoadingContext';
 
 const ReactQuill = dynamic(async () => {
@@ -112,6 +113,9 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
+    // Template picker state
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+    const [isNewEntry, setIsNewEntry] = useState(false); // true when today's journal entry was just created
 
     // Helper to update both local and context loading state
     const updateLoadingProgress = useCallback((entryId: number | null, progress: number | null) => {
@@ -639,6 +643,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         contentRef.current = '';
         deltaRef.current = null;
         versionRef.current = null;
+        setIsNewEntry(false);
 
         // Cancel any previous Quill rendering controller
         if (renderAbortRef.current) {
@@ -778,6 +783,7 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                     setEntryId(loadedId);
                     entryIdRef.current = loadedId; // Set ref immediately — don't wait for useEffect
                     versionRef.current = data.Version ?? null;
+                    if (data.isNew) setIsNewEntry(true);
                     loadContentSafely(loadedId, loadedHtml, loadedDelta, renderAbort.signal);
 
                 } else {
@@ -839,6 +845,29 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         window.addEventListener('font-size-changed', handleSizeChange);
         return () => window.removeEventListener('font-size-changed', handleSizeChange);
     }, []);
+
+    const applyTemplate = useCallback((template: Template) => {
+        if (!quillRef.current) return;
+        try {
+            const quill = quillRef.current.getEditor();
+            let delta: any = null;
+            if (template.QuillDelta) {
+                try { delta = JSON.parse(template.QuillDelta); } catch { /* fall through to html */ }
+            }
+            if (delta?.ops) {
+                quill.setContents(delta, 'api');
+            } else if (template.HtmlContent) {
+                quill.clipboard.dangerouslyPasteHTML(template.HtmlContent, 'api');
+            }
+            contentRef.current = quill.root.innerHTML;
+            deltaRef.current = quill.getContents();
+            isDirtyRef.current = true;
+            // Persist immediately so the template content isn't lost on a quick navigation
+            if (entryIdRef.current) performSave(entryIdRef.current, true);
+        } catch (e) {
+            console.error('Failed to apply template', e);
+        }
+    }, [performSave]);
 
     const imageHandler = useCallback(() => {
         const input = document.createElement('input');
@@ -937,6 +966,14 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
                     </div>
                     <div className="flex items-center ml-4 flex-shrink-0 gap-4">
+                        <button
+                            onClick={() => setShowTemplatePicker(true)}
+                            className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
+                            title="Templates"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Templates
+                        </button>
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
                             <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
                             {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
@@ -946,11 +983,19 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
             )}
 
             {!urlEntryId && (
-                <div className="h-8 border-b border-border-primary flex items-center justify-end px-4 bg-bg-app absolute top-0 right-0 z-50 pointer-events-none">
+                <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200 flex-shrink-0">
                     <span className={`text-xs flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500' : 'bg-green-500'}`}></div>
-                        {saveError ? 'Error' : saving ? 'Saving...' : 'Saved'}
+                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                        {saveError ? 'Error Saving' : saving ? 'Saving...' : 'Saved'}
                     </span>
+                    <button
+                        onClick={() => setShowTemplatePicker(true)}
+                        className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
+                        title="Templates"
+                    >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        Templates
+                    </button>
                 </div>
             )}
 
@@ -969,6 +1014,44 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                         Retry Save
                     </button>
                 </div>
+            )}
+
+            {/* New-entry template banner — shown when today's entry was just created */}
+            {isNewEntry && !showTemplatePicker && (
+                <div className="flex items-center justify-between px-4 py-2 bg-accent-primary/10 border-b border-accent-primary/20 flex-shrink-0">
+                    <span className="text-sm text-text-secondary">Start from a template?</span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setShowTemplatePicker(true)}
+                            className="text-sm px-3 py-1 rounded bg-accent-primary text-white hover:bg-accent-primary/80 transition-colors"
+                        >
+                            Choose template
+                        </button>
+                        <button
+                            onClick={() => setIsNewEntry(false)}
+                            className="text-sm text-text-muted hover:text-text-primary transition-colors"
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Template picker modal */}
+            {showTemplatePicker && (
+                <TemplatePicker
+                    onSelect={(template) => {
+                        setShowTemplatePicker(false);
+                        setIsNewEntry(false);
+                        if (template) applyTemplate(template);
+                    }}
+                    onClose={() => {
+                        setShowTemplatePicker(false);
+                        setIsNewEntry(false);
+                    }}
+                    currentHtml={isFullyLoadedRef.current ? contentRef.current : undefined}
+                    currentDelta={isFullyLoadedRef.current ? deltaRef.current : undefined}
+                />
             )}
 
             <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">

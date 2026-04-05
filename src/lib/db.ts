@@ -159,10 +159,20 @@ class DBManager {
                 content='EntryContent',
                 content_rowid='EntryID'
             )`,
+            `CREATE TABLE IF NOT EXISTS Template (
+                TemplateID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                Name TEXT NOT NULL,
+                QuillDelta TEXT,
+                HtmlContent TEXT,
+                CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
             `CREATE INDEX IF NOT EXISTS "Idx_Entry_Parent" ON "Entry" ("ParentEntryID")`,
             `CREATE INDEX IF NOT EXISTS "Idx_Entry_Category_Date" ON "Entry" ("CategoryID", "CreatedDate")`,
             `CREATE INDEX IF NOT EXISTS "Idx_Category_User" ON "Category" ("UserID")`,
-            `CREATE INDEX IF NOT EXISTS "Idx_Entry_Type" ON "Entry" ("CategoryID", "EntryType")`
+            `CREATE INDEX IF NOT EXISTS "Idx_Entry_Type" ON "Entry" ("CategoryID", "EntryType")`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Template_User" ON "Template" ("UserID")`
         ];
 
         for (const query of queries) {
