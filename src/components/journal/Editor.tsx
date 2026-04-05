@@ -9,6 +9,7 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useSearchParams } from 'next/navigation';
 
+import { Maximize2, Minimize2, X as XIcon } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import { useLoading } from '@/contexts/LoadingContext';
@@ -116,6 +117,9 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     // Template picker state
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
     const [isNewEntry, setIsNewEntry] = useState(false); // true when today's journal entry was just created
+    // Distraction-free / focus mode
+    const [isDistractionFree, setIsDistractionFree] = useState(false);
+    const [showDfToolbar, setShowDfToolbar] = useState(false);
 
     // Helper to update both local and context loading state
     const updateLoadingProgress = useCallback((entryId: number | null, progress: number | null) => {
@@ -147,6 +151,25 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
         window.katex = katex;
         window.hljs = hljs;
     }, []);
+
+    // Keyboard shortcut: F11 to toggle focus mode, Escape to exit
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'F11') {
+                e.preventDefault();
+                setIsDistractionFree(v => {
+                    if (v) setShowDfToolbar(false); // reset toolbar visibility on exit
+                    return !v;
+                });
+            }
+            if (e.key === 'Escape' && isDistractionFree) {
+                setIsDistractionFree(false);
+                setShowDfToolbar(false);
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [isDistractionFree]);
 
     // entryIdRef is kept in sync by setting it directly alongside every setEntryId() call.
     // Do NOT rely purely on a useEffect for this — there is a render-cycle gap where
@@ -930,20 +953,24 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
     `).join('');
 
     return (
-        <div className="flex flex-col h-full bg-bg-app transition-colors duration-200">
+        <div className={`flex flex-col bg-bg-app transition-all duration-300 ${
+            isDistractionFree
+                ? 'fixed inset-0 z-[100]'
+                : 'h-full'
+        }`}>
             <style>{`
                 .ql-container { font-size: ${defaultFontSize}px !important; }
-                .ql-container.ql-snow { 
-                    font-size: ${defaultFontSize}px !important; 
+                .ql-container.ql-snow {
+                    font-size: ${defaultFontSize}px !important;
                     border: none !important;
                     display: flex !important;
                     flex-direction: column;
                     flex: 1;
-                    min-height: 0; 
+                    min-height: 0;
                     overflow: hidden;
                     height: 100% !important;
                 }
-                .ql-editor { 
+                .ql-editor {
                     font-size: ${defaultFontSize}px !important;
                     flex: 1;
                     overflow-y: auto;
@@ -957,10 +984,29 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 }
                 .ql-snow .ql-picker.ql-size { width: 70px; }
                 .ql-toolbar { flex-shrink: 0; }
+
+                /* Distraction-free mode overrides */
+                .df-toolbar-hidden .ql-toolbar.ql-snow {
+                    display: none !important;
+                }
+                .df-mode .ql-container.ql-snow {
+                    overflow-y: auto !important;
+                    height: auto !important;
+                    flex: unset !important;
+                }
+                .df-mode .ql-editor {
+                    max-width: 720px;
+                    margin: 0 auto;
+                    padding: 3rem 2.5rem !important;
+                    min-height: 100vh;
+                    height: auto !important;
+                    overflow: visible !important;
+                    line-height: 1.8 !important;
+                }
             `}</style>
 
-            {/* Breadcrumb Header */}
-            {urlEntryId && (
+            {/* Breadcrumb Header — hidden in distraction-free mode */}
+            {urlEntryId && !isDistractionFree && (
                 <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200">
                     <div className="flex-1 overflow-hidden">
                         <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
@@ -974,6 +1020,14 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                             Templates
                         </button>
+                        <button
+                            onClick={() => setIsDistractionFree(true)}
+                            className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
+                            title="Focus mode (F11)"
+                        >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                            Focus
+                        </button>
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
                             <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
                             {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
@@ -982,20 +1036,30 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 </div>
             )}
 
-            {!urlEntryId && (
+            {!urlEntryId && !isDistractionFree && (
                 <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200 flex-shrink-0">
                     <span className={`text-xs flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
                         <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
                         {saveError ? 'Error Saving' : saving ? 'Saving...' : 'Saved'}
                     </span>
-                    <button
-                        onClick={() => setShowTemplatePicker(true)}
-                        className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
-                        title="Templates"
-                    >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                        Templates
-                    </button>
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={() => setShowTemplatePicker(true)}
+                            className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
+                            title="Templates"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Templates
+                        </button>
+                        <button
+                            onClick={() => setIsDistractionFree(true)}
+                            className="text-xs text-text-muted hover:text-accent-primary transition-colors flex items-center gap-1"
+                            title="Focus mode (F11)"
+                        >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                            Focus
+                        </button>
+                    </div>
                 </div>
             )}
 
@@ -1054,7 +1118,34 @@ export default function Editor({ categoryId, userId }: { categoryId: string, use
                 />
             )}
 
-            <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
+            {/* Floating controls — only visible in distraction-free mode */}
+            {isDistractionFree && (
+                <div className="fixed top-4 right-6 z-[110] flex items-center gap-2 opacity-0 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-300">
+                    {/* Save indicator */}
+                    <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center ${saveError ? 'text-red-400' : saving ? 'text-yellow-400' : 'text-green-400'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-400' : saving ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'}`} />
+                        {saveError ? 'Error' : saving ? 'Saving' : 'Saved'}
+                    </span>
+                    {/* Toolbar toggle */}
+                    <button
+                        onClick={() => setShowDfToolbar(v => !v)}
+                        className="px-2.5 py-1.5 rounded-lg bg-bg-card border border-border-primary text-text-muted hover:text-accent-primary shadow-md text-xs font-semibold transition-colors"
+                        title={showDfToolbar ? 'Hide toolbar' : 'Show toolbar'}
+                    >
+                        Aa
+                    </button>
+                    {/* Exit focus mode */}
+                    <button
+                        onClick={() => { setIsDistractionFree(false); setShowDfToolbar(false); }}
+                        className="p-1.5 rounded-lg bg-bg-card border border-border-primary text-text-muted hover:text-red-400 shadow-md transition-colors"
+                        title="Exit focus mode (Esc or F11)"
+                    >
+                        <Minimize2 className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
+
+            <div className={`flex-1 relative flex flex-col ${isDistractionFree ? 'df-mode overflow-y-auto' : 'overflow-hidden min-h-0'} ${isDistractionFree && !showDfToolbar ? 'df-toolbar-hidden' : ''}`}>
                 <ReactQuill
                     // @ts-expect-error — react-quill-new ref typings are incompatible with React 18 forwardRef
                     ref={quillRef}
