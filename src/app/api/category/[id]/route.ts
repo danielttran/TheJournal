@@ -77,47 +77,69 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     try {
         const { id } = await params;
         const categoryId = parseInt(id, 10);
-        const body = await req.json();
-        const { name, icon, viewSettings, lastSelectedEntryId } = body;
 
-        // Construct dynamic update
-        const updates: string[] = [];
-        const values: (string | number)[] = [];
-
-        if (name !== undefined) { updates.push("Name = ?"); values.push(name); }
-        if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
-
-        // Handle viewSettings or lastSelectedEntryId
-        if (viewSettings !== undefined || lastSelectedEntryId !== undefined) {
-            // Fetch current settings
-            const category = await db.prepare('SELECT ViewSettings FROM Category WHERE CategoryID = ?').get(categoryId) as any;
-            const currentSettings = category?.ViewSettings ? JSON.parse(category.ViewSettings) : {};
-
-            // Merge updates
-            if (viewSettings !== undefined) {
-                Object.assign(currentSettings, viewSettings);
-            }
-            if (lastSelectedEntryId !== undefined) {
-                currentSettings.lastSelectedEntryId = lastSelectedEntryId;
-            }
-
-            updates.push("ViewSettings = ?");
-            values.push(JSON.stringify(currentSettings));
-        }
-
-        if (updates.length === 0) return NextResponse.json({ success: true }); // Nothing to update
-
+        // Auth check FIRST — before any DB access
         const { cookies } = await import("next/headers");
         const cookieStore = await cookies();
         const userIdCookie = cookieStore.get("userId");
         if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const userId = parseInt(userIdCookie.value, 10);
 
-        values.push(categoryId, userId);
+        const body = await req.json();
+        const { name, icon, viewSettings, lastSelectedEntryId } = body;
 
-        const result = await db.prepare(`UPDATE Category SET ${updates.join(", ")} WHERE CategoryID = ? AND UserID = ?`)
-            .run(...values);
+        // Construct dynamic update
+        const simpleUpdates: string[] = [];
+        const simpleValues: (string | number)[] = [];
 
+        if (name !== undefined) { simpleUpdates.push("Name = ?"); simpleValues.push(name); }
+        if (icon !== undefined) { simpleUpdates.push("Icon = ?"); simpleValues.push(icon); }
+
+        const needsViewSettingsMerge = viewSettings !== undefined || lastSelectedEntryId !== undefined;
+
+        if (simpleUpdates.length === 0 && !needsViewSettingsMerge) {
+            return NextResponse.json({ success: true }); // Nothing to update
+        }
+
+        // ViewSettings read-modify-write MUST be atomic to prevent concurrent
+        // requests clobbering each other's changes (e.g. month expand + entry select).
+        const updateCategory = db.transaction(async () => {
+            const updates: string[] = [...simpleUpdates];
+            const values: (string | number)[] = [...simpleValues];
+
+            if (needsViewSettingsMerge) {
+                // Re-read inside the transaction so concurrent writes don't clobber each other
+                const category = await db.prepare(
+                    'SELECT ViewSettings FROM Category WHERE CategoryID = ? AND UserID = ?'
+                ).get(categoryId, userId) as any;
+
+                if (!category) return null; // ownership check — return null signals 404
+
+                let currentSettings: Record<string, any> = {};
+                if (category.ViewSettings) {
+                    try { currentSettings = JSON.parse(category.ViewSettings); } catch { /* corrupt JSON — start fresh */ }
+                }
+
+                if (viewSettings !== undefined) Object.assign(currentSettings, viewSettings);
+                if (lastSelectedEntryId !== undefined) currentSettings.lastSelectedEntryId = lastSelectedEntryId;
+
+                updates.push("ViewSettings = ?");
+                values.push(JSON.stringify(currentSettings));
+            }
+
+            values.push(categoryId, userId);
+            const result = await db.prepare(
+                `UPDATE Category SET ${updates.join(", ")} WHERE CategoryID = ? AND UserID = ?`
+            ).run(...values);
+
+            return result;
+        });
+
+        const result = await updateCategory();
+
+        if (result === null) {
+            return NextResponse.json({ error: "Category not found" }, { status: 404 });
+        }
         if (result.changes === 0) {
             return NextResponse.json({ error: "Category not found" }, { status: 404 });
         }

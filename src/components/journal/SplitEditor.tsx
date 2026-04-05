@@ -68,6 +68,9 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
     const isLoadedRef = useRef(false);
     const contentRef = useRef('');
     const deltaRef = useRef<any>(null);
+    // Track server version for optimistic locking — prevents split view from silently
+    // overwriting changes made in the main editor (or another tab) since load.
+    const versionRef = useRef<number | null>(null);
     // Guard setState calls after unmount
     const isMountedRef = useRef(true);
     useEffect(() => { return () => { isMountedRef.current = false; }; }, []);
@@ -113,12 +116,21 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
             const res = await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId, content: delta, html, title, preview }),
+                body: JSON.stringify({
+                    userId, content: delta, html, title, preview,
+                    expectedVersion: versionRef.current ?? undefined,
+                }),
             });
             if (res.ok) {
+                const data = await res.json();
+                if (data.version) versionRef.current = data.version;
                 isDirtyRef.current = false;
                 window.dispatchEvent(new CustomEvent('journal-entry-updated'));
                 if (isMountedRef.current) setSaveError(false);
+            } else if (res.status === 409) {
+                // Version conflict — another session modified this entry; signal the user
+                console.warn('[SplitEditor] Version conflict on save — entry was modified elsewhere');
+                if (isMountedRef.current) setSaveError(true);
             } else {
                 if (isMountedRef.current) setSaveError(true);
             }
@@ -206,6 +218,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
         currentIdRef.current = id;
         isLoadedRef.current = false;
         isDirtyRef.current = false;
+        versionRef.current = null; // reset until we get a fresh version from the server
 
         // Clear editor immediately to avoid stale content flash
         if (quillRef.current) {
@@ -216,6 +229,9 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose 
             const res = await fetch(`/api/entry/${id}`);
             if (!res.ok || currentIdRef.current !== id) return; // entry switched mid-fetch
             const data = await res.json();
+
+            // Capture version for optimistic locking
+            if (data.Version) versionRef.current = data.Version;
 
             let loadedDelta: any = null;
             if (data.QuillDelta) {
