@@ -243,6 +243,16 @@ export default function Editor({
     const isDirtyRef = useRef(false);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const quillRef = useRef<any>(null);
+    // Second Quill instance for split view (same entry, independent scroll position)
+    const quillRef2 = useRef<any>(null);
+    // Prevents infinite sync loop: top→bottom→top→…
+    const isSyncingRef = useRef(false);
+    // Stable ref so handleChange/handleChange2 can read isSplitMode without re-creating
+    const isSplitModeRef = useRef(isSplitMode);
+    useEffect(() => { isSplitModeRef.current = isSplitMode; }, [isSplitMode]);
+    // Container ref + ratio state for the horizontal resize divider
+    const splitContainerRef = useRef<HTMLDivElement>(null);
+    const [splitRatio, setSplitRatio] = useState(50);
     // Track current cache key for dual-key cache invalidation on save
     const cacheKeyRef = useRef<string>('');
     // Track entry version for optimistic locking (prevents concurrent edit data loss)
@@ -425,7 +435,7 @@ export default function Editor({
         }
     }, [userId]);
 
-    const handleChange = useCallback((_content: string, _delta: any, source: string, editor: any) => {
+    const handleChange = useCallback((_content: string, changeDelta: any, source: string, editor: any) => {
         // ALWAYS update refs on every change
         contentRef.current = editor.getHTML();
         deltaRef.current = editor.getContents();
@@ -436,6 +446,14 @@ export default function Editor({
             if (!isDirtyRef.current) {
                 isDirtyRef.current = true;
                 setSaveError(false);
+            }
+
+            // Propagate the exact change to the bottom pane when split is active
+            if (isSplitModeRef.current && quillRef2.current && !isSyncingRef.current) {
+                try {
+                    isSyncingRef.current = true;
+                    quillRef2.current.getEditor().updateContents(changeDelta, 'api');
+                } catch { } finally { isSyncingRef.current = false; }
             }
 
             // Only schedule auto-save once fully loaded to avoid premature saves
@@ -580,6 +598,75 @@ export default function Editor({
             attemptSave(0);
         }
     }, [userId]);
+
+    // ── Split view helpers ────────────────────────────────────────────────────
+
+    // Horizontal resize divider — drag to change top/bottom height ratio.
+    const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        const onMouseMove = (ev: MouseEvent) => {
+            if (!splitContainerRef.current) return;
+            const rect = splitContainerRef.current.getBoundingClientRect();
+            const ratio = ((ev.clientY - rect.top) / rect.height) * 100;
+            setSplitRatio(Math.max(20, Math.min(80, ratio)));
+        };
+        const onMouseUp = () => {
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+            document.body.style.removeProperty('cursor');
+            document.body.style.removeProperty('user-select');
+        };
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+    }, []);
+
+    // When split mode turns on, seed the bottom pane with the current document.
+    useEffect(() => {
+        if (!isSplitMode) return;
+        const seed = () => {
+            if (!quillRef2.current) { setTimeout(seed, 50); return; }
+            try {
+                const q2 = quillRef2.current.getEditor();
+                const d = deltaRef.current;
+                if (d?.ops) { q2.setContents(d, 'api'); }
+                else if (contentRef.current) { q2.clipboard.dangerouslyPasteHTML(contentRef.current, 'api'); }
+            } catch { }
+        };
+        seed();
+    }, [isSplitMode]);
+
+    // Bottom-pane change handler — mirrors the primary handler but syncs UP to top pane.
+    const handleChange2 = useCallback((
+        _content: string, changeDelta: any, source: string, editor: any
+    ) => {
+        if (isSyncingRef.current) return;
+        contentRef.current = editor.getHTML();
+        deltaRef.current = editor.getContents();
+
+        if (source === 'user') {
+            if (!isDirtyRef.current) {
+                isDirtyRef.current = true;
+                setSaveError(false);
+            }
+            // Propagate the exact change to the top pane
+            if (quillRef.current) {
+                try {
+                    isSyncingRef.current = true;
+                    quillRef.current.getEditor().updateContents(changeDelta, 'api');
+                } catch { } finally { isSyncingRef.current = false; }
+            }
+            if (isFullyLoadedRef.current) {
+                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = setTimeout(() => {
+                    if (entryIdRef.current && isDirtyRef.current) performSave(entryIdRef.current, true);
+                }, 1000);
+            }
+        }
+    }, [performSave]);
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     // beforeunload: Use sendBeacon for reliability (fetch gets killed on tab close)
     useEffect(() => {
@@ -1073,6 +1160,9 @@ export default function Editor({
         },
     }), [imageHandler]);
 
+    // Bottom pane has no toolbar — just a plain editable area
+    const modules2 = useMemo(() => ({ toolbar: false }), []);
+
     const fontSizeWhitelist = ['8px', '9px', '10px', '11px', '12px', '14px', '16px', '18px', '20px', '22px', '24px', '26px', '28px', '36px', '48px', '72px'];
     const fontSizeCss = fontSizeWhitelist.map(size => `
         .ql-snow .ql-picker.ql-size .ql-picker-label[data-value="${size}"]::before,
@@ -1316,10 +1406,10 @@ export default function Editor({
             )}
 
             <div
+                ref={splitContainerRef}
                 className={`flex-1 relative flex flex-col ${isDistractionFree ? 'df-mode overflow-y-auto' : 'overflow-hidden min-h-0'} ${isDistractionFree && !showDfToolbar ? 'df-toolbar-hidden' : ''}`}
                 onContextMenu={e => {
                     e.preventDefault();
-                    // Menu is ~220px wide, ~120px tall — clamp so it never overflows viewport
                     const menuW = 224;
                     const menuH = 130;
                     const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
@@ -1327,16 +1417,60 @@ export default function Editor({
                     setContextMenu({ x, y });
                 }}
             >
-                <ReactQuill
-                    // @ts-expect-error — react-quill-new ref typings are incompatible with React 18 forwardRef
-                    ref={quillRef}
-                    theme="snow"
-                    defaultValue={''}
-                    onChange={handleChange}
-                    modules={modules}
-                    className="flex-1 flex flex-col bg-transparent border-none min-h-0"
-                    placeholder="Start writing..."
-                />
+                {isSplitMode ? (
+                    <>
+                        {/* Top pane */}
+                        <div
+                            style={{ height: `${splitRatio}%` }}
+                            className="flex flex-col min-h-0 overflow-hidden"
+                        >
+                            <ReactQuill
+                                // @ts-expect-error — react-quill-new ref typings
+                                ref={quillRef}
+                                theme="snow"
+                                defaultValue={''}
+                                onChange={handleChange}
+                                modules={modules}
+                                className="flex-1 flex flex-col bg-transparent border-none min-h-0"
+                                placeholder="Start writing..."
+                            />
+                        </div>
+
+                        {/* Horizontal resize divider */}
+                        <div
+                            onMouseDown={handleDividerMouseDown}
+                            className="h-1 bg-border-primary hover:bg-accent-primary cursor-row-resize flex-shrink-0 transition-colors relative"
+                            title="Drag to resize"
+                        >
+                            <div className="absolute inset-x-0 -top-1 -bottom-1" />
+                        </div>
+
+                        {/* Bottom pane — same entry, independent scroll, no toolbar */}
+                        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                            <ReactQuill
+                                // @ts-expect-error — react-quill-new ref typings
+                                ref={quillRef2}
+                                theme="snow"
+                                defaultValue={''}
+                                onChange={handleChange2}
+                                modules={modules2}
+                                className="flex-1 flex flex-col bg-transparent border-none min-h-0"
+                                placeholder=""
+                            />
+                        </div>
+                    </>
+                ) : (
+                    <ReactQuill
+                        // @ts-expect-error — react-quill-new ref typings are incompatible with React 18 forwardRef
+                        ref={quillRef}
+                        theme="snow"
+                        defaultValue={''}
+                        onChange={handleChange}
+                        modules={modules}
+                        className="flex-1 flex flex-col bg-transparent border-none min-h-0"
+                        placeholder="Start writing..."
+                    />
+                )}
             </div>
         </div>
     );
