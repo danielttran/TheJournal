@@ -70,9 +70,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
                 
                 // 1. Add virtual Year breadcrumb
                 breadcrumbs.push({
-                    id: `month-${year}-01`, // Use Month type hack but route to Jan 1st
+                    id: `year-${year}`,
                     title: year.toString(),
-                    type: 'Month',
+                    type: 'Year',
                     categoryType: 'Journal'
                 });
 
@@ -84,11 +84,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
                     categoryType: 'Journal'
                 });
 
-                // 3. Add Entry (Date) breadcrumb
+                // 3. Add Entry (Date) breadcrumb — kept so callers can strip the
+                //    last item to show "path to" rather than "path including" current.
                 const day = date.getDate();
                 const dayName = date.toLocaleString('default', { weekday: 'short' });
-                const displayTitle = item.Title && item.Title !== 'Untitled' 
-                    ? item.Title 
+                const displayTitle = item.Title && item.Title !== 'Untitled'
+                    ? item.Title
                     : `${dayName}, ${monthName.split(' ')[0]} ${day}`;
 
                 breadcrumbs.push({

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Book, FileText, ChevronDown, ChevronRight as ChevronRightIcon, Plus, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -21,7 +21,6 @@ import {
     DropAnimation
 } from '@dnd-kit/core';
 import {
-    arrayMove,
     SortableContext,
     sortableKeyboardCoordinates,
     verticalListSortingStrategy,
@@ -30,6 +29,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import { useLoading } from '@/contexts/LoadingContext';
+import { type Template } from '@/components/journal/TemplatePicker';
 
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
 
@@ -178,6 +178,81 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
                         ))}
                     </SortableContext>
                 </div>
+            )}
+        </div>
+    );
+};
+
+// ---------------------------
+// Journal Tree Item
+// Shares the same visual design as SortableNotebookItem without DnD overhead.
+// Used for Year → Month → Entry hierarchy in Journal mode.
+// ---------------------------
+const JournalTreeItem = ({
+    label,
+    icon,
+    level,
+    isSelected,
+    isSection,
+    isExpanded,
+    onToggleExpand,
+    onClick,
+    onContextMenu,
+    children,
+}: {
+    label: string;
+    icon?: string;
+    level: number;
+    isSelected: boolean;
+    isSection: boolean;
+    isExpanded: boolean;
+    onToggleExpand?: (e: React.MouseEvent) => void;
+    onClick: (e: React.MouseEvent) => void;
+    onContextMenu?: (e: React.MouseEvent) => void;
+    children?: React.ReactNode;
+}) => {
+    const paddingLeft = `${level * 12 + 8}px`;
+    return (
+        <div>
+            <div
+                style={{ paddingLeft }}
+                className={`group flex items-center justify-between px-2 py-1.5 rounded cursor-pointer text-sm select-none ${
+                    isSelected
+                        ? 'bg-accent-primary text-white font-medium'
+                        : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                }`}
+                onClick={onClick}
+                onContextMenu={onContextMenu}
+            >
+                <div className="flex items-center overflow-hidden flex-1">
+                    {/* Spacer to align with the notebook drag-handle column */}
+                    <span className="w-4 mr-1 flex-shrink-0" />
+
+                    {/* Expand / collapse arrow (only for sections) */}
+                    <span
+                        className={`mr-1 p-0.5 rounded hover:bg-bg-active flex-shrink-0 ${!isSection ? 'invisible' : 'cursor-pointer'}`}
+                        onClick={isSection ? onToggleExpand : undefined}
+                    >
+                        <ChevronRightIcon
+                            className={`w-3 h-3 transition-transform text-text-muted ${isExpanded ? 'rotate-90' : ''}`}
+                        />
+                    </span>
+
+                    {/* Icon */}
+                    {icon ? (
+                        <span className="mr-2 text-base leading-none flex-shrink-0">{icon}</span>
+                    ) : isSection ? (
+                        <Folder className={`w-4 h-4 mr-2 flex-shrink-0 ${isSelected ? 'text-white' : 'text-accent-primary'}`} />
+                    ) : (
+                        <File className={`w-4 h-4 mr-2 flex-shrink-0 ${isSelected ? 'text-white' : 'text-accent-primary'}`} />
+                    )}
+
+                    <span className="truncate flex-1">{label}</span>
+                </div>
+            </div>
+
+            {isSection && isExpanded && children && (
+                <div className="flex flex-col">{children}</div>
             )}
         </div>
     );
@@ -658,62 +733,60 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                             })}
                         </div>
                     </div>
-                    {/* Journal Tree */}
-                    <div className="flex-1 overflow-y-auto p-2 pb-16 min-h-0">
-                        {Object.keys(groupedEntries).sort((a, b) => a.localeCompare(b)).map(year => {
-                            const isYearOpen = journalExpanded[year] !== false; // Default Open if undefined? Or default closed. Let's say default Open.
-                            // If user never toggled, it's undefined. If I want default open: use !== false. 
+                    {/* Journal Tree — uses the same JournalTreeItem visual as the notebook tree */}
+                    <div className="flex-1 overflow-y-auto p-2 pb-16 min-h-0 space-y-0.5">
+                        {Object.keys(groupedEntries).sort((a, b) => b.localeCompare(a)).map(year => {
+                            const isYearOpen = journalExpanded[year] !== false;
                             return (
-                                <div key={year} className="mb-2">
-                                    <div className="flex items-center cursor-pointer text-xs font-semibold text-text-muted uppercase tracking-wider mb-1 px-2 mt-2 select-none hover:text-text-secondary" onClick={() => toggleJournalNode(year)}>
-                                        <ChevronRightIcon className={`mr-1 w-3 h-3 transition-transform text-text-muted ${isYearOpen ? 'rotate-90' : ''}`} />
-                                        {year}
-                                    </div>
-                                    {isYearOpen && Object.keys(groupedEntries[year]).map(month => {
+                                <JournalTreeItem
+                                    key={year}
+                                    label={year}
+                                    level={0}
+                                    isSelected={false}
+                                    isSection={true}
+                                    isExpanded={isYearOpen}
+                                    onToggleExpand={(e) => { e.stopPropagation(); toggleJournalNode(year); }}
+                                    onClick={() => router.push(`?year=${year}`)}
+                                >
+                                    {Object.keys(groupedEntries[year]).map(month => {
                                         const monthKey = groupedEntries[year][month].key;
-                                        const isMonthOpen = journalExpanded[monthKey] !== false; // Default Open
+                                        const isMonthOpen = journalExpanded[monthKey] !== false;
                                         return (
-                                            <div key={month} className="pl-2">
-                                                <div className="group/month">
-                                                    <div className="flex items-center text-sm text-text-secondary hover:text-text-primary py-1 px-2 rounded hover:bg-bg-hover select-none outline-none">
-                                                        <span
-                                                            className="cursor-pointer p-0.5 rounded hover:bg-bg-active mr-1"
-                                                            onClick={(e) => { e.stopPropagation(); toggleJournalNode(monthKey); }}
-                                                        >
-                                                            <ChevronRightIcon className={`w-3 h-3 transition-transform text-text-muted ${isMonthOpen ? 'rotate-90' : ''}`} />
-                                                        </span>
-                                                        <span
-                                                            className="flex-1 cursor-pointer"
-                                                            onClick={(e) => {
-                                                                e.preventDefault();
-                                                                router.push(`?month=${monthKey}`);
-                                                            }}
-                                                        >
-                                                            {month}
-                                                        </span>
-                                                    </div>
-                                                    {isMonthOpen && (
-                                                        <div className="pl-6 space-y-0.5 mt-1 border-l border-border-primary ml-3">
-                                                            {groupedEntries[year][month].entries.sort((a: Entry, b: Entry) => new Date(a.CreatedDate!).getTime() - new Date(b.CreatedDate!).getTime()).map((entry: Entry) => (
-                                                                <div
-                                                                    key={entry.EntryID}
-                                                                    onClick={() => onDateClick(new Date(entry.CreatedDate!))}
-                                                                    onContextMenu={(e) => handleContextMenu(e, entry.EntryID)}
-                                                                    className={`px-2 py-1 rounded cursor-pointer text-sm truncate transition-colors flex items-center ${isSameDay(new Date(entry.CreatedDate!), selectedDate) ? 'bg-accent-primary text-white font-medium' : 'text-text-secondary hover:bg-bg-hover'}`}
-                                                                >
-                                                                    {entry.Icon && <span className="mr-2 text-xs">{entry.Icon}</span>}
-                                                                    <span className="truncate">
-                                                                        {format(new Date(entry.CreatedDate!), 'd')} ({format(new Date(entry.CreatedDate!), 'EEE')}){entry.Title && entry.Title !== 'Untitled' ? ` - ${entry.Title}` : ''}
-                                                                    </span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
+                                            <JournalTreeItem
+                                                key={month}
+                                                label={month}
+                                                level={1}
+                                                isSelected={false}
+                                                isSection={true}
+                                                isExpanded={isMonthOpen}
+                                                onToggleExpand={(e) => { e.stopPropagation(); toggleJournalNode(monthKey); }}
+                                                onClick={() => router.push(`?month=${monthKey}`)}
+                                            >
+                                                {groupedEntries[year][month].entries
+                                                    .sort((a: Entry, b: Entry) =>
+                                                        new Date(a.CreatedDate!).getTime() - new Date(b.CreatedDate!).getTime()
+                                                    )
+                                                    .map((entry: Entry) => {
+                                                        const isSelected = isSameDay(new Date(entry.CreatedDate!), selectedDate);
+                                                        const dateLabel = `${format(new Date(entry.CreatedDate!), 'd')} (${format(new Date(entry.CreatedDate!), 'EEE')})${entry.Title && entry.Title !== 'Untitled' ? ` - ${entry.Title}` : ''}`;
+                                                        return (
+                                                            <JournalTreeItem
+                                                                key={entry.EntryID}
+                                                                label={dateLabel}
+                                                                icon={entry.Icon}
+                                                                level={2}
+                                                                isSelected={isSelected}
+                                                                isSection={false}
+                                                                isExpanded={false}
+                                                                onClick={() => onDateClick(new Date(entry.CreatedDate!))}
+                                                                onContextMenu={(e) => handleContextMenu(e, entry.EntryID)}
+                                                            />
+                                                        );
+                                                    })}
+                                            </JournalTreeItem>
                                         );
                                     })}
-                                </div>
+                                </JournalTreeItem>
                             );
                         })}
                     </div>
