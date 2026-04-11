@@ -13,9 +13,12 @@ interface Settings {
     autoBackupOnClose: boolean;
     backupFrequency: number;
     retentionCount: number;
-    themePreferences?: any;
+    themePreferences?: ThemePreferences;
     defaultFontSize: number;
 }
+
+type ThemeMode = 'light' | 'dark';
+type ThemePreferences = Partial<Record<ThemeMode, Record<string, string>>>;
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [settings, setSettings] = useState<Settings>({
@@ -28,36 +31,49 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (isOpen) {
-            setLoading(true);
-            const loadSettings = async () => {
-                let saved: any = {};
-                if (window.electron) {
-                    saved = await window.electron.getSettings();
-                } else {
-                    try {
-                        const savedStr = localStorage.getItem('app-settings');
-                        saved = savedStr ? JSON.parse(savedStr) : {};
-                    } catch (e) { }
-                }
+        if (!isOpen) return;
 
-                setSettings({
-                    backupPath: saved.backupPath || '',
-                    autoBackupOnClose: saved.autoBackupOnClose || false,
-                    backupFrequency: saved.backupFrequency || 3,
-                    retentionCount: saved.retentionCount || 3,
-                    themePreferences: saved.themePreferences || {},
-                    defaultFontSize: saved.defaultFontSize || 14,
-                });
-                setLoading(false);
-            };
-            loadSettings();
-        }
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (!cancelled) setLoading(true);
+        });
+
+        const loadSettings = async () => {
+            let saved: Partial<Settings> = {};
+            if (window.electron) {
+                saved = await window.electron.getSettings();
+            } else {
+                try {
+                    const savedStr = localStorage.getItem('app-settings');
+                    saved = savedStr ? JSON.parse(savedStr) : {};
+                } catch {
+                    saved = {};
+                }
+            }
+
+            if (cancelled) return;
+
+            setSettings({
+                backupPath: saved.backupPath || '',
+                autoBackupOnClose: saved.autoBackupOnClose || false,
+                backupFrequency: saved.backupFrequency || 3,
+                retentionCount: saved.retentionCount || 3,
+                themePreferences: saved.themePreferences || {},
+                defaultFontSize: saved.defaultFontSize || 14,
+            });
+            setLoading(false);
+        };
+
+        void loadSettings();
+
+        return () => {
+            cancelled = true;
+        };
     }, [isOpen]);
 
-    const handleSave = async (key: keyof Settings | 'themePreferences', value: any) => {
+    const handleSave = async (key: keyof Settings, value: Settings[keyof Settings]) => {
         const newSettings = { ...settings, [key]: value };
-        setSettings(newSettings);
+        setSettings(prev => ({ ...prev, [key]: value }));
 
         if (window.electron) {
             await window.electron.saveSetting(key as string, value);
@@ -219,7 +235,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 }
 
 // Theme Settings Sub-component
-function ThemeSettings({ settings, onSave }: { settings: any, onSave: (key: any, val: any) => void }) {
+function ThemeSettings({ settings, onSave }: { settings: Settings, onSave: (key: keyof Settings, val: Settings[keyof Settings]) => void }) {
     const [mode, setMode] = useState<'light' | 'dark'>('dark');
 
     const handleColorChange = (key: string, value: string) => {
