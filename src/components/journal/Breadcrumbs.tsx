@@ -5,9 +5,9 @@ import { ChevronRight, Home, ChevronDown, Folder, File } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface BreadcrumbItem {
-    id: number;
+    id: number | string;
     title: string;
-    type: 'Category' | 'Section' | 'Page';
+    type: 'Category' | 'Section' | 'Page' | 'Month';
     categoryType?: 'Journal' | 'Notebook';
 }
 
@@ -70,6 +70,10 @@ export default function Breadcrumbs({ entryId, categoryId }: BreadcrumbsProps) {
             router.push(`/journal/${categoryId}?section=${item.id}`);
         } else if (item.type === 'Page') {
             router.push(`/journal/${categoryId}?entry=${item.id}`);
+        } else if (item.type === 'Month') {
+            const monthKey = item.id.toString().replace('month-', '');
+            // Navigate to the 1st of the month so Editor loads a valid entry date
+            router.push(`/journal/${categoryId}?date=${monthKey}-01`);
         }
     };
 
@@ -131,7 +135,7 @@ export default function Breadcrumbs({ entryId, categoryId }: BreadcrumbsProps) {
                                 <span className="truncate max-w-[140px]">{item.title}</span>
                             </button>
 
-                            {item.type !== 'Page' && (
+                            {item.type !== 'Page' && item.type !== 'Month' && item.categoryType !== 'Journal' && (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();

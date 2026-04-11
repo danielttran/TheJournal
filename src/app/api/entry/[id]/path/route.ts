@@ -62,11 +62,48 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         }
 
         path.forEach(item => {
-            breadcrumbs.push({
-                id: item.EntryID,
-                title: item.Title || "Untitled",
-                type: item.EntryType
-            });
+            if (category?.Type === 'Journal') {
+                const date = item.CreatedDate ? new Date(item.CreatedDate) : new Date();
+                const year = date.getFullYear();
+                const monthNumStr = String(date.getMonth() + 1).padStart(2, '0');
+                const monthName = date.toLocaleString('default', { month: 'long' });
+                
+                // 1. Add virtual Year breadcrumb
+                breadcrumbs.push({
+                    id: `month-${year}-01`, // Use Month type hack but route to Jan 1st
+                    title: year.toString(),
+                    type: 'Month',
+                    categoryType: 'Journal'
+                });
+
+                // 2. Add virtual Month breadcrumb
+                breadcrumbs.push({
+                    id: `month-${year}-${monthNumStr}`,
+                    title: monthName,
+                    type: 'Month',
+                    categoryType: 'Journal'
+                });
+
+                // 3. Add Entry (Date) breadcrumb
+                const day = date.getDate();
+                const dayName = date.toLocaleString('default', { weekday: 'short' });
+                const displayTitle = item.Title && item.Title !== 'Untitled' 
+                    ? item.Title 
+                    : `${dayName}, ${monthName.split(' ')[0]} ${day}`;
+
+                breadcrumbs.push({
+                    id: item.EntryID,
+                    title: displayTitle,
+                    type: item.EntryType,
+                    categoryType: 'Journal'
+                });
+            } else {
+                breadcrumbs.push({
+                    id: item.EntryID,
+                    title: item.Title || "Untitled",
+                    type: item.EntryType
+                });
+            }
         });
 
         return NextResponse.json(breadcrumbs);

@@ -1174,10 +1174,10 @@ export default function Editor({
             `}</style>
 
             {/* Breadcrumb Header — hidden in distraction-free mode */}
-            {urlEntryId && !isDistractionFree && (
+            {entryId && !isDistractionFree && (
                 <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200">
                     <div className="flex-1 overflow-hidden">
-                        <Breadcrumbs entryId={urlEntryId} categoryId={categoryId} />
+                        <Breadcrumbs entryId={entryId} categoryId={categoryId} />
                     </div>
                     <div className="flex items-center ml-4 flex-shrink-0 gap-3">
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>

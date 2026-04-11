@@ -243,17 +243,28 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     // Combine for highlighting
     const selectedId = urlEntryId || urlSectionId;
 
-    const selectedDate = urlDate ? (() => {
-        const [y, m, d] = urlDate.split('-').map(Number);
-        return new Date(y, m - 1, d);
-    })() : new Date();
+    const [journalEntries, setJournalEntries] = useState<Entry[]>([]);
+
+    const selectedDate = useMemo(() => {
+        if (urlDate) {
+            const [y, m, d] = urlDate.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        }
+        if (type === 'Journal' && urlEntryId) {
+            const entry = journalEntries.find(e => e.EntryID === urlEntryId);
+            if (entry && entry.CreatedDate) {
+                return new Date(entry.CreatedDate);
+            }
+        }
+        return new Date();
+    }, [urlDate, type, urlEntryId, journalEntries]);
+
     const [currentMonth, setCurrentMonth] = useState(new Date());
 
     // Notebook Mode
     const [pages, setPages] = useState<Entry[]>([]);
     const [activeDragId, setActiveDragId] = useState<number | null>(null);
     const [activeDragItem, setActiveDragItem] = useState<Entry | null>(null);
-    const [journalEntries, setJournalEntries] = useState<Entry[]>([]);
 
 
     // Context Menu State
