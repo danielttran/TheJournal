@@ -14,7 +14,7 @@ export default async function JournalLayout({
     return (
         <div className="flex flex-col h-screen bg-[#111827] overflow-hidden">
             <TabBar userId={userId} />
-            <div className="flex-1 overflow-hidden relative">
+            <div className="flex-1 overflow-hidden relative border-2 border-accent-primary">
                 {children}
             </div>
         </div>

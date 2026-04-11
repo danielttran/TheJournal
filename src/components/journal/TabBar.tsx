@@ -113,10 +113,10 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                 ref={setNodeRef}
                 style={style}
                 className={`
-                    group flex items-center gap-2 px-3 py-1 min-w-[120px] max-w-[200px] h-9 rounded-t-lg text-sm font-medium transition-all select-none
+                    group flex items-center gap-2 px-3 py-1 min-w-[120px] max-w-[200px] h-[38px] rounded-t-lg text-sm font-medium transition-all select-none
                     ${isActive
-                        ? 'bg-bg-app text-text-primary border-t-2 border-accent-primary'
-                        : 'bg-bg-card text-text-secondary'
+                        ? 'bg-bg-sidebar text-text-primary border-t-2 border-x-2 border-accent-primary translate-y-[2px] z-10'
+                        : 'bg-transparent text-text-muted hover:text-text-secondary'
                     }
                 `}
             >
@@ -146,10 +146,10 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                 setIsEditing(true);
             }}
             className={`
-                relative group flex items-center min-w-[120px] max-w-[200px] h-9 px-3 rounded-t-lg text-sm cursor-pointer select-none transition-colors
+                relative group flex items-center min-w-[120px] max-w-[200px] h-[38px] px-3 rounded-t-lg text-sm cursor-pointer select-none transition-colors
                 ${isActive
-                    ? 'bg-bg-app text-text-primary border-t-2 border-accent-primary shadow-[0_-2px_10px_var(--accent-glow)]'
-                    : 'bg-bg-card text-text-secondary hover:bg-bg-hover'
+                    ? 'bg-bg-sidebar text-text-primary border-t-2 border-x-2 border-accent-primary translate-y-[2px] z-10'
+                    : 'bg-transparent text-text-muted hover:text-text-secondary'
                 }
             `}
         >
@@ -402,7 +402,7 @@ export default function TabBar({ userId }: { userId: string }) {
     const activeId = pathname.split('/')[2];
 
     return (
-        <div className="flex flex-col w-full bg-bg-sidebar border-b border-border-primary transition-colors duration-200">
+        <div className="flex flex-col w-full bg-bg-sidebar transition-colors duration-200">
             {/* Hidden file input for imports */}
             <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite,.tjdb" onChange={handleFileChange} />
 
@@ -482,7 +482,7 @@ export default function TabBar({ userId }: { userId: string }) {
             )}
 
             {/* TAB STRIP (Sortable) */}
-            <div className="flex items-center px-2 pt-2 space-x-1 overflow-x-auto no-scrollbar bg-bg-sidebar">
+            <div className="flex items-center px-2 pt-1 space-x-1 bg-bg-sidebar">
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <SortableContext items={tabs.map(c => c.CategoryID)} strategy={horizontalListSortingStrategy}>
                         {tabs.map((tab) => (
