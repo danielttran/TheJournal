@@ -103,8 +103,15 @@ export class DBManager {
                         tempDb.run('PRAGMA journal_mode = WAL');
                         // Enable foreign key enforcement
                         tempDb.run('PRAGMA foreign_keys = ON');
+                        // Wait up to 5 seconds when a lock is held, reducing SQLITE_BUSY failures.
+                        tempDb.run('PRAGMA busy_timeout = 5000');
                         this.instance = tempDb;
-                        this.initSchema().then(resolve).catch(reject);
+                        this.initSchema()
+                            .then(resolve)
+                            .catch((schemaErr) => {
+                                this.instance = null;
+                                tempDb.close(() => reject(schemaErr));
+                            });
                     });
                 });
             });

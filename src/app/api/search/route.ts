@@ -60,8 +60,10 @@ export async function GET(req: NextRequest) {
         const entryType = searchParams.get('entryType') || null; // 'Page' | 'Folder' | null
         const matchCase = searchParams.get('matchCase') === '1';
         const wholeWord = searchParams.get('wholeWord') === '1';
-        const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200);
-        const offset = parseInt(searchParams.get('offset') || '0', 10);
+        const parsedLimit = parseInt(searchParams.get('limit') || '50', 10);
+        const parsedOffset = parseInt(searchParams.get('offset') || '0', 10);
+        const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 200) : 50;
+        const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
 
         if (!q) {
             return NextResponse.json({ results: [], total: 0, hasMore: false });
