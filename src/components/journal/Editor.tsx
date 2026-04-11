@@ -104,6 +104,8 @@ function getCachedEntry(key: string) {
 
 export default function Editor({
     categoryId,
+    categoryName,
+    categoryType,
     userId,
     onEnterSplitMode: onToggleSplitMode,
     isSplitMode = false,
@@ -111,6 +113,8 @@ export default function Editor({
     onEntryChange,
 }: {
     categoryId: string;
+    categoryName: string;
+    categoryType: string;
     userId: string;
     /** Toggle callback — called for both enter and exit. */
     onEnterSplitMode?: () => void;
@@ -1173,18 +1177,22 @@ export default function Editor({
                 }
             `}</style>
 
-            {/* Breadcrumb Header — hidden in distraction-free mode */}
+            {/* Save-status indicator — always visible when an entry is loaded */}
             {entryId && !isDistractionFree && (
                 <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200">
                     <div className="flex-1 overflow-hidden">
-                        <Breadcrumbs entryId={entryId} categoryId={categoryId} />
+                        <Breadcrumbs
+                            entryId={entryId}
+                            categoryId={categoryId}
+                            categoryName={categoryName}
+                            categoryType={categoryType}
+                        />
                     </div>
                     <div className="flex items-center ml-4 flex-shrink-0 gap-3">
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                            <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`} />
                             {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
                         </span>
-
                     </div>
                 </div>
             )}

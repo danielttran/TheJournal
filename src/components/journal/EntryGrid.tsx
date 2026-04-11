@@ -1,22 +1,40 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { AppRouterInstance } from "next/dist/shared/lib/app-router-context.shared-runtime";
+import { useState, useEffect, useCallback } from 'react';
 import { format } from "date-fns";
 import { useRouter } from "next/navigation";
-// removed import { Entry } from "@/lib/types"; 
-
 import { Entry } from "@/lib/types";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+/**
+ * Controls how a click on a grid card is translated into a URL navigation.
+ *
+ * - 'section'       — notebook section / page  → ?section=id  or  ?entry=id
+ * - 'journal-month' — journal day entries       → ?date=YYYY-MM-DD
+ * - 'journal-year'  — journal virtual months    → ?month=YYYY-MM  (uses _monthKey)
+ */
+export type GridMode = 'section' | 'journal-month' | 'journal-year';
 
 interface EntryGridProps {
     entries: Entry[];
-    onEntryClick?: (entry: Entry) => void;
     title?: string;
-    dataUrl?: string; // URL to fetch fresh data
+    dataUrl?: string;
+    categoryId?: string;
+    gridMode?: GridMode;
+    onEntryClick?: (entry: Entry) => void;
 }
 
-export default function EntryGrid({ entries: initialEntries, onEntryClick, title, dataUrl }: EntryGridProps) {
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export default function EntryGrid({
+    entries: initialEntries,
+    title,
+    dataUrl,
+    categoryId,
+    gridMode = 'section',
+    onEntryClick,
+}: EntryGridProps) {
     const router = useRouter();
     const [entries, setEntries] = useState(initialEntries);
 
@@ -24,6 +42,7 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
         setEntries(initialEntries);
     }, [initialEntries]);
 
+    // Refresh grid when an entry is saved
     useEffect(() => {
         if (!dataUrl) return;
 
@@ -32,20 +51,14 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
         const handleUpdate = async () => {
             const fetchGrid = async () => {
                 try {
-                    // Add timestamp to prevent caching
                     const url = dataUrl.includes('?') ? `${dataUrl}&t=${Date.now()}` : `${dataUrl}?t=${Date.now()}`;
                     const res = await fetch(url);
-                    if (res.ok) {
-                        const data = await res.json();
-                        setEntries(data);
-                    }
-                } catch (e) {
-                    // Fail silently
-                }
+                    if (res.ok) setEntries(await res.json());
+                } catch { /* silent */ }
             };
 
-            fetchGrid(); // Immediate
-            retryTimeout = setTimeout(fetchGrid, 300); // Retry logic
+            fetchGrid();
+            retryTimeout = setTimeout(fetchGrid, 300);
         };
 
         window.addEventListener('journal-entry-updated', handleUpdate);
@@ -55,34 +68,35 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
         };
     }, [dataUrl]);
 
-    const handleEntryClick = (entry: Entry) => {
+    const handleEntryClick = useCallback((entry: Entry) => {
         if (onEntryClick) {
             onEntryClick(entry);
-        } else {
-            // Default navigation
-            router.push(`?entry=${entry.EntryID}`); // Or whatever the date logic is?
-            // If it's a journal entry, maybe ?date=...
-            // Check entry type or just try entry ID?
-            // If it's journal, usually accessing via date is better for context?
-            // Sidebar expects ?date= for Journal.
-            if (entry.EntryType === 'Section') {
-                // router.push(`?section=${entry.EntryID}`); // Drill down?
-                // Wait, if I click a Section in a Grid, I probably want to drill down?
-                router.push(`?section=${entry.EntryID}`);
-            } else if (entry.CreatedDate && !entry.EntryType) {
-                // Likely Journal? check "Type" or infer
-                // If we are in Journal Category, page.tsx knows.
-                // But EntryGrid is generic.
-                // Let's assume standard Entry ID view is safe fallback.
-                // Actually Sidebar logic:
-                // Journal -> ?date=...
-                // Notebook -> ?entry=...
-            }
+            return;
+        }
 
-            // Let's just use ?entry=ID for now, unless we can pass a "type" prop to Grid
+        const anyEntry = entry as any;
+
+        if (gridMode === 'journal-year') {
+            // Virtual month card — navigate to that month's day-list grid
+            const monthKey = anyEntry._monthKey ?? entry.CreatedDate?.substring(0, 7);
+            if (monthKey) router.push(`?month=${monthKey}`);
+            return;
+        }
+
+        if (gridMode === 'journal-month') {
+            // Real journal day entry — open the editor at that date
+            const dateStr = entry.CreatedDate?.split(' ')[0] ?? entry.CreatedDate;
+            if (dateStr) router.push(`?date=${dateStr}`);
+            return;
+        }
+
+        // Default: notebook section / page
+        if (entry.EntryType === 'Section') {
+            router.push(`?section=${entry.EntryID}`);
+        } else {
             router.push(`?entry=${entry.EntryID}`);
         }
-    };
+    }, [router, gridMode, onEntryClick]);
 
     if (!entries || entries.length === 0) {
         return (
@@ -96,9 +110,9 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
         <div className="p-8 h-full overflow-y-auto bg-bg-app transition-colors duration-200">
             {title && <h2 className="text-2xl font-bold mb-6 text-text-primary">{title}</h2>}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {entries.map((entry) => (
+                {entries.map((entry, i) => (
                     <div
-                        key={entry.EntryID}
+                        key={entry.EntryID ?? i}
                         onClick={() => handleEntryClick(entry)}
                         className="bg-bg-card border border-border-primary rounded-xl p-5 cursor-pointer hover:shadow-lg hover:border-accent-primary transition-all duration-200 group flex flex-col h-48"
                     >
@@ -122,10 +136,7 @@ export default function EntryGrid({ entries: initialEntries, onEntryClick, title
                                     <span className="italic text-text-muted opacity-60">No additional text...</span>
                                 )}
                             </p>
-                            {/* Gradient fade at bottom of text - using CSS variable for from-color is tricky in tailwind gradient-to-t, 
-                                but we can try from-bg-card if we defined it as a color, but it's defined as a var. 
-                                Tailwind JIT should support `from-[var(--bg-card)]` */}
-                            <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[var(--bg-card)] to-transparent pointer-events-none"></div>
+                            <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[var(--bg-card)] to-transparent pointer-events-none" />
                         </div>
                     </div>
                 ))}

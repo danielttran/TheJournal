@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { LoadingProvider } from '@/contexts/LoadingContext';
 import Sidebar from '@/components/journal/Sidebar';
 import Editor from '@/components/journal/Editor';
 import EntryGrid from '@/components/journal/EntryGrid';
 import SearchPanel from '@/components/journal/SearchPanel';
+import Breadcrumbs from '@/components/journal/Breadcrumbs';
 
 interface JournalViewProps {
     categoryId: string;
@@ -17,6 +18,7 @@ interface JournalViewProps {
     gridEntries?: any[] | null;
     gridTitle?: string;
     dataUrl?: string;
+    gridMode?: 'section' | 'journal-month' | 'journal-year';
 }
 
 export default function JournalView({
@@ -27,9 +29,11 @@ export default function JournalView({
     viewSettings,
     gridEntries,
     gridTitle,
-    dataUrl
+    dataUrl,
+    gridMode = 'section',
 }: JournalViewProps) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [isSplitMode, setIsSplitMode] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
 
@@ -40,6 +44,12 @@ export default function JournalView({
     const handleSearchNavigate = useCallback((targetCategoryId: number, entryId: number, _categoryType: string) => {
         router.push(`/journal/${targetCategoryId}?entry=${entryId}`);
     }, [router]);
+
+    // Derive breadcrumb context from URL for grid views
+    const sectionId = searchParams.get('section') ? parseInt(searchParams.get('section')!, 10) : null;
+    const monthKey  = searchParams.get('month')   ?? null;
+    const yearKey   = searchParams.get('year')    ?? null;
+    const isGridView = !!gridEntries;
 
     return (
         <LoadingProvider>
@@ -52,11 +62,33 @@ export default function JournalView({
                     viewSettings={viewSettings}
                 />
                 <main className="flex-1 flex flex-col h-full min-w-0">
-                    {gridEntries ? (
-                        <EntryGrid entries={gridEntries} title={gridTitle || ""} dataUrl={dataUrl || ""} />
+                    {/* Breadcrumb bar — shown in grid views (editor view manages its own inside its header) */}
+                    {isGridView && (
+                        <div className="h-10 border-b border-border-primary flex items-center px-4 bg-bg-sidebar flex-shrink-0">
+                            <Breadcrumbs
+                                categoryId={categoryId}
+                                categoryName={categoryName}
+                                categoryType={categoryType}
+                                sectionId={sectionId}
+                                monthKey={monthKey}
+                                yearKey={yearKey}
+                            />
+                        </div>
+                    )}
+
+                    {isGridView ? (
+                        <EntryGrid
+                            entries={gridEntries!}
+                            title={gridTitle || ""}
+                            dataUrl={dataUrl || ""}
+                            categoryId={categoryId}
+                            gridMode={gridMode}
+                        />
                     ) : (
                         <Editor
                             categoryId={categoryId}
+                            categoryName={categoryName}
+                            categoryType={categoryType}
                             userId={userId}
                             onEnterSplitMode={toggleSplitMode}
                             isSplitMode={isSplitMode}
@@ -65,7 +97,6 @@ export default function JournalView({
                     )}
                 </main>
 
-                {/* Search panel — rendered at root so it overlays the editor */}
                 {showSearch && (
                     <SearchPanel
                         currentCategoryId={categoryId}
