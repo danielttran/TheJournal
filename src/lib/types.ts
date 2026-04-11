@@ -13,7 +13,7 @@ export interface Entry {
     EntryID: number;
     Title: string;
     ParentEntryID: number | null;
-    EntryType: 'Page' | 'Section';
+    EntryType: 'Page' | 'Folder';
     SortOrder: number;
     Icon?: string;
     IsExpanded?: boolean;

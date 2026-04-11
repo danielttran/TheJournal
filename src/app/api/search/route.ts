@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
         const dateTo = searchParams.get('dateTo') || null;
         // searchIn: 'title' | 'content' | 'both'
         const searchIn = searchParams.get('searchIn') || 'both';
-        const entryType = searchParams.get('entryType') || null; // 'Page' | 'Section' | null
+        const entryType = searchParams.get('entryType') || null; // 'Page' | 'Folder' | null
         const matchCase = searchParams.get('matchCase') === '1';
         const wholeWord = searchParams.get('wholeWord') === '1';
         const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200);

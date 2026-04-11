@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
                     Title: monthName,
                     CreatedDate: `${row.monthKey}-01`,
                     PreviewText: `${row.entryCount} ${row.entryCount === 1 ? 'entry' : 'entries'}`,
-                    EntryType: 'Section',
+                    EntryType: 'Folder',
                     Icon: null,
                     SortOrder: m,
                     _monthKey: row.monthKey,   // extra field for correct navigation

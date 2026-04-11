@@ -47,12 +47,12 @@ import { Entry } from '@/lib/types';
 // ---------------------------
 // Sortable Notebook Item (Updated)
 // ---------------------------
-const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection, selectedId, isOverlay, onContextMenu, onRename, onToggleExpand, loadingEntryId, loadingProgress }: {
+const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddFolder, selectedId, isOverlay, onContextMenu, onRename, onToggleExpand, loadingEntryId, loadingProgress }: {
     entry: Entry,
     level: number,
-    onSelect: (id: number, type: 'Page' | 'Section') => void,
+    onSelect: (id: number, type: 'Page' | 'Folder') => void,
     onAddPage: (parentId: number) => void,
-    onAddSection: (parentId: number) => void,
+    onAddFolder: (parentId: number) => void,
     selectedId: number | null,
     isOverlay?: boolean,
     onContextMenu: (e: React.MouseEvent, entryId: number) => void,
@@ -109,7 +109,7 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
 
     const DisplayIcon = () => {
         if (entry.Icon) return <span className="mr-2 text-base leading-none">{entry.Icon}</span>;
-        if (entry.EntryType === 'Section') return <Folder className="w-4 h-4 mr-2 text-accent-primary" />;
+        if (entry.EntryType === 'Folder') return <Folder className="w-4 h-4 mr-2 text-accent-primary" />;
         return <File className="w-4 h-4 mr-2 text-accent-primary" />;
     };
 
@@ -121,12 +121,12 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
                 className={`group flex items-center justify-between px-2 py-1.5 rounded cursor-pointer text-sm select-none ${isSelected ? 'bg-accent-primary text-white font-medium' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}
                 onClick={(e) => {
                     e.stopPropagation();
-                    if (entry.EntryType === 'Section') onSelect(entry.EntryID, 'Section');
+                    if (entry.EntryType === 'Folder') onSelect(entry.EntryID, 'Folder');
                     else onSelect(entry.EntryID, 'Page');
                 }}
                 onDoubleClick={(e) => {
                     e.stopPropagation();
-                    if (entry.EntryType === 'Section') {
+                    if (entry.EntryType === 'Folder') {
                         setIsEditing(true);
                         setEditTitle(entry.Title);
                     }
@@ -138,7 +138,7 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
 
                     {/* Arrow for Expansion */}
                     <span
-                        className={`mr-1 p-0.5 rounded hover:bg-bg-active cursor-pointer ${entry.EntryType !== 'Section' && 'invisible'}`}
+                        className={`mr-1 p-0.5 rounded hover:bg-bg-active cursor-pointer ${entry.EntryType !== 'Folder' && 'invisible'}`}
                         onClick={handleExpandToggle}
                     >
                         <ChevronRightIcon className={`w-3 h-3 transition-transform text-text-muted ${isOpen ? 'rotate-90' : ''}`} />
@@ -167,14 +167,14 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddSection,
                     )}
                 </div>
                 <div className="hidden group-hover:flex items-center space-x-1">
-                    {entry.EntryType === 'Section' && (<><button onClick={(e) => { e.stopPropagation(); onAddPage(entry.EntryID); }} className="p-0.5 hover:bg-bg-active rounded text-accent-primary hover:text-accent-primary/80"><File className="w-3 h-3" /></button><button onClick={(e) => { e.stopPropagation(); onAddSection(entry.EntryID); }} className="p-0.5 hover:bg-bg-active rounded text-accent-primary hover:text-accent-primary/80"><Folder className="w-3 h-3" /></button></>)}
+                    {entry.EntryType === 'Folder' && (<><button title="Add page" onClick={(e) => { e.stopPropagation(); onAddPage(entry.EntryID); }} className="p-0.5 hover:bg-bg-active rounded text-accent-primary hover:text-accent-primary/80"><File className="w-3 h-3" /></button><button title="Add folder" onClick={(e) => { e.stopPropagation(); onAddFolder(entry.EntryID); }} className="p-0.5 hover:bg-bg-active rounded text-accent-primary hover:text-accent-primary/80"><Folder className="w-3 h-3" /></button></>)}
                 </div>
             </div>
             {hasChildren && isOpen && (
                 <div className="flex flex-col">
                     <SortableContext items={entry.children!.map(c => c.EntryID)} strategy={verticalListSortingStrategy}>
                         {entry.children!.map(child => (
-                            <SortableNotebookItem key={child.EntryID} entry={child} level={level + 1} onSelect={onSelect} onAddPage={onAddPage} onAddSection={onAddSection} selectedId={selectedId} onContextMenu={onContextMenu} onRename={onRename} onToggleExpand={onToggleExpand} loadingEntryId={loadingEntryId} loadingProgress={loadingProgress} />
+                            <SortableNotebookItem key={child.EntryID} entry={child} level={level + 1} onSelect={onSelect} onAddPage={onAddPage} onAddFolder={onAddFolder} selectedId={selectedId} onContextMenu={onContextMenu} onRename={onRename} onToggleExpand={onToggleExpand} loadingEntryId={loadingEntryId} loadingProgress={loadingProgress} />
                         ))}
                     </SortableContext>
                 </div>
@@ -313,10 +313,10 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     // Journal Mode
     const urlDate = searchParams.get('date');
     const urlEntryId = searchParams.get('entry') ? parseInt(searchParams.get('entry')!, 10) : null;
-    const urlSectionId = searchParams.get('section') ? parseInt(searchParams.get('section')!, 10) : null;
+    const urlFolderId = searchParams.get('folder') ? parseInt(searchParams.get('folder')!, 10) : null;
 
     // Combine for highlighting
-    const selectedId = urlEntryId || urlSectionId;
+    const selectedId = urlEntryId || urlFolderId;
 
     const [journalEntries, setJournalEntries] = useState<Entry[]>([]);
 
@@ -426,7 +426,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
 
     // Auto-select entry for notebooks (client-side to avoid flash)
     useEffect(() => {
-        if (type !== 'Notebook' || urlEntryId || urlSectionId || pages.length === 0) return;
+        if (type !== 'Notebook' || urlEntryId || urlFolderId || pages.length === 0) return;
 
         const abortController = new AbortController();
 
@@ -483,7 +483,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             .catch(() => { /* silent fail or aborted */ });
 
         return () => abortController.abort();
-    }, [type, urlEntryId, urlSectionId, pages, categoryId, router]);
+    }, [type, urlEntryId, urlFolderId, pages, categoryId, router]);
 
     const fetchPages = async () => {
         try {
@@ -594,29 +594,33 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         return acc;
     }, {});
 
-    const createEntryWithContent = async (parentId: number | null, entryType: 'Page' | 'Section', template?: Template | null) => {
+    const createEntryWithContent = async (parentId: number | null, entryType: 'Page' | 'Folder', template?: Template | null) => {
         const res = await fetch('/api/entry/create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 categoryId, userId,
-                title: entryType === 'Section' ? 'New Section' : (template?.Name ?? 'Untitled Page'),
+                title: entryType === 'Folder' ? 'New Folder' : (template?.Name ?? 'Untitled Page'),
                 parentEntryId: parentId,
                 entryType,
                 templateId: template?.TemplateID ?? null,
             })
         });
         const newEntry = await res.json();
-        if (newEntry.id) {
-            fetchPages();
-            if (entryType === 'Page') router.push(`?entry=${newEntry.id}`);
+        if (!res.ok) {
+            console.error('Failed to create entry:', newEntry);
+            return;
+        }
+        fetchPages();
+        if (entryType === 'Page' && newEntry.id) {
+            router.push(`?entry=${newEntry.id}`);
         }
     };
 
-    const onCreateEntry = (parentId: number | null, entryType: 'Page' | 'Section') => {
-        if (entryType === 'Section') {
-            // Sections never use templates
-            createEntryWithContent(parentId, 'Section');
+    const onCreateEntry = (parentId: number | null, entryType: 'Page' | 'Folder') => {
+        if (entryType === 'Folder') {
+            // Folders never use templates
+            createEntryWithContent(parentId, 'Folder');
         } else {
             // Create new page immediately without template prompt
             createEntryWithContent(parentId, 'Page');
@@ -651,7 +655,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         if (!overItem || !activeItem) return;
         let newParentId = overItem.ParentEntryID;
         let newSortOrder = (overItem.SortOrder || 0) + 0.5;
-        if (overItem.EntryType === 'Section') { newParentId = overItem.EntryID; newSortOrder = (overItem.children?.length || 0) + 1; }
+        if (overItem.EntryType === 'Folder') { newParentId = overItem.EntryID; newSortOrder = (overItem.children?.length || 0) + 1; }
         try {
             await fetch('/api/entry/move', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entryId: activeId, parentId: newParentId, sortOrder: newSortOrder }) });
             fetchPages();
@@ -798,8 +802,8 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                         <div className="flex items-center justify-between px-2 mb-2">
                             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Notebook</span>
                             <div className="flex space-x-1">
-                                <button onClick={() => onCreateEntry(null, 'Page')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><File className="w-3 h-3" /></button>
-                                <button onClick={() => onCreateEntry(null, 'Section')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><Folder className="w-3 h-3" /></button>
+                            <button title="New page" onClick={() => onCreateEntry(null, 'Page')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><File className="w-3 h-3" /></button>
+                                <button title="New folder" onClick={() => onCreateEntry(null, 'Folder')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><Folder className="w-3 h-3" /></button>
                             </div>
                         </div>
                         <div className="space-y-0.5">
@@ -811,7 +815,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                             entry={entry}
                                             level={0}
                                             onSelect={async (id, type) => {
-                                                router.push(`?${type === 'Section' ? 'section' : 'entry'}=${id}`);
+                                                router.push(`?${type === 'Folder' ? 'folder' : 'entry'}=${id}`);
 
                                                 // Save last selected entry for notebooks
                                                 if (type === 'Page') {
@@ -825,7 +829,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                                 }
                                             }}
                                             onAddPage={(pid) => onCreateEntry(pid, 'Page')}
-                                            onAddSection={(pid) => onCreateEntry(pid, 'Section')}
+                                            onAddFolder={(pid) => onCreateEntry(pid, 'Folder')}
                                             selectedId={selectedId}
                                             onContextMenu={handleContextMenu}
                                             onRename={handleRename}
@@ -836,7 +840,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                     ))}
                                 </SortableContext>
                                 {/* DragOverlay also needs update, passing dummy onRename */}
-                                <DragOverlay dropAnimation={dropAnimation}>{activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddSection={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} onRename={() => { }} onToggleExpand={() => { }} loadingEntryId={null} loadingProgress={null} /> : null}</DragOverlay>
+                                <DragOverlay dropAnimation={dropAnimation}>{activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddFolder={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} onRename={() => { }} onToggleExpand={() => { }} loadingEntryId={null} loadingProgress={null} /> : null}</DragOverlay>
                             </DndContext>
                             {filteredPages.length === 0 && <div className="text-center py-4 text-text-muted text-sm">{searchQuery ? 'No matches found' : 'Empty notebook'}</div>}
                         </div>

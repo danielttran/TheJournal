@@ -1,7 +1,7 @@
 "use server";
 
 import { db, dbManager } from "@/lib/db";
-import { deriveMasterKey } from "@/lib/auth";
+import { getAppDbKey, hashPassword, verifyPassword } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -28,23 +28,17 @@ export async function login(prevState: unknown, formData: FormData) {
     const validatedFields = FormSchema.safeParse({ username, password });
 
     if (!validatedFields.success) {
-        return { 
+        return {
             errors: validatedFields.error.flatten().fieldErrors,
-            message: "Missing Fields. Failed to Login." 
+            message: "Missing Fields. Failed to Login.",
         };
     }
 
     try {
         console.log(`[Action:Login] Attempting login for: ${validatedFields.data.username}`);
-        const hexKey = await deriveMasterKey(validatedFields.data.password);
-        
-        try {
-            // Use force=true to ensure we replace any stale/wrongly-keyed instance
-            await dbManager.unlock(hexKey, true);
-        } catch (e) {
-            console.error("[Action:Login] Unlock failed:", e);
-            return { message: "Invalid credentials (unlock failed)." };
-        }
+
+        // Unlock DB with fixed app key (never changes, never locks)
+        await dbManager.unlock(getAppDbKey());
 
         const user = await db.prepare('SELECT * FROM User WHERE Username = ?').get(validatedFields.data.username) as any;
 
@@ -52,6 +46,16 @@ export async function login(prevState: unknown, formData: FormData) {
             console.warn("[Action:Login] User not found");
             return { message: "Invalid credentials." };
         }
+
+        // Verify password against stored hash
+        if (user.PasswordHash) {
+            const ok = await verifyPassword(user.PasswordHash, validatedFields.data.password);
+            if (!ok) {
+                console.warn("[Action:Login] Bad password");
+                return { message: "Invalid credentials." };
+            }
+        }
+        // (If no PasswordHash stored yet — legacy account — allow login so user isn't locked out)
 
         await setSession(user.UserID);
         console.log("[Action:Login] Success, redirecting to dashboard");
@@ -63,7 +67,7 @@ export async function login(prevState: unknown, formData: FormData) {
 }
 
 export async function logout() {
-    dbManager.close(); // Disconnect and wipe key from RAM
+    // Don't close the DB — just clear the session cookie
     const { cookies } = await import("next/headers");
     (await cookies()).delete("userId");
     redirect("/login");
@@ -86,28 +90,27 @@ export async function register(prevState: unknown, formData: FormData) {
     const validatedFields = RegisterSchema.safeParse({ username, password, confirmPassword });
 
     if (!validatedFields.success) {
-        return { 
+        return {
             errors: validatedFields.error.flatten().fieldErrors,
-            message: "Missing Fields. Failed to Register." 
+            message: "Missing Fields. Failed to Register.",
         };
     }
 
     try {
         console.log(`[Action:Register] Attempting registration for: ${validatedFields.data.username}`);
-        const hexKey = await deriveMasterKey(validatedFields.data.password);
-        
-        // Unlock (creates DB if needed)
-        await dbManager.unlock(hexKey, true);
+
+        // Unlock DB with fixed app key
+        await dbManager.unlock(getAppDbKey());
 
         const existingUser = await db.prepare('SELECT 1 FROM User WHERE Username = ?').get(validatedFields.data.username);
-
         if (existingUser) {
             return { message: "Username already taken." };
         }
 
-        const result = await db.prepare('INSERT INTO User (Username) VALUES (?)').run(validatedFields.data.username);
-        
-        // Auto-login after successful registration
+        // Hash the password and store it
+        const passwordHash = await hashPassword(validatedFields.data.password);
+        const result = await db.prepare('INSERT INTO User (Username, PasswordHash) VALUES (?, ?)').run(validatedFields.data.username, passwordHash);
+
         await setSession(result.lastInsertRowid);
         console.log("[Action:Register] Success, auto-logged in, redirecting to dashboard");
         redirect("/dashboard");

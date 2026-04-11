@@ -66,7 +66,7 @@ export default function SearchPanel({
     const [scopeCategory, setScopeCategory] = useState<'all' | 'current'>('current');
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
-    const [entryType, setEntryType] = useState<'' | 'Page' | 'Section'>('');
+    const [entryType, setEntryType] = useState<'' | 'Page' | 'Folder'>('');
     const [matchCase, setMatchCase] = useState(false);
     const [wholeWord, setWholeWord] = useState(false);
 
@@ -289,7 +289,7 @@ export default function SearchPanel({
                                 >
                                     <option value="">All</option>
                                     <option value="Page">Page</option>
-                                    <option value="Section">Section</option>
+                                    <option value="Folder">Folder</option>
                                 </select>
                             </div>
                             <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none">

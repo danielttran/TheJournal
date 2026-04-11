@@ -11,7 +11,7 @@ const UpdateSchema = z.object({
     sortOrder: z.number().optional(),
     parentEntryId: z.number().nullable().optional(),
     isLocked: z.boolean().optional(),
-    entryType: z.enum(['Page', 'Section']).optional(),
+    entryType: z.enum(['Page', 'Folder']).optional(),
     isExpanded: z.boolean().optional(),
     expectedVersion: z.number().optional(),
 });

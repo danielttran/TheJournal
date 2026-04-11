@@ -7,7 +7,7 @@ const CreateEntrySchema = z.object({
     userId: z.number().or(z.string().transform(val => parseInt(val, 10))),
     title: z.string().optional().default('Untitled Page'),
     parentEntryId: z.number().optional().nullable(),
-    entryType: z.enum(['Page', 'Section']).optional().default('Page'),
+    entryType: z.enum(['Page', 'Folder']).optional().default('Page'),
     templateId: z.number().optional().nullable(),
 });
 

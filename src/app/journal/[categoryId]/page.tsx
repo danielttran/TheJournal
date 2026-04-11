@@ -33,19 +33,19 @@ export default async function JournalPage({ params, searchParams }: {
     // 'journal-year'  → journal year view     (?month=YYYY-MM)
     let gridMode: 'section' | 'journal-month' | 'journal-year' = 'section';
 
-    if (sp.section) {
-        const sectionId = typeof sp.section === 'string' ? sp.section : sp.section[0];
-        dataUrl = `/api/entry/children?parentId=${sectionId}`;
+    if (sp.folder) {
+        const folderId = typeof sp.folder === 'string' ? sp.folder : sp.folder[0];
+        dataUrl = `/api/entry/children?parentId=${folderId}`;
         gridMode = 'section';
         gridEntries = await db.prepare(`
             SELECT EntryID, Title, CreatedDate, Icon, PreviewText, EntryType
             FROM Entry
             WHERE ParentEntryID = ?
             ORDER BY SortOrder ASC, CreatedDate DESC
-        `).all(sectionId) as any[];
+        `).all(folderId) as any[];
 
-        const section = await db.prepare('SELECT Title FROM Entry WHERE EntryID = ?').get(sectionId) as any;
-        gridTitle = section ? section.Title : "Section";
+        const folder = await db.prepare('SELECT Title FROM Entry WHERE EntryID = ?').get(folderId) as any;
+        gridTitle = folder ? folder.Title : "Folder";
 
     } else if (sp.year) {
         const yearKey = typeof sp.year === 'string' ? sp.year : sp.year[0]; // "YYYY"
@@ -69,7 +69,7 @@ export default async function JournalPage({ params, searchParams }: {
                 Title: monthName,
                 CreatedDate: `${row.monthKey}-01`,
                 PreviewText: `${row.entryCount} ${row.entryCount === 1 ? 'entry' : 'entries'}`,
-                EntryType: 'Section',
+                EntryType: 'Folder',
                 Icon: null,
                 SortOrder: m,
                 _monthKey: row.monthKey,

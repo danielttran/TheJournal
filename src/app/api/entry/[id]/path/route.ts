@@ -95,14 +95,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
                 breadcrumbs.push({
                     id: item.EntryID,
                     title: displayTitle,
-                    type: item.EntryType,
+                    type: item.EntryType === 'Folder' ? 'Folder' : 'Page',
                     categoryType: 'Journal'
                 });
             } else {
                 breadcrumbs.push({
                     id: item.EntryID,
                     title: item.Title || "Untitled",
-                    type: item.EntryType
+                    type: item.EntryType === 'Folder' ? 'Folder' : 'Page'
                 });
             }
         });

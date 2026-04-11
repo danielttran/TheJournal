@@ -46,7 +46,7 @@ export default function JournalView({
     }, [router]);
 
     // Derive breadcrumb context from URL for grid views
-    const sectionId = searchParams.get('section') ? parseInt(searchParams.get('section')!, 10) : null;
+    const folderId = searchParams.get('folder') ? parseInt(searchParams.get('folder')!, 10) : null;
     const monthKey  = searchParams.get('month')   ?? null;
     const yearKey   = searchParams.get('year')    ?? null;
     const isGridView = !!gridEntries;
@@ -69,7 +69,7 @@ export default function JournalView({
                                 categoryId={categoryId}
                                 categoryName={categoryName}
                                 categoryType={categoryType}
-                                sectionId={sectionId}
+                                folderId={folderId}
                                 monthKey={monthKey}
                                 yearKey={yearKey}
                             />

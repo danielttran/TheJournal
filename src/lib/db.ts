@@ -117,7 +117,8 @@ export class DBManager {
         const queries = [
             `CREATE TABLE IF NOT EXISTS User (
                 UserID INTEGER PRIMARY KEY AUTOINCREMENT,
-                Username TEXT UNIQUE NOT NULL
+                Username TEXT UNIQUE NOT NULL,
+                PasswordHash TEXT
             )`,
             `CREATE TABLE IF NOT EXISTS Category (
                 CategoryID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -142,7 +143,7 @@ export class DBManager {
                 Icon TEXT,
                 ParentEntryID INTEGER REFERENCES Entry(EntryID) ON DELETE CASCADE,
                 IsExpanded BOOLEAN DEFAULT 0,
-                EntryType TEXT DEFAULT 'Page' CHECK(EntryType IN ('Page', 'Section')),
+                EntryType TEXT DEFAULT 'Page' CHECK(EntryType IN ('Page', 'Folder')),
                 SortOrder REAL DEFAULT 0,
                 Version INTEGER DEFAULT 1,
                 FOREIGN KEY (CategoryID) REFERENCES Category(CategoryID) ON DELETE CASCADE
@@ -185,16 +186,91 @@ export class DBManager {
             `ALTER TABLE Category ADD COLUMN Color TEXT DEFAULT '#6366f1'`,
             `ALTER TABLE Entry ADD COLUMN IsLocked BOOLEAN DEFAULT 0`,
             `ALTER TABLE Entry ADD COLUMN ModifiedDate DATETIME DEFAULT CURRENT_TIMESTAMP`,
-            // Remove the previously-added UNIQUE index: it covered ALL entry types, so creating
-            // a second Notebook page on the same calendar day would fail at the DB level.
-            // Duplicate-date prevention for Journal entries is handled entirely in the
-            // by-date transaction (SELECT-then-INSERT inside BEGIN IMMEDIATE).
             `DROP INDEX IF EXISTS "Idx_Entry_Journal_UniqueDate"`,
+            // Add PasswordHash column to User table (nullable so legacy accounts still work)
+            `ALTER TABLE User ADD COLUMN PasswordHash TEXT`,
         ];
         for (const migration of migrations) {
             await new Promise<void>((res) => this.instance!.run(migration, () => res()));
         }
+
+        // ── Schema-level migration: Section → Folder CHECK constraint ──────────
+        // SQLite does not support ALTER TABLE … DROP CONSTRAINT, so we use the
+        // standard 4-step "rename old table / create new / copy / drop old" pattern.
+        // This is idempotent: if the constraint already says 'Folder' (fresh DB),
+        // the SELECT below returns 0 rows and we skip the rebuild entirely.
+        const oldConstraintRow = await new Promise<any>((res) => {
+            this.instance!.get(
+                `SELECT sql FROM sqlite_master WHERE type='table' AND name='Entry' AND sql LIKE '%''Section''%'`,
+                (_, row) => res(row)
+            );
+        });
+
+        if (oldConstraintRow) {
+            // 1. Update any existing 'Section' rows so they survive the copy
+            await new Promise<void>((res, rej) =>
+                this.instance!.run(`UPDATE Entry SET EntryType = 'Folder' WHERE EntryType = 'Section'`, (err) =>
+                    err ? rej(err) : res()
+                )
+            );
+
+            // 2. Create replacement table with the corrected constraint
+            await new Promise<void>((res, rej) =>
+                this.instance!.run(`CREATE TABLE IF NOT EXISTS Entry_new (
+                    EntryID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    CategoryID INTEGER NOT NULL,
+                    Title TEXT NOT NULL,
+                    PreviewText TEXT,
+                    IsLocked BOOLEAN DEFAULT 0,
+                    CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    ModifiedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    Icon TEXT,
+                    ParentEntryID INTEGER REFERENCES Entry_new(EntryID) ON DELETE CASCADE,
+                    IsExpanded BOOLEAN DEFAULT 0,
+                    EntryType TEXT DEFAULT 'Page' CHECK(EntryType IN ('Page', 'Folder')),
+                    SortOrder REAL DEFAULT 0,
+                    Version INTEGER DEFAULT 1,
+                    FOREIGN KEY (CategoryID) REFERENCES Category(CategoryID) ON DELETE CASCADE
+                )`, (err) => err ? rej(err) : res())
+            );
+
+            // 3. Copy all rows
+            await new Promise<void>((res, rej) =>
+                this.instance!.run(`INSERT INTO Entry_new
+                    SELECT EntryID, CategoryID, Title, PreviewText, IsLocked,
+                           CreatedDate, ModifiedDate, Icon, ParentEntryID, IsExpanded,
+                           EntryType, SortOrder, Version
+                    FROM Entry`, (err) => err ? rej(err) : res())
+            );
+
+            // 4. Swap tables (inside a serialized block so FK checks don't interfere)
+            await new Promise<void>((res, rej) =>
+                this.instance!.run('PRAGMA foreign_keys = OFF', (err) => err ? rej(err) : res())
+            );
+            await new Promise<void>((res, rej) =>
+                this.instance!.run('DROP TABLE Entry', (err) => err ? rej(err) : res())
+            );
+            await new Promise<void>((res, rej) =>
+                this.instance!.run('ALTER TABLE Entry_new RENAME TO Entry', (err) => err ? rej(err) : res())
+            );
+            await new Promise<void>((res, rej) =>
+                this.instance!.run('PRAGMA foreign_keys = ON', (err) => err ? rej(err) : res())
+            );
+
+            // Recreate indexes that were on the old table
+            const idxQueries = [
+                `CREATE INDEX IF NOT EXISTS "Idx_Entry_Parent" ON "Entry" ("ParentEntryID")`,
+                `CREATE INDEX IF NOT EXISTS "Idx_Entry_Category_Date" ON "Entry" ("CategoryID", "CreatedDate")`,
+                `CREATE INDEX IF NOT EXISTS "Idx_Entry_Type" ON "Entry" ("CategoryID", "EntryType")`,
+            ];
+            for (const q of idxQueries) {
+                await new Promise<void>((res) => this.instance!.run(q, () => res()));
+            }
+
+            console.log('[DB] Migrated Entry table: Section → Folder constraint applied.');
+        }
     }
+
 
     prepare(query: string): AsyncStatement {
         if (!this.instance) {
