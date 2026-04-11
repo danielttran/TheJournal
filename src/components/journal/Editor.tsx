@@ -63,90 +63,7 @@ declare global {
     }
 }
 
-// ─── View Menu ───────────────────────────────────────────────────────────────
-// Dropdown shown in both header bars; lists Templates, Focus Mode, and Split View
-// with their keyboard shortcuts. Rendered as a local component so it can share
-// the Lucide imports from this file without a separate module.
-function ViewMenu({
-    isSplitMode,
-    isOpen,
-    onToggle,
-    onClose,
-    onTemplates,
-    onFocus,
-    onSplit,
-    onSearch,
-}: {
-    isSplitMode: boolean;
-    isOpen: boolean;
-    onToggle: () => void;
-    onClose: () => void;
-    onTemplates: () => void;
-    onFocus: () => void;
-    onSplit: () => void;
-    onSearch?: () => void;
-}) {
-    return (
-        <div className="relative">
-            <button
-                onClick={onToggle}
-                className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${isOpen ? 'bg-bg-hover text-text-primary' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}
-                title="View options"
-            >
-                View
-                <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isOpen && (
-                <div className="absolute right-0 top-full mt-1 z-[200] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[230px]">
-                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-text-muted font-semibold">View</div>
-                    {onSearch && (
-                        <button
-                            className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
-                            onClick={onSearch}
-                        >
-                            <span className="flex items-center gap-2">
-                                <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" strokeWidth={2}/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35"/></svg>
-                                Search…
-                            </span>
-                            <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+F</kbd>
-                        </button>
-                    )}
-                    <div className="mx-3 my-1 border-t border-border-primary" />
-                    <button
-                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
-                        onClick={onTemplates}
-                    >
-                        <span className="flex items-center gap-2">
-                            <svg className="w-3.5 h-3.5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                            Templates…
-                        </span>
-                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+Shift+T</kbd>
-                    </button>
-                    <button
-                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
-                        onClick={onFocus}
-                    >
-                        <span className="flex items-center gap-2">
-                            <Maximize2 className="w-3.5 h-3.5 text-text-muted" />
-                            Focus Mode
-                        </span>
-                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">F11</kbd>
-                    </button>
-                    <button
-                        className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm text-text-primary flex items-center justify-between"
-                        onClick={onSplit}
-                    >
-                        <span className="flex items-center gap-2">
-                            <Columns className="w-3.5 h-3.5 text-text-muted" />
-                            {isSplitMode ? 'Close Split' : 'Split View'}
-                        </span>
-                        <kbd className="text-[10px] text-text-muted bg-bg-active border border-border-primary rounded px-1.5 py-0.5">Ctrl+\</kbd>
-                    </button>
-                </div>
-            )}
-        </div>
-    );
-}
+
 
 // ─── Entry content cache ──────────────────────────────────────────────────────
 // Module-level LRU cache for fetched note content so background fetches persist
@@ -221,8 +138,7 @@ export default function Editor({
     // Distraction-free / focus mode
     const [isDistractionFree, setIsDistractionFree] = useState(false);
     const [showDfToolbar, setShowDfToolbar] = useState(false);
-    // View menu dropdown
-    const [showViewMenu, setShowViewMenu] = useState(false);
+
     // Right-click context menu
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -282,7 +198,6 @@ export default function Editor({
             // Escape → exit distraction-free, close menus
             if (e.key === 'Escape') {
                 if (isDistractionFree) { setIsDistractionFree(false); setShowDfToolbar(false); }
-                setShowViewMenu(false);
                 setContextMenu(null);
                 return;
             }
@@ -306,7 +221,25 @@ export default function Editor({
             }
         };
         window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
+
+        // Listen for generic window events (from TabBar.tsx "View" menu)
+        const handleSearch = () => onOpenSearch?.();
+        const handleTemplates = () => setShowTemplatePicker(true);
+        const handleFocus = () => setIsDistractionFree(true);
+        const handleSplit = () => onToggleSplitMode?.();
+
+        window.addEventListener('trigger-search', handleSearch);
+        window.addEventListener('trigger-templates', handleTemplates);
+        window.addEventListener('trigger-focus', handleFocus);
+        window.addEventListener('trigger-split', handleSplit);
+
+        return () => {
+            window.removeEventListener('keydown', handler);
+            window.removeEventListener('trigger-search', handleSearch);
+            window.removeEventListener('trigger-templates', handleTemplates);
+            window.removeEventListener('trigger-focus', handleFocus);
+            window.removeEventListener('trigger-split', handleSplit);
+        };
     }, [isDistractionFree, onToggleSplitMode, onOpenSearch]);
 
     // entryIdRef is kept in sync by setting it directly alongside every setEntryId() call.
@@ -1251,38 +1184,12 @@ export default function Editor({
                             <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
                             {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
                         </span>
-                        <ViewMenu
-                            isSplitMode={isSplitMode}
-                            isOpen={showViewMenu}
-                            onToggle={() => setShowViewMenu(v => !v)}
-                            onClose={() => setShowViewMenu(false)}
-                            onTemplates={() => { setShowViewMenu(false); setShowTemplatePicker(true); }}
-                            onFocus={() => { setShowViewMenu(false); setIsDistractionFree(true); }}
-                            onSplit={() => { setShowViewMenu(false); onToggleSplitMode?.(); }}
-                            onSearch={() => { setShowViewMenu(false); onOpenSearch?.(); }}
-                        />
+
                     </div>
                 </div>
             )}
 
-            {!urlEntryId && !isDistractionFree && (
-                <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar transition-colors duration-200 flex-shrink-0">
-                    <span className={`text-xs flex items-center transition-colors ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full mr-1 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
-                        {saveError ? 'Error Saving' : saving ? 'Saving...' : 'Saved'}
-                    </span>
-                    <ViewMenu
-                        isSplitMode={isSplitMode}
-                        isOpen={showViewMenu}
-                        onToggle={() => setShowViewMenu(v => !v)}
-                        onClose={() => setShowViewMenu(false)}
-                        onTemplates={() => { setShowViewMenu(false); setShowTemplatePicker(true); }}
-                        onFocus={() => { setShowViewMenu(false); setIsDistractionFree(true); }}
-                        onSplit={() => { setShowViewMenu(false); onToggleSplitMode?.(); }}
-                        onSearch={() => { setShowViewMenu(false); onOpenSearch?.(); }}
-                    />
-                </div>
-            )}
+
 
             {/* Prominent save error banner — must be impossible to miss */}
             {saveError && (
@@ -1410,14 +1317,11 @@ export default function Editor({
                     )}
                 </div>
             )}
-            {/* Dismiss context menu + view menu on outside click.
-                Must be BELOW both menus in z-order so clicks on menu items
-                reach the menu before the backdrop: context-menu z-[300],
-                ViewMenu dropdown z-[200], this backdrop z-[150]. */}
-            {(contextMenu || showViewMenu) && (
+            {/* Dismiss context menu on outside click. */}
+            {(contextMenu) && (
                 <div
                     className="fixed inset-0 z-[150]"
-                    onClick={() => { setContextMenu(null); setShowViewMenu(false); }}
+                    onClick={() => { setContextMenu(null); }}
                 />
             )}
 

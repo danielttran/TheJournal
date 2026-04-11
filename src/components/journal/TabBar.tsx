@@ -183,7 +183,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                             onEmojiClick={onEmojiClick}
                             width={350}
                             height={450}
-                            theme={theme === 'dark' ? 'dark' : 'light'}
+                            theme={theme === 'dark' ? EmojiTheme.DARK : EmojiTheme.LIGHT}
                         />
                     </div>
                 </div>
@@ -208,7 +208,8 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [isClient] = useState(() => typeof window !== 'undefined');
+    const [isClient, setIsClient] = useState(false);
+    useEffect(() => setIsClient(true), []);
 
     // Refs for clicking outside
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -436,6 +437,35 @@ export default function TabBar({ userId }: { userId: string }) {
                         <span onClick={() => setIsViewMenuOpen(!isViewMenuOpen)} className="px-2 py-0.5 rounded cursor-pointer hover:bg-bg-hover hidden sm:block">View</span>
                         {isViewMenuOpen && (
                             <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
+                                <button
+                                    onClick={() => { window.dispatchEvent(new CustomEvent('trigger-search')); setIsViewMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
+                                >
+                                    <span>Search…</span>
+                                    <kbd className="text-[10px] opacity-70 font-sans">Ctrl+F</kbd>
+                                </button>
+                                <button
+                                    onClick={() => { window.dispatchEvent(new CustomEvent('trigger-templates')); setIsViewMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
+                                >
+                                    <span>Templates…</span>
+                                    <kbd className="text-[10px] opacity-70 font-sans">Ctrl+Shift+T</kbd>
+                                </button>
+                                <button
+                                    onClick={() => { window.dispatchEvent(new CustomEvent('trigger-focus')); setIsViewMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
+                                >
+                                    <span>Focus Mode</span>
+                                    <kbd className="text-[10px] opacity-70 font-sans">F11</kbd>
+                                </button>
+                                <button
+                                    onClick={() => { window.dispatchEvent(new CustomEvent('trigger-split')); setIsViewMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
+                                >
+                                    <span>Toggle Split</span>
+                                    <kbd className="text-[10px] opacity-70 font-sans">Ctrl+\\</kbd>
+                                </button>
+                                <div className="border-t border-border-primary my-1"></div>
                                 <button
                                     onClick={() => {
                                         setTheme(theme === 'dark' ? 'light' : 'dark');
