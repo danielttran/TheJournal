@@ -43,7 +43,7 @@ export default function JournalView({
 
     return (
         <LoadingProvider>
-            <div className="flex h-screen bg-bg-app text-text-primary overflow-hidden font-sans transition-colors duration-200">
+            <div className="flex h-full bg-bg-app text-text-primary overflow-hidden font-sans transition-colors duration-200">
                 <Sidebar
                     categoryId={categoryId}
                     userId={userId}

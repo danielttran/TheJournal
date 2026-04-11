@@ -264,6 +264,46 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         visible: false, x: 0, y: 0, entryId: null
     });
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [matchedEntryIds, setMatchedEntryIds] = useState<Set<number> | null>(null);
+    const [isSearching, setIsSearching] = useState(false);
+
+    useEffect(() => {
+        if (!searchQuery.trim()) {
+            setMatchedEntryIds(null);
+            setIsSearching(false);
+            return;
+        }
+
+        setIsSearching(true);
+        const controller = new AbortController();
+
+        const timeoutId = setTimeout(async () => {
+            try {
+                const params = new URLSearchParams({
+                    q: searchQuery.trim(),
+                    categoryId: categoryId.toString(),
+                    limit: '1000'
+                });
+                const res = await fetch(`/api/search?${params}`, { signal: controller.signal });
+                if (res.ok) {
+                    const data = await res.json();
+                    setMatchedEntryIds(new Set(data.results.map((r: any) => r.EntryID)));
+                } else {
+                    setMatchedEntryIds(new Set());
+                }
+            } catch (e: any) {
+                if (e.name !== 'AbortError') console.error('Sidebar search failed', e);
+            } finally {
+                setIsSearching(false);
+            }
+        }, 300);
+
+        return () => {
+            clearTimeout(timeoutId);
+            controller.abort();
+        };
+    }, [searchQuery, categoryId]);
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -453,7 +493,12 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     const nextYear = () => setCurrentMonth(addYears(currentMonth, 1));
     const prevYear = () => setCurrentMonth(subYears(currentMonth, 1));
 
-    const groupedEntries = journalEntries.reduce((acc: Record<string, Record<string, { entries: Entry[], key: string }>>, entry: Entry) => {
+    const filteredJournalEntries = useMemo(() => {
+        if (matchedEntryIds === null) return journalEntries;
+        return journalEntries.filter(e => matchedEntryIds.has(e.EntryID));
+    }, [journalEntries, matchedEntryIds]);
+
+    const groupedEntries = filteredJournalEntries.reduce((acc: Record<string, Record<string, { entries: Entry[], key: string }>>, entry: Entry) => {
         if (!entry.CreatedDate) return acc;
         const date = new Date(entry.CreatedDate);
         if (isNaN(date.getTime())) return acc;
@@ -529,7 +574,28 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             fetchPages();
         } catch (err) { /* silence */ }
     };
-    const rootIds = useMemo(() => pages.map(p => p.EntryID), [pages]);
+    const filteredPages = useMemo(() => {
+        if (matchedEntryIds === null) return pages;
+
+        const filterTree = (nodes: Entry[]): Entry[] => {
+            return nodes.reduce<Entry[]>((acc, node) => {
+                const matchesSelf = matchedEntryIds.has(node.EntryID);
+                const filteredChildren = node.children ? filterTree(node.children) : [];
+
+                // If it matches itself or has matching children, include it
+                if (matchesSelf || filteredChildren.length > 0) {
+                    // Force expand if it matched something inside to make it visible
+                    const forceExpand = matchedEntryIds !== null && (matchesSelf || filteredChildren.length > 0);
+                    acc.push({ ...node, children: filteredChildren, IsExpanded: forceExpand ? true : node.IsExpanded });
+                }
+                return acc;
+            }, []);
+        };
+
+        return filterTree(pages);
+    }, [pages, matchedEntryIds]);
+
+    const rootIds = useMemo(() => filteredPages.map(p => p.EntryID), [filteredPages]);
     const dropAnimation: DropAnimation = { sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0.5' } } }) };
 
     // Calendar
@@ -542,7 +608,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     return (
         <div className="w-80 bg-bg-sidebar border-r border-border-primary flex flex-col h-full flex-shrink-0 relative transition-colors duration-200">
             {/* Header */}
-            <div className="p-4 flex items-center justify-between border-b border-border-primary">
+            <div className="flex-shrink-0 p-4 flex items-center justify-between border-b border-border-primary">
                 <div className="flex items-center space-x-2">
                     <div className="w-8 h-8 bg-accent-primary rounded-lg flex items-center justify-center">
                         {type === 'Journal' ? <Book className="text-white w-4 h-4" /> : <FileText className="text-white w-4 h-4" />}
@@ -555,7 +621,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             {type === 'Journal' ? (
                 <>
                     {/* Calendar Widget */}
-                    <div className="p-4 border-b border-border-primary">
+                    <div className="flex-shrink-0 p-4 border-b border-border-primary">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="font-semibold text-text-primary">{format(currentMonth, 'MMMM yyyy')}</h3>
                             <div className="flex space-x-1">
@@ -585,7 +651,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                         </div>
                     </div>
                     {/* Journal Tree */}
-                    <div className="flex-1 overflow-y-auto p-2">
+                    <div className="flex-1 overflow-y-auto p-2 pb-16 min-h-0">
                         {Object.keys(groupedEntries).sort((a, b) => a.localeCompare(b)).map(year => {
                             const isYearOpen = journalExpanded[year] !== false; // Default Open if undefined? Or default closed. Let's say default Open.
                             // If user never toggled, it's undefined. If I want default open: use !== false. 
@@ -647,7 +713,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             ) : (
                 <>
                     {/* Notebook Tree */}
-                    <div className="flex-1 overflow-y-auto p-2 pb-20">
+                    <div className="flex-1 overflow-y-auto p-2 pb-20 min-h-0">
                         <div className="flex items-center justify-between px-2 mb-2">
                             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Notebook</span>
                             <div className="flex space-x-1">
@@ -658,7 +724,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                         <div className="space-y-0.5">
                             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                                 <SortableContext items={rootIds} strategy={verticalListSortingStrategy}>
-                                    {pages.map(entry => (
+                                    {filteredPages.map(entry => (
                                         <SortableNotebookItem
                                             key={entry.EntryID}
                                             entry={entry}
@@ -691,16 +757,34 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                 {/* DragOverlay also needs update, passing dummy onRename */}
                                 <DragOverlay dropAnimation={dropAnimation}>{activeDragItem ? <SortableNotebookItem entry={activeDragItem} level={0} onSelect={() => { }} onAddPage={() => { }} onAddSection={() => { }} selectedId={null} isOverlay onContextMenu={() => { }} onRename={() => { }} onToggleExpand={() => { }} loadingEntryId={null} loadingProgress={null} /> : null}</DragOverlay>
                             </DndContext>
-                            {pages.length === 0 && <div className="text-center py-4 text-text-muted text-sm">Empty notebook</div>}
+                            {filteredPages.length === 0 && <div className="text-center py-4 text-text-muted text-sm">{searchQuery ? 'No matches found' : 'Empty notebook'}</div>}
                         </div>
                     </div>
                 </>
             )
             }
 
-            {/* Footer */}
-            <div className="p-4 border-t border-border-primary text-xs text-text-muted">
-                <span>{type} Mode</span>
+            {/* Search Bar Footer */}
+            <div className="absolute bottom-0 w-full p-3 border-t border-border-primary bg-bg-sidebar z-[100]">
+                <div className="relative">
+                    <input
+                        type="text"
+                        placeholder={`Search ${type.toLowerCase()}...`}
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        className="w-full bg-bg-active text-text-primary pl-8 pr-3 py-1.5 rounded-lg border border-border-primary focus:outline-none focus:border-accent-primary focus:ring-1 focus:ring-accent-primary text-sm transition-all text-ellipsis"
+                    />
+                    {isSearching ? (
+                        <div className="w-3.5 h-3.5 absolute left-3 top-2.5 border-2 border-accent-primary/40 border-t-accent-primary rounded-full animate-spin pointer-events-none" />
+                    ) : (
+                        <svg className="w-4 h-4 absolute left-2.5 top-2.5 text-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" strokeWidth={2} /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35" /></svg>
+                    )}
+                    {searchQuery && (
+                        <button onClick={() => setSearchQuery('')} className="absolute right-2 top-2 p-0.5 rounded-full hover:bg-bg-hover text-text-muted hover:text-text-primary">
+                            <X className="w-3 h-3" />
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Context Menu */}
