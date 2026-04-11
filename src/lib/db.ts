@@ -70,7 +70,7 @@ export class DBManager {
     async unlock(hexKey: string, force = false): Promise<void> {
         if (this.instance && !force) return;
         if (this.instance && force) {
-            this.close();
+            await this.close();
         }
 
         return new Promise((resolve, reject) => {
@@ -229,11 +229,14 @@ export class DBManager {
         };
     }
     
-    close() {
-        if (this.instance) {
-            this.instance.close();
-            this.instance = null;
-        }
+    close(): Promise<void> {
+        if (!this.instance) return Promise.resolve();
+
+        const dbToClose = this.instance;
+        this.instance = null;
+        return new Promise((resolve) => {
+            dbToClose.close(() => resolve());
+        });
     }
 }
 
