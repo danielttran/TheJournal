@@ -16,7 +16,7 @@ interface State {
  * Error Boundary component to catch rendering errors and prevent white screen crashes.
  * Displays a user-friendly error message with recovery options.
  */
-export class ErrorBoundary extends Component<Props, State> {
+export default class ErrorBoundary extends Component<Props, State> {
     constructor(props: Props) {
         super(props);
         this.state = { hasError: false, error: null };

@@ -1,56 +1,22 @@
 "use client";
 
-import { ThemeProvider, useTheme } from "next-themes";
-import { useEffect } from "react";
+import { ThemeProvider } from "next-themes";
 import { ToastProvider } from "@/components/Toast";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-
-function ThemeInitializer({ children }: { children: React.ReactNode }) {
-    const { setTheme } = useTheme();
-
-    useEffect(() => {
-        if (!window.electron) return;
-
-        let isMounted = true;
-
-        window.electron.getSettings().then((settings) => {
-            if (!isMounted) return;
-            if (settings && settings.theme) {
-                setTheme(settings.theme);
-            }
-        });
-
-        const unsubscribeToggleTheme = window.electron.onToggleTheme?.(() => {
-            if (!isMounted) return;
-            setTheme(currentTheme => {
-                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-                if (window.electron) {
-                    window.electron.saveSetting('theme', newTheme);
-                }
-                return newTheme;
-            });
-        });
-
-        return () => {
-            isMounted = false;
-            unsubscribeToggleTheme?.();
-        };
-    }, [setTheme]);
-
-    return <>{children}</>;
-}
+import ErrorBoundary from "@/components/ErrorBoundary";
+import { LoadingProvider } from "@/contexts/LoadingContext";
+import GlobalIPCManager from "@/components/GlobalIPCManager";
 
 export function Providers({ children }: { children: React.ReactNode }) {
     return (
         <ErrorBoundary>
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-                <ToastProvider>
-                    <ThemeInitializer>
+                <LoadingProvider>
+                    <ToastProvider>
+                        <GlobalIPCManager />
                         {children}
-                    </ThemeInitializer>
-                </ToastProvider>
+                    </ToastProvider>
+                </LoadingProvider>
             </ThemeProvider>
         </ErrorBoundary>
     );
 }
-

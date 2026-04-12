@@ -8,7 +8,6 @@ import { X, Plus, Book, FileText, LogOut, Settings } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Theme as EmojiTheme } from 'emoji-picker-react';
 import { useClickOutside } from '@/hooks';
-import SettingsModal from '../SettingsModal';
 import {
     DndContext,
     closestCenter,
@@ -247,7 +246,6 @@ export default function TabBar({ userId }: { userId: string }) {
     const [newTabType, setNewTabType] = useState<'Journal' | 'Notebook'>('Journal');
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isClient, setIsClient] = useState(false);
     useEffect(() => setIsClient(true), []);
 
@@ -310,38 +308,6 @@ export default function TabBar({ userId }: { userId: string }) {
     }, []);
     useClickOutside(fileMenuRef, closeFileMenu, isFileMenuOpen);
     useClickOutside(viewMenuRef, closeViewMenu, isViewMenuOpen);
-
-    // Listen for Electron menu events
-    useEffect(() => {
-        if (!window.electron) return;
-
-        const unsubscribeImport = window.electron.onImportDB?.((filePath: string) => {
-            handleFileImport(filePath);
-        });
-
-        const unsubscribeExport = window.electron.onExportDB?.(() => {
-            handleExportClick();
-        });
-
-        const unsubscribeLogout = window.electron.onLogoutRequest?.(() => {
-            handleLogout();
-        });
-
-        const unsubscribeOpenSettings = window.electron.onOpenSettings?.(() => {
-            setIsSettingsOpen(true);
-        });
-        const unsubscribeViewAction = window.electron.onViewAction?.((action: string) => {
-            dispatchViewAction(action);
-        });
-
-        return () => {
-            unsubscribeImport?.();
-            unsubscribeExport?.();
-            unsubscribeLogout?.();
-            unsubscribeOpenSettings?.();
-            unsubscribeViewAction?.();
-        };
-    }, [dispatchViewAction, handleExportClick, handleFileImport, handleLogout]);
 
     // Drag and Drop Sensors
     const sensors = useSensors(
@@ -475,7 +441,7 @@ export default function TabBar({ userId }: { userId: string }) {
                             <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
                                 <button onClick={handleImportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Import DB...</button>
                                 <button onClick={handleExportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Export DB</button>
-                                <button onClick={() => { setIsSettingsOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                <button onClick={() => { window.dispatchEvent(new Event('trigger-settings')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
                                     <Settings size={14} className="mr-2" />
                                     Settings...
                                 </button>
@@ -596,7 +562,6 @@ export default function TabBar({ userId }: { userId: string }) {
                 </div>
             )}
 
-            <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
         </div>
     );
 }

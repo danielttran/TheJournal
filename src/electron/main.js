@@ -9,19 +9,20 @@ const SettingsManager = require('./settings');
 const dev = process.env.NODE_ENV !== 'production';
 const dir = path.join(__dirname, '../../'); // Adjust based on where main.js is (src/electron/main.js -> root is ../../)
 
-const settingsManager = new SettingsManager();
-const settings = settingsManager.getSettings();
+function getDatabasePath() {
+    const currentSettings = settingsManager.getSettings();
+    if (currentSettings.dbPath && currentSettings.dbPath !== 'default') {
+        return currentSettings.dbPath;
+    }
+    return dev 
+        ? path.join(dir, 'journal.tjdb') 
+        : path.join(app.getPath('userData'), 'journal.tjdb');
+}
 
 async function startServer() {
-    // Set DB Path for Next.js to use
-    if (!dev) {
-        const dbPath = settings.dbPath === 'default'
-            ? path.join(app.getPath('userData'), 'journal.tjdb')
-            : settings.dbPath;
-
-        process.env.JOURNAL_DB_PATH = dbPath;
-        console.log('Database Path:', process.env.JOURNAL_DB_PATH);
-    }
+    // Set DB Path for Next.js and the renderer to use
+    process.env.JOURNAL_DB_PATH = getDatabasePath();
+    console.log('[Electron] Database Path:', process.env.JOURNAL_DB_PATH);
 
     const port = await getPort({ port: getPort.makeRange(3000, 3100) });
 
@@ -245,11 +246,62 @@ app.whenReady().then(async () => {
         });
 
         ipcMain.handle('select-folder', async () => {
-            const result = await require('electron').dialog.showOpenDialog(mainWindow, {
+            const { dialog } = require('electron');
+            const result = await dialog.showOpenDialog(mainWindow || null, {
                 properties: ['openDirectory']
             });
             if (result.canceled || result.filePaths.length === 0) return null;
             return result.filePaths[0];
+        });
+
+        ipcMain.handle('import-database-dialog', async () => {
+            if (!mainWindow) return null;
+            const { dialog } = require('electron');
+            const result = await dialog.showOpenDialog(mainWindow, {
+                title: 'Import Database',
+                properties: ['openFile'],
+                filters: [{ name: 'Journal Database', extensions: ['tjdb', 'db', 'sqlite'] }]
+            });
+            if (result.canceled || result.filePaths.length === 0) return null;
+            return result.filePaths[0];
+        });
+
+        ipcMain.handle('export-database', async () => {
+            if (!mainWindow) return false;
+            
+            const { dialog } = require('electron');
+            const fs = require('fs');
+            
+            const result = await dialog.showSaveDialog(mainWindow, {
+                title: 'Export Database',
+                defaultPath: path.join(app.getPath('downloads'), 'journal.tjdb'),
+                filters: [{ name: 'Journal Database', extensions: ['tjdb'] }]
+            });
+
+            if (result.canceled || !result.filePath) return false;
+
+            try {
+                const sourcePath = process.env.JOURNAL_DB_PATH || getDatabasePath();
+                if (!fs.existsSync(sourcePath)) {
+                    throw new Error('Source database not found');
+                }
+
+                // Copy main file
+                fs.copyFileSync(sourcePath, result.filePath);
+                
+                // Copy sidecars (WAL/SHM)
+                ['wal', 'shm'].forEach(suffix => {
+                    const sidecar = `${sourcePath}-${suffix}`;
+                    if (fs.existsSync(sidecar)) {
+                        fs.copyFileSync(sidecar, `${result.filePath}-${suffix}`);
+                    }
+                });
+
+                return true;
+            } catch (err) {
+                console.error('Failed to export database:', err);
+                return false;
+            }
         });
 
         ipcMain.handle('store-password', (event, pwd) => {
@@ -318,16 +370,9 @@ app.on('before-quit', (e) => {
 
     if (s.autoBackupOnClose && s.backupPath) {
         const fs = require('fs');
-        let dbPath;
+        const dbPath = process.env.JOURNAL_DB_PATH || getDatabasePath();
 
-        if (dev) {
-            dbPath = path.join(dir, 'journal.tjdb');
-            if (!fs.existsSync(dbPath)) dbPath = path.join(app.getPath('userData'), 'journal.tjdb');
-        } else {
-            dbPath = process.env.JOURNAL_DB_PATH || path.join(app.getPath('userData'), 'journal.tjdb');
-        }
-
-        console.log('[Electron] Attempting backup from:', dbPath);
+        console.log('[Electron] Attempting auto-backup from:', dbPath);
 
         if (fs.existsSync(dbPath)) {
             try {
@@ -353,10 +398,8 @@ app.on('before-quit', (e) => {
                     }
                 }
                 
-                // Sort oldest to newest
                 tjdbFiles.sort((a, b) => a.ctimeMs - b.ctimeMs);
                 
-                // Delete older files until we have exactly (maxBackups - 1) left
                 while (tjdbFiles.length > (maxBackups - 1) && tjdbFiles.length > 0) {
                     const oldest = tjdbFiles.shift();
                     try {
@@ -369,6 +412,15 @@ app.on('before-quit', (e) => {
 
                 const dest = path.join(s.backupPath, backupName);
                 fs.copyFileSync(dbPath, dest);
+                
+                // Also copy WAL and SHM files if they exist to ensure data consistency
+                ['wal', 'shm'].forEach(suffix => {
+                    const sidecar = `${dbPath}-${suffix}`;
+                    if (fs.existsSync(sidecar)) {
+                        fs.copyFileSync(sidecar, `${dest}-${suffix}`);
+                    }
+                });
+                
                 console.log('[Electron] ✅ Auto-backup SUCCESS at:', dest);
             } catch (err) {
                 console.error('[Electron] ❌ Auto-backup FAILED:', err);

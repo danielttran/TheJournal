@@ -30,10 +30,17 @@ export async function POST(req: NextRequest) {
 
         // 2. ATTACH the uploaded database
         try {
-            await db.prepare(`ATTACH DATABASE ? AS imported`).run(tempPath);
+            const key = db.currentKey;
+            if (key) {
+                // Formatting according to SQLCipher hex key requirement
+                await db.prepare(`ATTACH DATABASE ? AS imported KEY "x'${key}'"`).run(tempPath);
+            } else {
+                // Fallback for unencrypted or testing
+                await db.prepare(`ATTACH DATABASE ? AS imported`).run(tempPath);
+            }
         } catch (e: any) {
             console.error("Import: Failed to attach", e);
-            throw new Error("Could not read uploaded database file.");
+            throw new Error(`Could not read uploaded database file: ${e.message}`);
         }
 
         // 3. Perform Restore Transaction

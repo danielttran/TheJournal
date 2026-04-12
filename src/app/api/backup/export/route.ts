@@ -14,34 +14,30 @@ export async function GET() {
         }
 
         // 1. Locate the live encrypted DB file
-        const dbPath = process.env.JOURNAL_DB_PATH || join(process.cwd(), 'journal.tjdb');
-        if (!existsSync(dbPath)) {
-            throw new Error("Database file not found.");
+        const sourcePath = process.env.JOURNAL_DB_PATH || join(process.cwd(), 'journal.tjdb');
+        console.log('[Export API] Attempting export from:', sourcePath);
+
+        if (!existsSync(sourcePath)) {
+            console.error('[Export API] Database file not found at:', sourcePath);
+            return NextResponse.json({ error: "Database file not found." }, { status: 404 });
         }
 
         // 2. Validate that there is data to export
         const liveCount = await db.prepare("SELECT count(*) as c FROM Category").get() as any;
         if (liveCount.c === 0) {
-            throw new Error("Export Aborted: The current database is empty.");
+            return NextResponse.json({ error: "Export Aborted: The current database is empty." }, { status: 400 });
         }
 
-        // 3. Copy the encrypted DB file directly.
-        //    The copy IS encrypted (SQLCipher) — VACUUM INTO would have created a plain-text file.
-        const timestamp = new Date().toISOString().split('T')[0];
-        const tempPath = join(process.cwd(), `export-temp-${Date.now()}.tjdb`);
-        await copyFile(dbPath, tempPath);
-
-        // 4. Read and return, then clean up
+        // 3. Read the encrypted DB file
         const { readFile } = await import('fs/promises');
-        const fileBuffer = await readFile(tempPath);
-        await unlink(tempPath);
+        const fileBuffer = await readFile(sourcePath);
+        const filename = `journal-backup-${new Date().toISOString().split('T')[0]}.tjdb`;
 
-        const filename = `journal-backup-${timestamp}.tjdb`;
-
-        return new NextResponse(fileBuffer, {
+        return new Response(fileBuffer, {
             headers: {
                 'Content-Type': 'application/octet-stream',
-                'Content-Disposition': `attachment; filename="${filename}"`
+                'Content-Disposition': `attachment; filename="${filename}"`,
+                'Content-Length': fileBuffer.length.toString()
             }
         });
     } catch (error: any) {
