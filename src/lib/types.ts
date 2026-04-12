@@ -43,6 +43,8 @@ declare global {
             saveSetting: (key: string, value: any) => Promise<Record<string, any> | false>;
             logout: () => Promise<boolean>;
             selectFolder: () => Promise<string | null>;
+            exportDatabase: () => Promise<boolean>;
+            importDatabase: () => Promise<string | null>;
             storePassword: (pwd: string) => Promise<boolean>;
             getStoredPassword: () => Promise<string | null>;
             // ── Subscribe (main → renderer, returns unsubscribe fn) ───────────
