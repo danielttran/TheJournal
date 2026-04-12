@@ -28,6 +28,7 @@ import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
+import { Markdown } from 'tiptap-markdown';
 
 // ─── Pure helpers (module-level — no closures over component state) ───────────
 
@@ -163,6 +164,7 @@ export default function Editor({
         TableRow,
         TableCell,
         TableHeader,
+        Markdown,
         Placeholder.configure({ placeholder: 'Start writing...' })
     ], []);
 

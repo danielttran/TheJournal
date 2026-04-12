@@ -12,6 +12,8 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
     const [showTableMenu, setShowTableMenu] = useState(false);
+    const [tableHover, setTableHover] = useState({ r: 0, c: 0 });
+    const [gridSize, setGridSize] = useState({ r: 10, c: 10 });
     const tableMenuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -261,16 +263,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                     <TableIcon className="w-4 h-4" />
                 </button>
                 {showTableMenu && (
-                    <div className="absolute top-full left-0 mt-1 z-[300] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[170px]">
-                        <button
-                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-text-primary"
-                            onClick={() => { editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); setShowTableMenu(false); }}
-                        >
-                            Insert 3×3 table
-                        </button>
-                        {editor.isActive('table') && (
+                    <div className="absolute top-full left-0 mt-1 z-[300] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[170px] w-max">
+                        {editor.isActive('table') ? (
                             <>
-                                <div className="mx-2 my-1 border-t border-border-primary" />
                                 <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-text-primary" onClick={() => { editor.chain().focus().addRowAfter().run(); setShowTableMenu(false); }}>Add row below</button>
                                 <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-text-primary" onClick={() => { editor.chain().focus().addColumnAfter().run(); setShowTableMenu(false); }}>Add column right</button>
                                 <div className="mx-2 my-1 border-t border-border-primary" />
@@ -278,6 +273,45 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                                 <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-red-400" onClick={() => { editor.chain().focus().deleteColumn().run(); setShowTableMenu(false); }}>Delete column</button>
                                 <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-red-400" onClick={() => { editor.chain().focus().deleteTable().run(); setShowTableMenu(false); }}>Delete table</button>
                             </>
+                        ) : (
+                            <div className="px-3 py-2 flex flex-col items-center">
+                                <div className="text-xs text-text-muted mb-2 font-medium">
+                                    {tableHover.r > 0 ? `${tableHover.r} × ${tableHover.c} Table` : 'Insert Table'}
+                                </div>
+                                <div 
+                                    className="grid m-1" 
+                                    style={{ gap: '4px', gridTemplateColumns: `repeat(${gridSize.c}, 14px)` }}
+                                    onMouseLeave={() => {
+                                        setTableHover({ r: 0, c: 0 });
+                                        setGridSize({ r: 10, c: 10 });
+                                    }}
+                                >
+                                    {Array.from({ length: gridSize.r }).map((_, rItem) => (
+                                        Array.from({ length: gridSize.c }).map((_, cItem) => {
+                                            const r = rItem + 1;
+                                            const c = cItem + 1;
+                                            const isHovered = tableHover.r >= r && tableHover.c >= c;
+                                            return (
+                                                <div
+                                                    key={`${r}-${c}`}
+                                                    className={`w-3.5 h-3.5 border rounded-[2px] ${isHovered ? 'bg-[color:var(--color-accent-primary)] border-[color:var(--color-accent-primary)] opacity-80' : 'bg-transparent border-border-primary hover:border-[color:var(--color-accent-primary)]'} cursor-pointer`}
+                                                    onMouseEnter={() => {
+                                                        setTableHover({ r, c });
+                                                        if (r === gridSize.r && gridSize.r < 20) setGridSize(prev => ({ ...prev, r: prev.r + 1 }));
+                                                        if (c === gridSize.c && gridSize.c < 20) setGridSize(prev => ({ ...prev, c: prev.c + 1 }));
+                                                    }}
+                                                    onClick={() => {
+                                                        editor.chain().focus().insertTable({ rows: r, cols: c, withHeaderRow: false }).run();
+                                                        setShowTableMenu(false);
+                                                        setTableHover({ r: 0, c: 0 });
+                                                        setGridSize({ r: 10, c: 10 });
+                                                    }}
+                                                />
+                                            );
+                                        })
+                                    ))}
+                                </div>
+                            </div>
                         )}
                     </div>
                 )}

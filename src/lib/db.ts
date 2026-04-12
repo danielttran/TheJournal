@@ -69,6 +69,7 @@ class AsyncMutex {
 export class DBManager {
     public instance: Database | null = null;
     private dbPath: string;
+    public currentKey: string | null = null;
     private mutex = new AsyncMutex();
 
     /** Pass a custom path to create isolated test instances. */
@@ -115,6 +116,7 @@ export class DBManager {
                         // Wait up to 5 seconds when a lock is held, reducing SQLITE_BUSY failures.
                         tempDb.run('PRAGMA busy_timeout = 5000');
                         this.instance = tempDb;
+                        this.currentKey = hexKey;
                         this.initSchema()
                             .then(resolve)
                             .catch((schemaErr) => {
@@ -425,6 +427,7 @@ export const db: DBClient = new Proxy({} as DBClient, {
         if (prop === 'prepare') return dbManager.prepare.bind(dbManager);
         if (prop === 'transaction') return dbManager.transaction.bind(dbManager);
         if (prop === 'close') return dbManager.close.bind(dbManager);
+        if (prop === 'currentKey') return dbManager.currentKey;
         return (dbManager as unknown as Record<string, unknown>)[prop];
     }
 });
