@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, addYears, subYears } from 'date-fns';
 import dynamic from 'next/dynamic';
+import { Theme as EmojiTheme } from 'emoji-picker-react';
 
 import {
     DndContext,
@@ -44,6 +45,16 @@ interface SidebarProps {
 
 import { Entry } from '@/lib/types';
 
+interface SearchResultItem {
+    EntryID: number;
+}
+
+function EntryDisplayIcon({ entry }: { entry: Entry }) {
+    if (entry.Icon) return <span className="mr-2 text-base leading-none">{entry.Icon}</span>;
+    if (entry.EntryType === 'Folder') return <Folder className="w-4 h-4 mr-2 text-accent-primary" />;
+    return <File className="w-4 h-4 mr-2 text-accent-primary" />;
+}
+
 // ---------------------------
 // Sortable Notebook Item (Updated)
 // ---------------------------
@@ -61,18 +72,13 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddFolder, 
     loadingEntryId: number | null,
     loadingProgress: number | null
 }) => {
-    const [isOpen, setIsOpen] = useState(entry.IsExpanded || false);
     const [isEditing, setIsEditing] = useState(false);
     const [editTitle, setEditTitle] = useState(entry.Title);
+    const isOpen = !!entry.IsExpanded;
     const isSelected = selectedId === entry.EntryID;
     const hasChildren = entry.children && entry.children.length > 0;
     const inputRef = useRef<HTMLInputElement>(null);
     const isLoading = loadingEntryId === entry.EntryID;
-
-    // Sync expanded state from props (Server/API truth)
-    useEffect(() => {
-        setIsOpen(!!entry.IsExpanded);
-    }, [entry.IsExpanded]);
 
     // Auto-focus input
     useEffect(() => {
@@ -85,7 +91,6 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddFolder, 
     const handleExpandToggle = (e: React.MouseEvent) => {
         e.stopPropagation();
         const newState = !isOpen;
-        setIsOpen(newState);
         onToggleExpand(entry.EntryID, newState);
     };
 
@@ -107,13 +112,7 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddFolder, 
         }
     };
 
-    const DisplayIcon = () => {
-        if (entry.Icon) return <span className="mr-2 text-base leading-none">{entry.Icon}</span>;
-        if (entry.EntryType === 'Folder') return <Folder className="w-4 h-4 mr-2 text-accent-primary" />;
-        return <File className="w-4 h-4 mr-2 text-accent-primary" />;
-    };
-
-    if (isOverlay) return (<div className="flex items-center justify-between px-2 py-1.5 rounded bg-bg-card text-text-primary shadow-lg border border-border-primary" style={{ paddingLeft: `${level * 12 + 8}px` }}><div className="flex items-center overflow-hidden"><GripVertical className="w-3 h-3 mr-1 text-text-muted" /><DisplayIcon /><span className="truncate">{entry.Title || 'Untitled'}</span></div></div>);
+    if (isOverlay) return (<div className="flex items-center justify-between px-2 py-1.5 rounded bg-bg-card text-text-primary shadow-lg border border-border-primary" style={{ paddingLeft: `${level * 12 + 8}px` }}><div className="flex items-center overflow-hidden"><GripVertical className="w-3 h-3 mr-1 text-text-muted" /><EntryDisplayIcon entry={entry} /><span className="truncate">{entry.Title || 'Untitled'}</span></div></div>);
 
     return (
         <div ref={setNodeRef} style={style} {...attributes}>
@@ -144,7 +143,7 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddFolder, 
                         <ChevronRightIcon className={`w-3 h-3 transition-transform text-text-muted ${isOpen ? 'rotate-90' : ''}`} />
                     </span>
 
-                    <DisplayIcon />
+                    <EntryDisplayIcon entry={entry} />
 
                     {isEditing ? (
                         <input
@@ -301,21 +300,27 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     };
 
     const handleNotebookExpandToggle = async (id: number, expanded: boolean) => {
+        const updateExpandState = (nodes: Entry[]): Entry[] => {
+            return nodes.map((node) => {
+                if (node.EntryID === id) {
+                    return { ...node, IsExpanded: expanded };
+                }
+                if (!node.children?.length) {
+                    return node;
+                }
+                return { ...node, children: updateExpandState(node.children) };
+            });
+        };
+        setPages((prev) => updateExpandState(prev));
         try {
             await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ isExpanded: expanded })
             });
-            // Optimization: Don't strictly need to fetchPages here if local state handles it, 
-            // but fetching ensures consistency.
-            // fetchPages(); 
-            // Better: update local state in Sidebar? But tree is deep. 
-            // Let's rely on recursive setPages logic update or just individual update?
-            // Since we passed fetchPages on Update, actually let's NOT fetchPages to avoid UI jump. 
-            // Updates will come on next load. BUT user wants persist.
-            // The item component handles local UI state. The API handles persistence.
-        } catch (e) { /* silence */ }
+        } catch {
+            fetchPages();
+        }
     };
 
 
@@ -379,13 +384,15 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                 });
                 const res = await fetch(`/api/search?${params}`, { signal: controller.signal });
                 if (res.ok) {
-                    const data = await res.json();
-                    setMatchedEntryIds(new Set(data.results.map((r: any) => r.EntryID)));
+                    const data = await res.json() as { results: SearchResultItem[] };
+                    setMatchedEntryIds(new Set(data.results.map((result) => result.EntryID)));
                 } else {
                     setMatchedEntryIds(new Set());
                 }
-            } catch (e: any) {
-                if (e.name !== 'AbortError') console.error('Sidebar search failed', e);
+            } catch (error: unknown) {
+                if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                    console.error('Sidebar search failed', error);
+                }
             } finally {
                 setIsSearching(false);
             }
@@ -496,7 +503,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
 
     const fetchPages = async () => {
         try {
-            const res = await fetch(`/api/entry?categoryId=${categoryId}&t=${Date.now()}`);
+            const res = await fetch(`/api/entry?categoryId=${categoryId}`, { cache: 'no-store' });
             const data = await res.json();
             if (Array.isArray(data)) setPages(buildTree(data));
         } catch (e) { /* silence */ }
@@ -520,7 +527,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
 
     const fetchJournalEntries = async () => {
         try {
-            const res = await fetch(`/api/entry/dates?categoryId=${categoryId}&t=${Date.now()}`); // Bust cache
+            const res = await fetch(`/api/entry/dates?categoryId=${categoryId}`, { cache: 'no-store' });
             const data = await res.json();
             if (Array.isArray(data)) setJournalEntries(data as Entry[]);
         } catch (e) { /* silence */ }
@@ -985,7 +992,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                 onEmojiClick={(data) => handleIconChange(contextMenu.entryId!, data.emoji)}
                                 width={350}
                                 height={450}
-                                theme={theme === 'dark' ? 'dark' : 'light' as any}
+                                theme={theme === 'dark' ? EmojiTheme.DARK : EmojiTheme.LIGHT}
                                 searchDisabled={false}
                             />
                         </div>
