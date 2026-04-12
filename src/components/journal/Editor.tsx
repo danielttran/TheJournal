@@ -10,7 +10,7 @@ import TipTapToolbar from './TipTapToolbar';
 
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Image from '@tiptap/extension-image';
+import ResizableImage from './extensions/ResizableImage';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import TextAlign from '@tiptap/extension-text-align';
@@ -113,7 +113,7 @@ export default function Editor({
     // TipTap Extensions
     const extensions = useMemo(() => [
         StarterKit,
-        Image,
+        ResizableImage,
         Link.configure({ openOnClick: false }),
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
         TaskList,

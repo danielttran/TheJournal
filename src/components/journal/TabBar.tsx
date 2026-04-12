@@ -479,6 +479,7 @@ export default function TabBar({ userId }: { userId: string }) {
                                 <button onClick={() => { dispatchViewAction('checklist'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Checklist</button>
                                 <button onClick={() => { dispatchViewAction('highlight'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Highlight</button>
                                 <button onClick={() => { dispatchViewAction('hr'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Horizontal Rule</button>
+                                <button onClick={() => { dispatchViewAction('image-upload'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Upload Image from PC…</button>
                                 <div className="border-t border-border-primary my-1"></div>
                                 <button
                                     onClick={() => {

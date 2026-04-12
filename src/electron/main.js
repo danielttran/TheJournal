@@ -195,6 +195,11 @@ function createMenu() {
                     label: 'Horizontal Rule',
                     click: () => sendViewAction('hr')
                 },
+                {
+                    label: 'Upload Image from PC…',
+                    accelerator: 'CmdOrCtrl+Shift+I',
+                    click: () => sendViewAction('image-upload')
+                },
                 { type: 'separator' },
                 {
                     label: 'Toggle Theme',

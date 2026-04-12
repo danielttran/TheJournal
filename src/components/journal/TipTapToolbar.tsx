@@ -1,29 +1,59 @@
 import { type Editor } from '@tiptap/react';
 import {
-    Bold, Italic, Underline, Strikethrough, Code, Code2,
-    Heading1, Heading2, Heading3, List, ListOrdered, CheckSquare,
-    Quote, Highlighter, AlignLeft, AlignCenter, AlignRight,
+    Bold, Italic, Strikethrough, Code, Code2,
+    List, ListOrdered, CheckSquare,
+    Quote, Highlighter,
     Image as ImageIcon, Link as LinkIcon, RemoveFormatting,
-    Undo, Redo, Minus
+    Undo, Redo, Minus, Upload
 } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
-    if (!editor) {
-        return null;
-    }
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isUploading, setIsUploading] = useState(false);
 
-    const addImage = useCallback(() => {
+    const addImageFromUrl = useCallback(() => {
+        if (!editor) return;
+
         const url = window.prompt('Image URL:');
         if (url) {
-            editor.chain().focus().setImage({ src: url }).run();
+            editor.chain().focus().setImage({ src: url, width: '100%' }).run();
+        }
+    }, [editor]);
+
+    const uploadImage = useCallback(async (file: File) => {
+        if (!editor) return;
+
+        setIsUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const res = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            const data = await res.json();
+            if (!res.ok || !data.url) {
+                throw new Error(data.error || 'Upload failed');
+            }
+
+            editor.chain().focus().setImage({ src: data.url, width: '100%' }).run();
+        } catch (error) {
+            console.error('Image upload failed', error);
+            window.alert('Image upload failed. Please try again.');
+        } finally {
+            setIsUploading(false);
         }
     }, [editor]);
 
     const setLink = useCallback(() => {
+        if (!editor) return;
+
         const previousUrl = editor.getAttributes('link').href;
         const url = window.prompt('URL:', previousUrl);
-        
+
         if (url === null) return;
         if (url === '') {
             editor.chain().focus().extendMarkRange('link').unsetLink().run();
@@ -33,8 +63,54 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
     }, [editor]);
 
+    if (!editor) {
+        return null;
+    }
+
+    const selectedImageWidth = editor.isActive('image')
+        ? editor.getAttributes('image').width || '100%'
+        : '100%';
+
+    const handleUploadClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    useEffect(() => {
+        const handleExternalUploadTrigger = () => {
+            fileInputRef.current?.click();
+        };
+
+        window.addEventListener('trigger-image-upload', handleExternalUploadTrigger);
+        return () => window.removeEventListener('trigger-image-upload', handleExternalUploadTrigger);
+    }, []);
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        await uploadImage(file);
+        e.target.value = '';
+    };
+
+    const handleResizeImage = (width: string) => {
+        if (!editor.isActive('image')) return;
+        editor.chain().focus().updateAttributes('image', { width }).run();
+    };
+
+    const removeSelectedImage = () => {
+        if (!editor.isActive('image')) return;
+        editor.chain().focus().deleteSelection().run();
+    };
+
     return (
         <div className="flex flex-wrap items-center gap-1 p-2 border-b border-border-primary bg-bg-sidebar">
+            <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*"
+                onChange={handleFileChange}
+            />
+
             <button
                 onClick={() => editor.chain().focus().toggleBold().run()}
                 className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive('bold') ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
@@ -56,7 +132,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <Strikethrough className="w-4 h-4" />
             </button>
-            
+
             <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
@@ -130,7 +206,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             </button>
             <button
                 onClick={() => editor.chain().focus().setHorizontalRule().run()}
-                className={`p-1.5 rounded hover:bg-bg-hover text-text-muted`}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
                 title="Divider"
             >
                 <Minus className="w-4 h-4" />
@@ -145,13 +221,21 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <Highlighter className="w-4 h-4" />
             </button>
-            
+
             <button
-                onClick={addImage}
-                className={`p-1.5 rounded hover:bg-bg-hover text-text-muted`}
-                title="Insert Image"
+                onClick={addImageFromUrl}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                title="Insert Image by URL"
             >
                 <ImageIcon className="w-4 h-4" />
+            </button>
+            <button
+                onClick={handleUploadClick}
+                disabled={isUploading}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted disabled:opacity-50"
+                title="Upload Image"
+            >
+                <Upload className="w-4 h-4" />
             </button>
             <button
                 onClick={setLink}
@@ -161,12 +245,36 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 <LinkIcon className="w-4 h-4" />
             </button>
 
+            {editor.isActive('image') && (
+                <>
+                    <div className="w-px h-4 bg-border-primary mx-1" />
+                    <span className="text-[11px] text-text-muted">Image:</span>
+                    {['25%', '50%', '75%', '100%'].map(width => (
+                        <button
+                            key={width}
+                            onClick={() => handleResizeImage(width)}
+                            className={`text-xs px-2 py-1 rounded ${selectedImageWidth === width ? 'bg-bg-active text-text-primary' : 'text-text-muted hover:bg-bg-hover'}`}
+                            title={`Set image width to ${width}`}
+                        >
+                            {width}
+                        </button>
+                    ))}
+                    <button
+                        onClick={removeSelectedImage}
+                        className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-500/10"
+                        title="Remove selected image"
+                    >
+                        Remove
+                    </button>
+                </>
+            )}
+
             <div className="flex-1" />
 
             <button
                 onClick={() => editor.chain().focus().undo().run()}
                 disabled={!editor.can().undo()}
-                className={`p-1.5 rounded hover:bg-bg-hover text-text-muted disabled:opacity-30`}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted disabled:opacity-30"
                 title="Undo"
             >
                 <Undo className="w-4 h-4" />
@@ -174,14 +282,14 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             <button
                 onClick={() => editor.chain().focus().redo().run()}
                 disabled={!editor.can().redo()}
-                className={`p-1.5 rounded hover:bg-bg-hover text-text-muted disabled:opacity-30`}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted disabled:opacity-30"
                 title="Redo"
             >
                 <Redo className="w-4 h-4" />
             </button>
             <button
                 onClick={() => editor.chain().focus().clearNodes().unsetAllMarks().run()}
-                className={`p-1.5 rounded hover:bg-bg-hover text-text-muted`}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
                 title="Clear Formatting"
             >
                 <RemoveFormatting className="w-4 h-4" />
