@@ -509,6 +509,13 @@ export default function TabBar({ userId }: { userId: string }) {
                                     <kbd className="text-[10px] opacity-70 font-sans">Ctrl+Shift+T</kbd>
                                 </button>
                                 <button
+                                    onClick={() => { dispatchViewAction('prompts'); setIsViewMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
+                                >
+                                    <span>Writing Prompts…</span>
+                                    <kbd className="text-[10px] opacity-70 font-sans">Ctrl+Shift+P</kbd>
+                                </button>
+                                <button
                                     onClick={() => { dispatchViewAction('focus'); setIsViewMenuOpen(false); }}
                                     className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
                                 >

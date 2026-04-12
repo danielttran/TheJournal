@@ -200,6 +200,10 @@ export class DBManager {
             `ALTER TABLE User ADD COLUMN PasswordHash TEXT`,
             `ALTER TABLE EntryContent ADD COLUMN DocumentJson TEXT`,
             `ALTER TABLE Template ADD COLUMN DocumentJson TEXT`,
+            // Sprint 2: mood, favorites, tags
+            `ALTER TABLE Entry ADD COLUMN Mood TEXT`,
+            `ALTER TABLE Entry ADD COLUMN IsFavorited BOOLEAN DEFAULT 0`,
+            `ALTER TABLE Entry ADD COLUMN Tags TEXT DEFAULT '[]'`,
         ];
         for (const migration of migrations) {
             await new Promise<void>((res) => this.instance!.run(migration, () => res()));

@@ -18,6 +18,9 @@ export interface Entry {
     Icon?: string;
     IsExpanded?: boolean;
     IsLocked?: boolean;
+    IsFavorited?: boolean;
+    Mood?: string | null;
+    Tags?: string; // JSON array string, e.g. '["travel","work"]'
     CreatedDate?: string;
     ModifiedDate?: string;
     HtmlContent?: string;
@@ -28,7 +31,7 @@ export interface Entry {
 
 /** All view-action strings that the Electron menu can dispatch. */
 export type ElectronViewAction =
-    | 'search' | 'templates' | 'focus' | 'split'
+    | 'search' | 'templates' | 'prompts' | 'focus' | 'split'
     | 'undo' | 'redo' | 'inline-code' | 'checklist'
     | 'highlight' | 'hr' | 'image-upload';
 

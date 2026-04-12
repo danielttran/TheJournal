@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Minimize2 } from 'lucide-react';
+import { Minimize2, Star, Hash, X } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
+import WritingPromptsPicker from './WritingPromptsPicker';
+import { type WritingPrompt } from '@/lib/prompts';
 import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
 
@@ -111,6 +113,17 @@ export default function Editor({
 
     const [isFloatingToolbar, setIsFloatingToolbar] = useState(false);
     const [wordCount, setWordCount] = useState(0);
+
+    // Sprint 2: mood, favorites, tags, writing prompts
+    const [mood, setMood] = useState<string | null>(null);
+    const [isFavorited, setIsFavorited] = useState(false);
+    const [tags, setTags] = useState<string[]>([]);
+    const [showMoodPicker, setShowMoodPicker] = useState(false);
+    const [showWritingPrompts, setShowWritingPrompts] = useState(false);
+    const [tagInput, setTagInput] = useState('');
+    const moodRef = useRef<string | null>(null);
+    const isFavoritedRef = useRef(false);
+    const tagsRef = useRef<string[]>([]);
 
     const updateLoadingProgress = useCallback((entryId: number | null, progress: number | null) => {
         setLoadingProgress(progress);
@@ -254,6 +267,11 @@ export default function Editor({
                 setShowTemplatePicker(true);
                 return;
             }
+            if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+                e.preventDefault();
+                setShowWritingPrompts(true);
+                return;
+            }
             if (e.ctrlKey && e.key === '\\') {
                 e.preventDefault();
                 onToggleSplitMode?.();
@@ -277,6 +295,7 @@ export default function Editor({
         const handleChecklist = () => editor?.chain().focus().toggleTaskList().run();
         const handleHighlight = () => editor?.chain().focus().toggleHighlight().run();
         const handleHr = () => editor?.chain().focus().setHorizontalRule().run();
+        const handlePrompts = () => setShowWritingPrompts(true);
 
         window.addEventListener('trigger-search', handleSearch);
         window.addEventListener('trigger-templates', handleTemplates);
@@ -288,6 +307,7 @@ export default function Editor({
         window.addEventListener('trigger-checklist', handleChecklist);
         window.addEventListener('trigger-highlight', handleHighlight);
         window.addEventListener('trigger-hr', handleHr);
+        window.addEventListener('trigger-prompts', handlePrompts);
 
         return () => {
             window.removeEventListener('keydown', handler);
@@ -301,6 +321,7 @@ export default function Editor({
             window.removeEventListener('trigger-checklist', handleChecklist);
             window.removeEventListener('trigger-highlight', handleHighlight);
             window.removeEventListener('trigger-hr', handleHr);
+            window.removeEventListener('trigger-prompts', handlePrompts);
         };
     }, [editor, isDistractionFree, onOpenSearch, onToggleSplitMode]);
 
@@ -556,6 +577,10 @@ export default function Editor({
         documentJsonRef.current = null;
         versionRef.current = null;
         setIsNewEntry(false);
+        setMood(null);
+        setIsFavorited(false);
+        setTags([]);
+        setTagInput('');
 
         if (renderAbortRef.current) renderAbortRef.current.abort();
         const renderAbort = new AbortController();
@@ -607,12 +632,23 @@ export default function Editor({
                 if (cached) {
                     if (!isMounted || renderAbort.signal.aborted) return;
 
+                    const applyMeta = (d: any) => {
+                        if (!d) return;
+                        const m = d.Mood ?? null;
+                        const f = !!d.IsFavorited;
+                        let t: string[] = [];
+                        try { t = d.Tags ? JSON.parse(d.Tags) : []; } catch { t = []; }
+                        setMood(m); setIsFavorited(f); setTags(t);
+                        moodRef.current = m; isFavoritedRef.current = f; tagsRef.current = t;
+                    };
+
                     if (urlEntryId) {
                         setEntryId(urlEntryId);
                         onEntryChange?.(urlEntryId);
                         entryIdRef.current = urlEntryId;
                         fetch(`/api/entry/${urlEntryId}`).then(r => r.ok ? r.json() : null).then(d => {
                             if (d?.Version && versionRef.current === null) versionRef.current = d.Version;
+                            applyMeta(d);
                         }).catch(() => {});
                         setContentSafely(cached.documentJson, cached.html);
                     } else {
@@ -629,6 +665,7 @@ export default function Editor({
                             onEntryChange?.(loadedId);
                             entryIdRef.current = loadedId;
                             versionRef.current = data.Version ?? null;
+                            applyMeta(data);
                             setContentSafely(cached.documentJson, cached.html);
                         }
                     }
@@ -682,7 +719,19 @@ export default function Editor({
                     entryIdRef.current = loadedId;
                     versionRef.current = data.Version ?? null;
                     if (data.isNew) setIsNewEntry(true);
-                    
+
+                    // Load Sprint 2 metadata
+                    const loadedMood = data.Mood ?? null;
+                    const loadedFavorited = !!data.IsFavorited;
+                    let loadedTags: string[] = [];
+                    try { loadedTags = data.Tags ? JSON.parse(data.Tags) : []; } catch { loadedTags = []; }
+                    setMood(loadedMood);
+                    setIsFavorited(loadedFavorited);
+                    setTags(loadedTags);
+                    moodRef.current = loadedMood;
+                    isFavoritedRef.current = loadedFavorited;
+                    tagsRef.current = loadedTags;
+
                     setContentSafely(loadedDocumentJson, loadedHtml);
 
                 } else {
@@ -715,6 +764,34 @@ export default function Editor({
             }
         };
     }, [categoryId, userId, selectedDate, urlEntryId, flushPendingSave, editor, editor2, onEntryChange, updateLoadingProgress]);
+
+    const saveMetadata = useCallback(async (id: number, patch: { mood?: string | null; isFavorited?: boolean; tags?: string[] }) => {
+        const body: Record<string, any> = {};
+        if ('mood' in patch) body.mood = patch.mood ?? null;
+        if ('isFavorited' in patch) body.isFavorited = patch.isFavorited;
+        if ('tags' in patch) body.tags = JSON.stringify(patch.tags);
+        try {
+            const res = await fetch(`/api/entry/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            window.dispatchEvent(new CustomEvent('journal-entry-updated'));
+        } catch (err) {
+            console.error('[Editor] saveMetadata failed:', err);
+        }
+    }, []);
+
+    const applyPrompt = useCallback((prompt: WritingPrompt) => {
+        if (!editor) return;
+        editor.chain().focus().insertContent({
+            type: 'blockquote',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: prompt.text }] }],
+        }).run();
+        isDirtyRef.current = true;
+        if (entryIdRef.current) performSave(entryIdRef.current, true);
+    }, [editor, performSave]);
 
     const applyTemplate = useCallback((template: Template) => {
         if (!editor) return;
@@ -774,12 +851,73 @@ export default function Editor({
                             categoryType={categoryType}
                         />
                     </div>
-                    <div className="flex items-center ml-4 flex-shrink-0 gap-3">
+                    <div className="flex items-center ml-4 flex-shrink-0 gap-2">
                         {wordCount > 0 && (
                             <span className="text-[10px] text-text-muted tabular-nums select-none">
                                 {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
                             </span>
                         )}
+
+                        {/* Mood picker */}
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowMoodPicker(v => !v)}
+                                className="text-base leading-none p-1 rounded hover:bg-bg-hover transition-colors"
+                                title="Set mood"
+                            >
+                                {mood || '🙂'}
+                            </button>
+                            {showMoodPicker && (
+                                <>
+                                <div className="fixed inset-0 z-[299]" onClick={() => setShowMoodPicker(false)} />
+                                <div className="absolute right-0 top-full mt-1 z-[300] bg-bg-card border border-border-primary rounded-xl shadow-xl p-2 flex flex-wrap gap-1 w-48">
+                                    {['😊','😄','🤩','😌','😔','😢','😤','😰','😴','🥺','🤔','💪','❤️','✨','🔥'].map(e => (
+                                        <button
+                                            key={e}
+                                            className={`text-lg p-1 rounded hover:bg-bg-hover ${mood === e ? 'bg-bg-active ring-1 ring-accent-primary' : ''}`}
+                                            onClick={() => {
+                                                const newMood = mood === e ? null : e;
+                                                setMood(newMood);
+                                                moodRef.current = newMood;
+                                                setShowMoodPicker(false);
+                                                if (entryIdRef.current) saveMetadata(entryIdRef.current, { mood: newMood });
+                                            }}
+                                        >
+                                            {e}
+                                        </button>
+                                    ))}
+                                    {mood && (
+                                        <button
+                                            className="w-full text-xs text-text-muted hover:text-text-primary py-1 border-t border-border-primary mt-1"
+                                            onClick={() => {
+                                                setMood(null);
+                                                moodRef.current = null;
+                                                setShowMoodPicker(false);
+                                                if (entryIdRef.current) saveMetadata(entryIdRef.current, { mood: null });
+                                            }}
+                                        >
+                                            Clear mood
+                                        </button>
+                                    )}
+                                </div>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Favorite star */}
+                        <button
+                            onClick={() => {
+                                const newVal = !isFavorited;
+                                setIsFavorited(newVal);
+                                isFavoritedRef.current = newVal;
+                                if (entryIdRef.current) saveMetadata(entryIdRef.current, { isFavorited: newVal });
+                            }}
+                            className={`p-1 rounded hover:bg-bg-hover transition-colors ${isFavorited ? 'text-yellow-400' : 'text-text-muted'}`}
+                            title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
+                        >
+                            <Star className={`w-4 h-4 ${isFavorited ? 'fill-yellow-400' : ''}`} />
+                        </button>
+
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
                             <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`} />
                             {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
@@ -862,6 +1000,65 @@ export default function Editor({
                 <div className="fixed top-20 right-8 z-[200] bg-bg-card rounded shadow-xl overflow-hidden border border-border-primary">
                     <TipTapToolbar editor={editor} />
                 </div>
+            )}
+
+            {/* Tags bar */}
+            {entryId && !isDistractionFree && (
+                <div className="flex flex-wrap items-center gap-1.5 px-4 py-1.5 border-b border-border-primary bg-bg-sidebar flex-shrink-0 min-h-[36px]">
+                    <Hash className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                    {tags.map(tag => (
+                        <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-primary/15 text-accent-primary text-xs font-medium">
+                            {tag}
+                            <button
+                                onClick={() => {
+                                    const next = tags.filter(t => t !== tag);
+                                    setTags(next);
+                                    tagsRef.current = next;
+                                    if (entryIdRef.current) saveMetadata(entryIdRef.current, { tags: next });
+                                }}
+                                className="hover:text-red-400 transition-colors"
+                            >
+                                <X className="w-2.5 h-2.5" />
+                            </button>
+                        </span>
+                    ))}
+                    <input
+                        type="text"
+                        value={tagInput}
+                        onChange={e => setTagInput(e.target.value)}
+                        onKeyDown={e => {
+                            if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
+                                e.preventDefault();
+                                const newTag = tagInput.trim().replace(/,+$/, '').toLowerCase();
+                                if (newTag && !tags.includes(newTag) && tags.length < 10) {
+                                    const next = [...tags, newTag];
+                                    setTags(next);
+                                    tagsRef.current = next;
+                                    if (entryIdRef.current) saveMetadata(entryIdRef.current, { tags: next });
+                                }
+                                setTagInput('');
+                            } else if (e.key === 'Backspace' && !tagInput && tags.length > 0) {
+                                const next = tags.slice(0, -1);
+                                setTags(next);
+                                tagsRef.current = next;
+                                if (entryIdRef.current) saveMetadata(entryIdRef.current, { tags: next });
+                            }
+                        }}
+                        placeholder={tags.length === 0 ? 'Add tag…' : ''}
+                        className="bg-transparent text-text-primary text-xs placeholder-text-muted focus:outline-none min-w-[60px] flex-1"
+                    />
+                </div>
+            )}
+
+            {/* Writing Prompts Modal */}
+            {showWritingPrompts && (
+                <WritingPromptsPicker
+                    onSelect={(prompt) => {
+                        setShowWritingPrompts(false);
+                        applyPrompt(prompt);
+                    }}
+                    onClose={() => setShowWritingPrompts(false)}
+                />
             )}
 
             <div

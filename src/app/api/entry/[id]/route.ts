@@ -13,6 +13,9 @@ const UpdateSchema = z.object({
     isLocked: z.boolean().optional(),
     entryType: z.enum(['Page', 'Folder']).optional(),
     isExpanded: z.boolean().optional(),
+    mood: z.string().nullable().optional(),
+    isFavorited: z.boolean().optional(),
+    tags: z.string().optional(),
     expectedVersion: z.number().optional(),
 });
 
@@ -85,7 +88,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const userId = parseInt(userIdCookie.value, 10);
 
         const entry = await db.prepare(`
-            SELECT e.EntryID, e.Title, ec.HtmlContent, ec.DocumentJson, e.Icon, e.Version
+            SELECT e.EntryID, e.Title, ec.HtmlContent, ec.DocumentJson, e.Icon, e.Version,
+                   e.IsFavorited, e.Mood, e.Tags
             FROM Entry e
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
             JOIN Category c ON e.CategoryID = c.CategoryID
@@ -124,7 +128,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ error: result.error.issues }, { status: 400 });
         }
 
-        const { html, documentJson, title, preview, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, expectedVersion } = result.data;
+        const { html, documentJson, title, preview, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, mood, isFavorited, tags, expectedVersion } = result.data;
 
         // 2. Ownership check — quick pre-flight (authoritative re-check is inside the transaction)
         const ownerCheck = await db.prepare(`
@@ -225,6 +229,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             if (isLocked !== undefined) { updates.push("IsLocked = ?"); values.push(isLocked ? 1 : 0); }
             if (entryType !== undefined) { updates.push("EntryType = ?"); values.push(entryType); }
             if (isExpanded !== undefined) { updates.push("IsExpanded = ?"); values.push(isExpanded ? 1 : 0); }
+            if (mood !== undefined) { updates.push("Mood = ?"); values.push(mood ?? null); }
+            if (isFavorited !== undefined) { updates.push("IsFavorited = ?"); values.push(isFavorited ? 1 : 0); }
+            if (tags !== undefined) { updates.push("Tags = ?"); values.push(tags); }
 
             values.push(entryId);
             const updateResult = await db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
