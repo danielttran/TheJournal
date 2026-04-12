@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
         }
 
         let query = `
-            SELECT EntryID, Title, CreatedDate, EntryType, Icon, PreviewText
+            SELECT EntryID, Title, CreatedDate, EntryType, Icon, PreviewText, IsFavorited, Mood, Tags
             FROM Entry
             WHERE CategoryID = ?
         `;

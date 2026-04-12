@@ -157,6 +157,11 @@ function createMenu() {
                     click: () => sendViewAction('templates')
                 },
                 {
+                    label: 'Writing Prompts…',
+                    accelerator: 'CmdOrCtrl+Shift+P',
+                    click: () => sendViewAction('prompts')
+                },
+                {
                     label: 'Focus Mode',
                     accelerator: 'F11',
                     click: () => sendViewAction('focus')

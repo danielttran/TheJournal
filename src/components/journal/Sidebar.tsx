@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen, Star } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -202,6 +202,8 @@ const JournalTreeItem = ({
     onClick,
     onContextMenu,
     children,
+    mood,
+    isFavorited,
 }: {
     label: string;
     icon?: string;
@@ -213,6 +215,8 @@ const JournalTreeItem = ({
     onClick: (e: React.MouseEvent) => void;
     onContextMenu?: (e: React.MouseEvent) => void;
     children?: React.ReactNode;
+    mood?: string | null;
+    isFavorited?: boolean;
 }) => {
     const paddingLeft = `${level * 12 + 8}px`;
     return (
@@ -251,6 +255,8 @@ const JournalTreeItem = ({
                     )}
 
                     <span className="truncate flex-1">{label}</span>
+                    {isFavorited && <Star className={`w-3 h-3 ml-1 flex-shrink-0 fill-yellow-400 text-yellow-400`} />}
+                    {mood && <span className="ml-1 text-xs leading-none flex-shrink-0">{mood}</span>}
                 </div>
             </div>
 
@@ -592,10 +598,14 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     const nextYear = () => setCurrentMonth(addYears(currentMonth, 1));
     const prevYear = () => setCurrentMonth(subYears(currentMonth, 1));
 
+    const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
     const filteredJournalEntries = useMemo(() => {
-        if (matchedEntryIds === null) return journalEntries;
-        return journalEntries.filter(e => matchedEntryIds.has(e.EntryID));
-    }, [journalEntries, matchedEntryIds]);
+        let entries = journalEntries;
+        if (matchedEntryIds !== null) entries = entries.filter(e => matchedEntryIds.has(e.EntryID));
+        if (showFavoritesOnly) entries = entries.filter(e => !!e.IsFavorited);
+        return entries;
+    }, [journalEntries, matchedEntryIds, showFavoritesOnly]);
 
     const groupedEntries = filteredJournalEntries.reduce((acc: Record<string, Record<string, { entries: Entry[], key: string }>>, entry: Entry) => {
         if (!entry.CreatedDate) return acc;
@@ -755,6 +765,16 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                     </div>
                     {/* Journal Tree — uses the same JournalTreeItem visual as the notebook tree */}
                     <div className="flex-1 overflow-y-auto p-2 pb-16 min-h-0 space-y-0.5">
+                        <div className="flex items-center justify-between px-2 mb-1">
+                            <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Entries</span>
+                            <button
+                                onClick={() => setShowFavoritesOnly(v => !v)}
+                                className={`p-1 rounded transition-colors ${showFavoritesOnly ? 'text-yellow-400' : 'text-text-muted hover:text-text-primary'}`}
+                                title={showFavoritesOnly ? 'Show all entries' : 'Show favorites only'}
+                            >
+                                <Star className={`w-3.5 h-3.5 ${showFavoritesOnly ? 'fill-yellow-400' : ''}`} />
+                            </button>
+                        </div>
                         {Object.keys(groupedEntries).sort((a, b) => b.localeCompare(a)).map(year => {
                             const isYearOpen = journalExpanded[year] !== false;
                             return (
@@ -800,6 +820,8 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                                                                 isExpanded={false}
                                                                 onClick={() => onDateClick(new Date(entry.CreatedDate!))}
                                                                 onContextMenu={(e) => handleContextMenu(e, entry.EntryID)}
+                                                                mood={entry.Mood}
+                                                                isFavorited={!!entry.IsFavorited}
                                                             />
                                                         );
                                                     })}

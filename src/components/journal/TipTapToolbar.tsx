@@ -4,7 +4,7 @@ import {
     List, ListOrdered, CheckSquare,
     Quote, Highlighter,
     Image as ImageIcon, Link as LinkIcon, RemoveFormatting,
-    Undo, Redo, Minus, Upload, Table as TableIcon
+    Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -334,6 +334,16 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             )}
 
             <div className="flex-1" />
+
+            <button
+                onClick={() => window.dispatchEvent(new Event('trigger-prompts'))}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                title="Writing Prompts (Ctrl+Shift+P)"
+            >
+                <Sparkles className="w-4 h-4" />
+            </button>
+
+            <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
                 onClick={() => editor.chain().focus().undo().run()}

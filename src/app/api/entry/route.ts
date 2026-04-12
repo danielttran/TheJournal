@@ -24,7 +24,8 @@ export async function GET(req: NextRequest) {
         if (!category) return NextResponse.json({ error: "Category not found" }, { status: 404 });
 
         const entries = await db.prepare(`
-            SELECT EntryID, Title, ParentEntryID, EntryType, SortOrder, Icon, IsExpanded, IsLocked, PreviewText
+            SELECT EntryID, Title, ParentEntryID, EntryType, SortOrder, Icon, IsExpanded, IsLocked,
+                   IsFavorited, Mood, Tags, PreviewText
             FROM Entry
             WHERE CategoryID = ?
             ORDER BY SortOrder ASC
