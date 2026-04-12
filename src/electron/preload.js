@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('electron', {
     onExportDB: (callback) => subscribe('export-db', callback),
     onLogoutRequest: (callback) => subscribe('logout-request', callback),
     onOpenSettings: (callback) => subscribe('open-settings', callback),
+    onViewAction: (callback) => subscribe('view-action', callback, (_event, action) => [action]),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
     storePassword: (pwd) => ipcRenderer.invoke('store-password', pwd),
     getStoredPassword: () => ipcRenderer.invoke('get-password')

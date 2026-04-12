@@ -77,6 +77,9 @@ function createWindow(url) {
 
 function createMenu() {
     const { dialog, shell } = require('electron');
+    const sendViewAction = (action) => {
+        if (mainWindow) mainWindow.webContents.send('view-action', action);
+    };
 
     const template = [
         {
@@ -143,6 +146,60 @@ function createMenu() {
             submenu: [
                 { role: 'reload' },
                 { role: 'toggleDevTools' },
+                { type: 'separator' },
+                {
+                    label: 'Search…',
+                    accelerator: 'CmdOrCtrl+F',
+                    click: () => sendViewAction('search')
+                },
+                {
+                    label: 'Templates…',
+                    accelerator: 'CmdOrCtrl+Shift+T',
+                    click: () => sendViewAction('templates')
+                },
+                {
+                    label: 'Focus Mode',
+                    accelerator: 'F11',
+                    click: () => sendViewAction('focus')
+                },
+                {
+                    label: 'Toggle Split',
+                    accelerator: 'CmdOrCtrl+\\',
+                    click: () => sendViewAction('split')
+                },
+                { type: 'separator' },
+                {
+                    label: 'Undo',
+                    accelerator: 'CmdOrCtrl+Z',
+                    click: () => sendViewAction('undo')
+                },
+                {
+                    label: 'Redo',
+                    accelerator: 'CmdOrCtrl+Shift+Z',
+                    click: () => sendViewAction('redo')
+                },
+                {
+                    label: 'Inline Code',
+                    accelerator: 'CmdOrCtrl+E',
+                    click: () => sendViewAction('inline-code')
+                },
+                {
+                    label: 'Checklist',
+                    click: () => sendViewAction('checklist')
+                },
+                {
+                    label: 'Highlight',
+                    click: () => sendViewAction('highlight')
+                },
+                {
+                    label: 'Horizontal Rule',
+                    click: () => sendViewAction('hr')
+                },
+                {
+                    label: 'Upload Image from PC…',
+                    accelerator: 'CmdOrCtrl+Shift+I',
+                    click: () => sendViewAction('image-upload')
+                },
                 { type: 'separator' },
                 {
                     label: 'Toggle Theme',

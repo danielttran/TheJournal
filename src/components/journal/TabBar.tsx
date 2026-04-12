@@ -265,6 +265,9 @@ export default function TabBar({ userId }: { userId: string }) {
     // Click away handlers using custom hook
     const closeFileMenu = useCallback(() => setIsFileMenuOpen(false), []);
     const closeViewMenu = useCallback(() => setIsViewMenuOpen(false), []);
+    const dispatchViewAction = useCallback((action: string) => {
+        window.dispatchEvent(new CustomEvent(`trigger-${action}`));
+    }, []);
     useClickOutside(fileMenuRef, closeFileMenu, isFileMenuOpen);
     useClickOutside(viewMenuRef, closeViewMenu, isViewMenuOpen);
 
@@ -287,14 +290,18 @@ export default function TabBar({ userId }: { userId: string }) {
         const unsubscribeOpenSettings = window.electron.onOpenSettings?.(() => {
             setIsSettingsOpen(true);
         });
+        const unsubscribeViewAction = window.electron.onViewAction?.((action: string) => {
+            dispatchViewAction(action);
+        });
 
         return () => {
             unsubscribeImport?.();
             unsubscribeExport?.();
             unsubscribeLogout?.();
             unsubscribeOpenSettings?.();
+            unsubscribeViewAction?.();
         };
-    }, [handleExportClick, handleFileImport, handleLogout]);
+    }, [dispatchViewAction, handleExportClick, handleFileImport, handleLogout]);
 
     // Drag and Drop Sensors
     const sensors = useSensors(
@@ -438,45 +445,41 @@ export default function TabBar({ userId }: { userId: string }) {
                         {isViewMenuOpen && (
                             <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
                                 <button
-                                    onClick={() => { window.dispatchEvent(new CustomEvent('trigger-search')); setIsViewMenuOpen(false); }}
+                                    onClick={() => { dispatchViewAction('search'); setIsViewMenuOpen(false); }}
                                     className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
                                 >
                                     <span>Search…</span>
                                     <kbd className="text-[10px] opacity-70 font-sans">Ctrl+F</kbd>
                                 </button>
                                 <button
-                                    onClick={() => { window.dispatchEvent(new CustomEvent('trigger-templates')); setIsViewMenuOpen(false); }}
+                                    onClick={() => { dispatchViewAction('templates'); setIsViewMenuOpen(false); }}
                                     className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
                                 >
                                     <span>Templates…</span>
                                     <kbd className="text-[10px] opacity-70 font-sans">Ctrl+Shift+T</kbd>
                                 </button>
                                 <button
-                                    onClick={() => { window.dispatchEvent(new CustomEvent('trigger-focus')); setIsViewMenuOpen(false); }}
+                                    onClick={() => { dispatchViewAction('focus'); setIsViewMenuOpen(false); }}
                                     className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
                                 >
                                     <span>Focus Mode</span>
                                     <kbd className="text-[10px] opacity-70 font-sans">F11</kbd>
                                 </button>
                                 <button
-                                    onClick={() => { window.dispatchEvent(new CustomEvent('trigger-split')); setIsViewMenuOpen(false); }}
+                                    onClick={() => { dispatchViewAction('split'); setIsViewMenuOpen(false); }}
                                     className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
                                 >
                                     <span>Toggle Split</span>
                                     <kbd className="text-[10px] opacity-70 font-sans">Ctrl+\\</kbd>
                                 </button>
                                 <div className="border-t border-border-primary my-1"></div>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-undo')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Undo</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-redo')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Redo</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-inline-code')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Inline Code</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-checklist')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Checklist</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-highlight')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Highlight</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-hr')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Horizontal Rule</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-table')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Insert Table</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-mention')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Insert Mention</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-emoji')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Insert Emoji</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-slash')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Slash Command…</button>
-                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-image-tools')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Image Tools</button>
+                                <button onClick={() => { dispatchViewAction('undo'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Undo</button>
+                                <button onClick={() => { dispatchViewAction('redo'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Redo</button>
+                                <button onClick={() => { dispatchViewAction('inline-code'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Inline Code</button>
+                                <button onClick={() => { dispatchViewAction('checklist'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Checklist</button>
+                                <button onClick={() => { dispatchViewAction('highlight'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Highlight</button>
+                                <button onClick={() => { dispatchViewAction('hr'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Horizontal Rule</button>
+                                <button onClick={() => { dispatchViewAction('image-upload'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Upload Image from PC…</button>
                                 <div className="border-t border-border-primary my-1"></div>
                                 <button
                                     onClick={() => {
