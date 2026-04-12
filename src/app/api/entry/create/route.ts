@@ -1,10 +1,10 @@
 import { db } from "@/lib/db";
+import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 const CreateEntrySchema = z.object({
     categoryId: z.number().or(z.string().transform(val => parseInt(val, 10))),
-    userId: z.number().or(z.string().transform(val => parseInt(val, 10))),
     title: z.string().optional().default('Untitled Page'),
     parentEntryId: z.number().optional().nullable(),
     entryType: z.enum(['Page', 'Folder']).optional().default('Page'),
@@ -13,8 +13,19 @@ const CreateEntrySchema = z.object({
 
 export async function POST(req: NextRequest) {
     try {
+        // Auth: always read userId from session cookie — never trust the request body.
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie?.value) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const userId = parseInt(userIdCookie.value, 10);
+        if (isNaN(userId)) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
         const body = await req.json();
-        const { categoryId, userId, title, parentEntryId, entryType, templateId } = CreateEntrySchema.parse(body);
+        const { categoryId, title, parentEntryId, entryType, templateId } = CreateEntrySchema.parse(body);
 
         // Security check: Ensure category belongs to user
         const category = await db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
@@ -24,18 +35,16 @@ export async function POST(req: NextRequest) {
         }
 
         // Optionally load template content
-        let initialDelta = JSON.stringify({ ops: [{ insert: "\n" }] });
         let initialDocumentJson = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] });
         let initialHtml = '';
         let initialPreview = 'Start writing...';
 
         if (templateId) {
             const tmpl = await db.prepare(
-                'SELECT QuillDelta, HtmlContent, DocumentJson FROM Template WHERE TemplateID = ? AND UserID = ?'
-            ).get(templateId, userId) as { QuillDelta: string | null; HtmlContent: string; DocumentJson: string | null } | undefined;
+                'SELECT HtmlContent, DocumentJson FROM Template WHERE TemplateID = ? AND UserID = ?'
+            ).get(templateId, userId) as { HtmlContent: string; DocumentJson: string | null } | undefined;
 
             if (tmpl) {
-                if (tmpl.QuillDelta) initialDelta = tmpl.QuillDelta;
                 if (tmpl.DocumentJson) initialDocumentJson = tmpl.DocumentJson;
                 initialHtml = tmpl.HtmlContent || '';
                 // Derive preview from HTML
@@ -54,9 +63,9 @@ export async function POST(req: NextRequest) {
             const newEntryId = result.lastInsertRowid;
 
             await db.prepare(`
-                INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent, DocumentJson)
-                VALUES (?, ?, ?, ?)
-            `).run(newEntryId, initialDelta, initialHtml, initialDocumentJson);
+                INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson)
+                VALUES (?, ?, ?)
+            `).run(newEntryId, initialHtml, initialDocumentJson);
 
             return newEntryId;
         });

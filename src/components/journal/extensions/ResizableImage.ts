@@ -13,13 +13,12 @@ const ResizableImage = Image.extend({
     },
 
     renderHTML({ HTMLAttributes }) {
-        const width = HTMLAttributes.width || HTMLAttributes['data-width'] || '100%';
-        const merged = {
+        // HTMLAttributes['data-width'] is the rendered form of our custom `width` attribute.
+        const width = HTMLAttributes['data-width'] || '100%';
+        return ['img', {
             ...HTMLAttributes,
             style: `width:${width};max-width:100%;height:auto;`,
-        };
-
-        return ['img', merged];
+        }];
     },
 });
 

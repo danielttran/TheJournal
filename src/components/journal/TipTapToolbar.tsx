@@ -12,13 +12,26 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
 
+    const isSafeUrl = (url: string): boolean => {
+        try {
+            const parsed = new URL(url);
+            return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+        } catch {
+            // Relative URLs (no protocol) are allowed
+            return url.startsWith('/') || (!url.includes(':'));
+        }
+    };
+
     const addImageFromUrl = useCallback(() => {
         if (!editor) return;
 
-        const url = window.prompt('Image URL:');
-        if (url) {
-            editor.chain().focus().setImage({ src: url, width: '100%' }).run();
+        const url = (window.prompt('Image URL:') || '').trim();
+        if (!url) return;
+        if (!isSafeUrl(url)) {
+            window.alert('Only http:// and https:// URLs are allowed.');
+            return;
         }
+        editor.chain().focus().setImage({ src: url, width: '100%' }).run();
     }, [editor]);
 
     const uploadImage = useCallback(async (file: File) => {
@@ -60,7 +73,13 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             return;
         }
 
-        editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+        const trimmed = url.trim();
+        if (!isSafeUrl(trimmed)) {
+            window.alert('Only http:// and https:// URLs are allowed.');
+            return;
+        }
+
+        editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run();
     }, [editor]);
 
     if (!editor) {

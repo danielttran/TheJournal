@@ -371,7 +371,7 @@ export default function Editor({
             clearTimeout(timeoutId);
             if (isAutoSave) setSaving(false);
         }
-    }, [userId, editor]);
+    }, [editor]);
 
     useEffect(() => {
         const backupTimer = setInterval(() => {
@@ -464,7 +464,7 @@ export default function Editor({
 
             attemptSave(0);
         }
-    }, [userId, editor]);
+    }, [editor]);
 
     const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
@@ -517,7 +517,7 @@ export default function Editor({
         };
         window.addEventListener('beforeunload', handleBeforeUnload);
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [userId, editor]);
+    }, [editor]);
 
     // Initial Load useEffect
     useEffect(() => {

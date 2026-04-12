@@ -12,8 +12,8 @@ async function getUserId(): Promise<number | null> {
 
 const UpdateSchema = z.object({
     name: z.string().min(1).max(100).optional(),
-    quillDelta: z.any().optional(),
     htmlContent: z.string().optional(),
+    documentJson: z.any().optional(),
 });
 
 // PUT /api/template/[id] — rename or update content of a template
@@ -31,14 +31,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
 
         const body = await req.json();
-        const { name, quillDelta, htmlContent } = UpdateSchema.parse(body);
+        const { name, htmlContent, documentJson } = UpdateSchema.parse(body);
 
         const updates: string[] = [];
         const values: (string | number | null)[] = [];
 
         if (name !== undefined) { updates.push("Name = ?"); values.push(name); }
-        if (quillDelta !== undefined) { updates.push("QuillDelta = ?"); values.push(JSON.stringify(quillDelta)); }
         if (htmlContent !== undefined) { updates.push("HtmlContent = ?"); values.push(htmlContent); }
+        if (documentJson !== undefined) {
+            updates.push("DocumentJson = ?");
+            values.push(typeof documentJson === "string" ? documentJson : JSON.stringify(documentJson));
+        }
 
         if (updates.length > 0) {
             values.push(templateId);
