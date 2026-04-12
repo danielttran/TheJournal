@@ -6,6 +6,7 @@ import { Minimize2, Star, Hash, X } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import WritingPromptsPicker from './WritingPromptsPicker';
+import ImageCropModal from './ImageCropModal';
 import { type WritingPrompt } from '@/lib/prompts';
 import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
@@ -121,6 +122,7 @@ export default function Editor({
     const [showMoodPicker, setShowMoodPicker] = useState(false);
     const [showWritingPrompts, setShowWritingPrompts] = useState(false);
     const [tagInput, setTagInput] = useState('');
+    const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
     const moodRef = useRef<string | null>(null);
     const isFavoritedRef = useRef(false);
     const tagsRef = useRef<string[]>([]);
@@ -783,6 +785,70 @@ export default function Editor({
         }
     }, []);
 
+    // ── Image helpers ────────────────────────────────────────────────────────────
+
+    /** Upload a File and return the attachment URL, or null on failure. */
+    const uploadImageFile = useCallback(async (file: File): Promise<string | null> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
+            return data.url as string;
+        } catch (err) {
+            console.error('[Editor] image upload failed:', err);
+            return null;
+        }
+    }, []);
+
+    /** Insert an uploaded image at the cursor. */
+    const insertImage = useCallback((url: string) => {
+        editor?.chain().focus().setImage({ src: url, width: '100%' } as any).run();
+        isDirtyRef.current = true;
+        if (entryIdRef.current) performSave(entryIdRef.current, true);
+    }, [editor, performSave]);
+
+    // Drag-and-drop images onto the editor area
+    const handleEditorDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+        const imageFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+        if (imageFiles.length === 0) return; // not image files — let default DnD handle it
+        e.preventDefault();
+        for (const file of imageFiles) {
+            const url = await uploadImageFile(file);
+            if (url) insertImage(url);
+        }
+    }, [uploadImageFile, insertImage]);
+
+    // Paste images from clipboard (e.g. screenshots)
+    useEffect(() => {
+        if (!editor) return;
+        const handlePaste = async (e: ClipboardEvent) => {
+            if (!editor.isFocused) return;
+            const items = Array.from(e.clipboardData?.items ?? []);
+            const imageItem = items.find(i => i.type.startsWith('image/'));
+            if (!imageItem) return;
+            e.preventDefault();
+            const file = imageItem.getAsFile();
+            if (!file) return;
+            const url = await uploadImageFile(file);
+            if (url) insertImage(url);
+        };
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [editor, uploadImageFile, insertImage]);
+
+    // Crop trigger from toolbar
+    useEffect(() => {
+        const handler = () => {
+            if (!editor?.isActive('image')) return;
+            const src = editor.getAttributes('image').src as string | undefined;
+            if (src) setCropImageSrc(src);
+        };
+        window.addEventListener('trigger-crop-image', handler);
+        return () => window.removeEventListener('trigger-crop-image', handler);
+    }, [editor]);
+
     const applyPrompt = useCallback((prompt: WritingPrompt) => {
         if (!editor) return;
         editor.chain().focus().insertContent({
@@ -1061,9 +1127,31 @@ export default function Editor({
                 />
             )}
 
+            {/* Image Crop Modal */}
+            {cropImageSrc && (
+                <ImageCropModal
+                    imageSrc={cropImageSrc}
+                    onConfirm={(newUrl) => {
+                        editor?.chain().focus().updateAttributes('image', { src: newUrl }).run();
+                        isDirtyRef.current = true;
+                        if (entryIdRef.current) performSave(entryIdRef.current, true);
+                        setCropImageSrc(null);
+                    }}
+                    onClose={() => setCropImageSrc(null)}
+                />
+            )}
+
             <div
                 ref={splitContainerRef}
                 className={`flex-1 relative flex flex-col min-h-0 ${isDistractionFree ? 'max-w-4xl mx-auto w-full mt-10' : ''}`}
+                onDragOver={e => {
+                    // Only intercept if the drag payload contains image files
+                    if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'copy';
+                    }
+                }}
+                onDrop={handleEditorDrop}
                 onContextMenu={e => {
                     e.preventDefault();
                     setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 232), y: Math.min(e.clientY, window.innerHeight - 150) });
