@@ -20,5 +20,6 @@ contextBridge.exposeInMainWorld('electron', {
     exportDatabase: () => ipcRenderer.invoke('export-database'),
     importDatabase: () => ipcRenderer.invoke('import-database-dialog'),
     storePassword: (pwd) => ipcRenderer.invoke('store-password', pwd),
-    getStoredPassword: () => ipcRenderer.invoke('get-password')
+    getStoredPassword: () => ipcRenderer.invoke('get-password'),
+    readFileForImport: (filePath) => ipcRenderer.invoke('read-file-for-import', filePath),
 });

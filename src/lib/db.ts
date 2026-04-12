@@ -422,6 +422,7 @@ interface DBClient {
     prepare: DBManager['prepare'];
     transaction: DBManager['transaction'];
     close: DBManager['close'];
+    readonly currentKey: string | null;
 }
 
 export const db: DBClient = new Proxy({} as DBClient, {

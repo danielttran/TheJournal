@@ -284,14 +284,23 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             onClick={async () => {
                                                 if (isElectron && window.electron) {
                                                     const filePath = await window.electron.importDatabase();
-                                                    if (filePath && confirm("This will overwrite your current journal database with the selected file. Continue?")) {
-                                                        const res = await fetch(filePath);
-                                                        const blob = await res.blob();
-                                                        const formData = new FormData();
-                                                        formData.append('file', blob);
-                                                        const importRes = await fetch('/api/backup/import', { method: 'POST', body: formData });
-                                                        if (importRes.ok) window.location.reload();
-                                                        else showToast("Import Failed", 'error');
+                                                    if (filePath && confirm("This will overwrite your current journal database. Continue?")) {
+                                                        try {
+                                                            // Electron: send the OS path as JSON — server reads file directly
+                                                            const importRes = await fetch('/api/backup/import', {
+                                                                method: 'POST',
+                                                                headers: { 'Content-Type': 'application/json' },
+                                                                body: JSON.stringify({ filePath }),
+                                                            });
+                                                            if (importRes.ok) window.location.reload();
+                                                            else {
+                                                                const err = await importRes.json().catch(() => ({}));
+                                                                showToast(`Import Failed: ${err.details || err.error}`, 'error');
+                                                            }
+                                                        } catch (err) {
+                                                            console.error('Import error:', err);
+                                                            showToast('Import failed', 'error');
+                                                        }
                                                     }
                                                 } else {
                                                     const input = document.createElement('input');

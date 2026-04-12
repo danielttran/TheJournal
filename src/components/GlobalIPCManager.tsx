@@ -9,20 +9,50 @@ export default function GlobalIPCManager() {
     const { theme, setTheme } = useTheme();
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-    const handleExportClick = useCallback(() => {
-        window.open('/api/backup/export', '_blank');
+    const handleExportClick = useCallback(async () => {
+        if (window.electron) {
+            // In Electron, use the native Save dialog via IPC (already wired in main.js)
+            await window.electron.exportDatabase();
+        } else {
+            // Web: trigger the streaming download endpoint
+            window.open('/api/backup/export', '_blank');
+        }
     }, []);
 
     const handleFileImport = useCallback(async (filePath: string) => {
-        if (!confirm("Overwrite data?")) return;
-        const formData = new FormData();
-        const response = await fetch(filePath);
-        const blob = await response.blob();
-        formData.append('file', blob, filePath.split(/[\\/]/).pop() || 'import.db');
-        const res = await fetch('/api/backup/import', { method: 'POST', body: formData });
-        if (res.ok) window.location.reload();
-        else alert("Import Failed");
+        if (!confirm("Overwrite your current data with the imported database?")) return;
+
+        try {
+            let res: Response;
+
+            if (window.electron) {
+                // Electron: send the local file path as JSON.
+                // The server reads the file directly from disk — no base64 encoding needed.
+                res = await fetch('/api/backup/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filePath }),
+                });
+            } else {
+                // Web: filePath is an http(s) URL from a <input type="file"> object URL
+                const response = await fetch(filePath);
+                const blob = await response.blob();
+                const formData = new FormData();
+                formData.append('file', blob, filePath.split(/[/\\]/).pop() || 'import.db');
+                res = await fetch('/api/backup/import', { method: 'POST', body: formData });
+            }
+
+            if (res.ok) window.location.reload();
+            else {
+                const err = await res.json().catch(() => ({}));
+                alert(`Import Failed: ${err.details || err.error || res.statusText}`);
+            }
+        } catch (err) {
+            console.error('Import error:', err);
+            alert('Import failed. See console for details.');
+        }
     }, []);
+
 
     const handleLogout = useCallback(async () => {
         if (window.electron) {

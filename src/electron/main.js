@@ -9,6 +9,10 @@ const SettingsManager = require('./settings');
 const dev = process.env.NODE_ENV !== 'production';
 const dir = path.join(__dirname, '../../'); // Adjust based on where main.js is (src/electron/main.js -> root is ../../)
 
+// settingsManager is initialized inside app.whenReady() because SettingsManager's
+// constructor calls app.getPath('userData'), which requires the app to be ready.
+let settingsManager;
+
 function getDatabasePath() {
     const currentSettings = settingsManager.getSettings();
     if (currentSettings.dbPath && currentSettings.dbPath !== 'default') {
@@ -298,6 +302,9 @@ function createMenu() {
 
 app.whenReady().then(async () => {
     try {
+        // Initialize settings FIRST — requires app to be ready for getPath('userData')
+        settingsManager = new SettingsManager();
+
         createMenu();
 
         // Register IPC Handlers
@@ -396,7 +403,19 @@ app.whenReady().then(async () => {
             return null;
         });
 
-        // If dev, we assume user ran 'npm run dev' separately or we wait for it
+        ipcMain.handle('read-file-for-import', async (_event, filePath) => {
+            const fs = require('fs');
+            try {
+                if (!fs.existsSync(filePath)) return null;
+                const buffer = fs.readFileSync(filePath);
+                return buffer.toString('base64');
+            } catch (err) {
+                console.error('[Electron] read-file-for-import failed:', err);
+                return null;
+            }
+        });
+
+
         // Or we can just point to 3000. 
         // For the "sidecar" plan, in DEV we usually point to localhost:3000
 
