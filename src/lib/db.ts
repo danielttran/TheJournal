@@ -1,30 +1,39 @@
 import { Database } from '@journeyapps/sqlcipher';
 import { join } from 'path';
 
+type SQLValue = string | number | bigint | null | Uint8Array;
+
+export class DatabaseNotUnlockedError extends Error {
+    constructor() {
+        super('Database is not unlocked');
+        this.name = 'DatabaseNotUnlockedError';
+    }
+}
+
 export class AsyncStatement {
     constructor(private db: Database, private query: string) {}
 
-    get(...params: any[]): Promise<any> {
+    get<T = unknown>(...params: SQLValue[]): Promise<T | undefined> {
         return new Promise((resolve, reject) => {
             this.db.get(this.query, params, (err, row) => {
                 if (err) reject(err);
-                else resolve(row);
+                else resolve(row as T | undefined);
             });
         });
     }
 
-    all(...params: any[]): Promise<any[]> {
+    all<T = unknown>(...params: SQLValue[]): Promise<T[]> {
         return new Promise((resolve, reject) => {
             this.db.all(this.query, params, (err, rows) => {
                 if (err) reject(err);
-                else resolve(rows);
+                else resolve(rows as T[]);
             });
         });
     }
 
-    run(...params: any[]): Promise<{ lastInsertRowid: number, changes: number }> {
+    run(...params: SQLValue[]): Promise<{ lastInsertRowid: number, changes: number }> {
         return new Promise((resolve, reject) => {
-            this.db.run(this.query, params, function(this: any, err) {
+            this.db.run(this.query, params, function(this: { lastID: number; changes: number }, err) {
                 if (err) reject(err);
                 else resolve({ lastInsertRowid: this.lastID, changes: this.changes });
             });
@@ -164,9 +173,7 @@ export class DBManager {
             )`,
             `CREATE VIRTUAL TABLE IF NOT EXISTS EntrySearch USING fts5(
                 Title,
-                HtmlContent,
-                content='EntryContent',
-                content_rowid='EntryID'
+                HtmlContent
             )`,
             `CREATE TABLE IF NOT EXISTS Template (
                 TemplateID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,15 +226,85 @@ export class DBManager {
             await new Promise<void>((res) => this.instance!.run(migration, () => res()));
         }
 
+        const ftsSchema = await new Promise<{ sql: string } | undefined>((res) => {
+            this.instance!.get(
+                `SELECT sql FROM sqlite_master WHERE type='table' AND name='EntrySearch'`,
+                (_, row) => res(row as { sql: string } | undefined)
+            );
+        });
+        const isLegacyFts = ftsSchema?.sql?.includes(`content='EntryContent'`) ?? false;
+        if (isLegacyFts) {
+            await new Promise<void>((res, rej) =>
+                this.instance!.run(`DROP TABLE IF EXISTS EntrySearch`, (err) => err ? rej(err) : res())
+            );
+            await new Promise<void>((res, rej) =>
+                this.instance!.run(`CREATE VIRTUAL TABLE EntrySearch USING fts5(Title, HtmlContent)`, (err) => err ? rej(err) : res())
+            );
+        }
+
+        const ftsSyncQueries = [
+            `INSERT INTO EntrySearch(rowid, Title, HtmlContent)
+             SELECT e.EntryID, e.Title, COALESCE(ec.HtmlContent, '')
+             FROM Entry e
+             LEFT JOIN EntryContent ec ON ec.EntryID = e.EntryID
+             WHERE NOT EXISTS (SELECT 1 FROM EntrySearch es WHERE es.rowid = e.EntryID)`,
+            `CREATE TRIGGER IF NOT EXISTS EntrySearch_Entry_Insert AFTER INSERT ON Entry BEGIN
+                INSERT OR REPLACE INTO EntrySearch(rowid, Title, HtmlContent)
+                VALUES (
+                    NEW.EntryID,
+                    NEW.Title,
+                    COALESCE((SELECT HtmlContent FROM EntryContent WHERE EntryID = NEW.EntryID), '')
+                );
+            END;`,
+            `CREATE TRIGGER IF NOT EXISTS EntrySearch_Entry_Update AFTER UPDATE OF Title ON Entry BEGIN
+                INSERT OR REPLACE INTO EntrySearch(rowid, Title, HtmlContent)
+                VALUES (
+                    NEW.EntryID,
+                    NEW.Title,
+                    COALESCE((SELECT HtmlContent FROM EntryContent WHERE EntryID = NEW.EntryID), '')
+                );
+            END;`,
+            `CREATE TRIGGER IF NOT EXISTS EntrySearch_Entry_Delete AFTER DELETE ON Entry BEGIN
+                DELETE FROM EntrySearch WHERE rowid = OLD.EntryID;
+            END;`,
+            `CREATE TRIGGER IF NOT EXISTS EntrySearch_Content_Insert AFTER INSERT ON EntryContent BEGIN
+                INSERT OR REPLACE INTO EntrySearch(rowid, Title, HtmlContent)
+                VALUES (
+                    NEW.EntryID,
+                    COALESCE((SELECT Title FROM Entry WHERE EntryID = NEW.EntryID), ''),
+                    COALESCE(NEW.HtmlContent, '')
+                );
+            END;`,
+            `CREATE TRIGGER IF NOT EXISTS EntrySearch_Content_Update AFTER UPDATE OF HtmlContent ON EntryContent BEGIN
+                INSERT OR REPLACE INTO EntrySearch(rowid, Title, HtmlContent)
+                VALUES (
+                    NEW.EntryID,
+                    COALESCE((SELECT Title FROM Entry WHERE EntryID = NEW.EntryID), ''),
+                    COALESCE(NEW.HtmlContent, '')
+                );
+            END;`,
+            `CREATE TRIGGER IF NOT EXISTS EntrySearch_Content_Delete AFTER DELETE ON EntryContent BEGIN
+                INSERT OR REPLACE INTO EntrySearch(rowid, Title, HtmlContent)
+                VALUES (
+                    OLD.EntryID,
+                    COALESCE((SELECT Title FROM Entry WHERE EntryID = OLD.EntryID), ''),
+                    ''
+                );
+            END;`
+        ];
+        for (const query of ftsSyncQueries) {
+            await new Promise<void>((res, rej) => this.instance!.run(query, (err) => err ? rej(err) : res()));
+        }
+
         // ── Schema-level migration: Section → Folder CHECK constraint ──────────
         // SQLite does not support ALTER TABLE … DROP CONSTRAINT, so we use the
         // standard 4-step "rename old table / create new / copy / drop old" pattern.
         // This is idempotent: if the constraint already says 'Folder' (fresh DB),
         // the SELECT below returns 0 rows and we skip the rebuild entirely.
-        const oldConstraintRow = await new Promise<any>((res) => {
+        const oldConstraintRow = await new Promise<{ sql: string } | undefined>((res) => {
             this.instance!.get(
                 `SELECT sql FROM sqlite_master WHERE type='table' AND name='Entry' AND sql LIKE '%''Section''%'`,
-                (_, row) => res(row)
+                (_, row) => res(row as { sql: string } | undefined)
             );
         });
 
@@ -299,22 +376,14 @@ export class DBManager {
 
     prepare(query: string): AsyncStatement {
         if (!this.instance) {
-            // In Next.js app context redirect to login; in test/node context throw.
-            try {
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
-                const { redirect } = require('next/navigation');
-                redirect('/login');
-            } catch (e: any) {
-                if (e?.digest?.startsWith('NEXT_REDIRECT')) throw e;
-            }
-            throw new Error('Database is not unlocked');
+            throw new DatabaseNotUnlockedError();
         }
         return new AsyncStatement(this.instance, query);
     }
 
-    transaction<T>(cb: (...args: any[]) => Promise<T>): (...args: any[]) => Promise<T> {
-        return async (...args: any[]) => {
-            if (!this.instance) throw new Error('Database is not unlocked');
+    transaction<T, TArgs extends unknown[]>(cb: (...args: TArgs) => Promise<T>): (...args: TArgs) => Promise<T> {
+        return async (...args: TArgs) => {
+            if (!this.instance) throw new DatabaseNotUnlockedError();
             await this.mutex.acquire();
             await this.prepare('BEGIN IMMEDIATE').run();
             try {
@@ -322,7 +391,7 @@ export class DBManager {
                 await this.prepare('COMMIT').run();
                 return result;
             } catch (err) {
-                try { await this.prepare('ROLLBACK').run(); } catch (_) {}
+                try { await this.prepare('ROLLBACK').run(); } catch {}
                 throw err;
             } finally {
                 this.mutex.release();
@@ -345,11 +414,17 @@ const globalForDb = global as unknown as { dbManager: DBManager | undefined };
 export const dbManager = globalForDb.dbManager ?? new DBManager();
 if (process.env.NODE_ENV !== 'production') globalForDb.dbManager = dbManager;
 
-export const db = new Proxy({} as any, {
-    get: (target, prop: string) => {
+interface DBClient {
+    prepare: DBManager['prepare'];
+    transaction: DBManager['transaction'];
+    close: DBManager['close'];
+}
+
+export const db: DBClient = new Proxy({} as DBClient, {
+    get: (_target, prop: string) => {
         if (prop === 'prepare') return dbManager.prepare.bind(dbManager);
         if (prop === 'transaction') return dbManager.transaction.bind(dbManager);
         if (prop === 'close') return dbManager.close.bind(dbManager);
-        return (dbManager as any)[prop];
+        return (dbManager as unknown as Record<string, unknown>)[prop];
     }
 });

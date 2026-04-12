@@ -248,8 +248,7 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [isClient, setIsClient] = useState(false);
-    useEffect(() => setIsClient(true), []);
+    const isClient = typeof document !== 'undefined';
 
     // Refs for clicking outside
     const fileInputRef = useRef<HTMLInputElement>(null);

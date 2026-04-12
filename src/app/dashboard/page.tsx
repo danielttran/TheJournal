@@ -1,7 +1,6 @@
 import { db } from '@/lib/db';
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
-import Link from 'next/link';
 import { Book, Notebook } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import ImportCard from '@/components/dashboard/ImportCard';
@@ -14,11 +13,15 @@ async function getUser() {
 
 async function createInitialCategory(userId: string, type: 'Journal' | 'Notebook', name: string) {
     "use server";
-    const stmt = await db.prepare('INSERT INTO Category (UserID, Name, Type, IsPrivate) VALUES (?, ?, ?, ?)');
-    const info = stmt.run(userId, name, type, 1);
+    const stmt = db.prepare('INSERT INTO Category (UserID, Name, Type, IsPrivate) VALUES (?, ?, ?, ?)');
+    const info = await stmt.run(userId, name, type, 1);
     const categoryId = info.lastInsertRowid;
 
     redirect(`/journal/${categoryId}`);
+}
+
+interface CategoryRow {
+    CategoryID: number;
 }
 
 export default async function DashboardPage() {
@@ -28,7 +31,7 @@ export default async function DashboardPage() {
         redirect("/login");
     }
 
-    const categories = await db.prepare('SELECT * FROM Category WHERE UserID = ?').all(userId) as any[];
+    const categories = await db.prepare('SELECT CategoryID FROM Category WHERE UserID = ?').all<CategoryRow>(userId);
 
     if (categories.length > 0) {
         // Redirect to the first one for now, or show list
