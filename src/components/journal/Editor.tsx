@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Maximize2, Minimize2, PanelTopClose } from 'lucide-react';
+import { Minimize2 } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import { useLoading } from '@/contexts/LoadingContext';
@@ -186,7 +186,7 @@ export default function Editor({
     // Keep refs in sync with the actual editor instances
     useEffect(() => { editor1Ref.current = editor; }, [editor]);
     useEffect(() => { editor2Ref.current = editor2; }, [editor2]);
-// Font Size Settings (Handled via CSS vars below or classes instead of inline style injection for Quill)
+// Font Size Settings
     const [defaultFontSize, setDefaultFontSize] = useState(14);
     useEffect(() => {
         const loadSettings = async () => {
@@ -245,11 +245,23 @@ export default function Editor({
         const handleTemplates = () => setShowTemplatePicker(true);
         const handleFocus = () => setIsDistractionFree(true);
         const handleSplit = () => onToggleSplitMode?.();
+        const handleUndo = () => editor?.chain().focus().undo().run();
+        const handleRedo = () => editor?.chain().focus().redo().run();
+        const handleInlineCode = () => editor?.chain().focus().toggleCode().run();
+        const handleChecklist = () => editor?.chain().focus().toggleTaskList().run();
+        const handleHighlight = () => editor?.chain().focus().toggleHighlight().run();
+        const handleHr = () => editor?.chain().focus().setHorizontalRule().run();
 
         window.addEventListener('trigger-search', handleSearch);
         window.addEventListener('trigger-templates', handleTemplates);
         window.addEventListener('trigger-focus', handleFocus);
         window.addEventListener('trigger-split', handleSplit);
+        window.addEventListener('trigger-undo', handleUndo);
+        window.addEventListener('trigger-redo', handleRedo);
+        window.addEventListener('trigger-inline-code', handleInlineCode);
+        window.addEventListener('trigger-checklist', handleChecklist);
+        window.addEventListener('trigger-highlight', handleHighlight);
+        window.addEventListener('trigger-hr', handleHr);
 
         return () => {
             window.removeEventListener('keydown', handler);
@@ -257,8 +269,14 @@ export default function Editor({
             window.removeEventListener('trigger-templates', handleTemplates);
             window.removeEventListener('trigger-focus', handleFocus);
             window.removeEventListener('trigger-split', handleSplit);
+            window.removeEventListener('trigger-undo', handleUndo);
+            window.removeEventListener('trigger-redo', handleRedo);
+            window.removeEventListener('trigger-inline-code', handleInlineCode);
+            window.removeEventListener('trigger-checklist', handleChecklist);
+            window.removeEventListener('trigger-highlight', handleHighlight);
+            window.removeEventListener('trigger-hr', handleHr);
         };
-    }, [isDistractionFree, onOpenSearch, onToggleSplitMode]);
+    }, [editor, isDistractionFree, onOpenSearch, onToggleSplitMode]);
 
 
     const performSave = useCallback(async (
@@ -487,7 +505,7 @@ export default function Editor({
             if (!navigator.sendBeacon(url, blob)) {
                 try {
                     const xhr = new XMLHttpRequest();
-                    xhr.open('POST', url, false);
+                    xhr.open('PUT', url, false);
                     xhr.setRequestHeader('Content-Type', 'application/json');
                     xhr.send(JSON.stringify(body));
                 } catch (e) { }
@@ -657,18 +675,19 @@ export default function Editor({
         };
 
         // Delay execution slightly so the initial blank state renders and React settles
-        setTimeout(loadEntry, 10);
+        const loadTimer = window.setTimeout(loadEntry, 10);
 
         return () => {
             isMounted = false;
             flushPendingSave();
             renderAbort.abort();
+            window.clearTimeout(loadTimer);
             if (saveTimeoutRef.current) {
                 clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = null;
             }
         };
-    }, [categoryId, userId, selectedDate, urlEntryId, flushPendingSave, editor]);
+    }, [categoryId, userId, selectedDate, urlEntryId, flushPendingSave, editor, editor2, onEntryChange, updateLoadingProgress]);
 
     const applyTemplate = useCallback((template: Template) => {
         if (!editor) return;
