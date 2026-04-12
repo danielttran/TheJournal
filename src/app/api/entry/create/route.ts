@@ -25,16 +25,18 @@ export async function POST(req: NextRequest) {
 
         // Optionally load template content
         let initialDelta = JSON.stringify({ ops: [{ insert: "\n" }] });
+        let initialDocumentJson = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] });
         let initialHtml = '';
         let initialPreview = 'Start writing...';
 
         if (templateId) {
             const tmpl = await db.prepare(
-                'SELECT QuillDelta, HtmlContent FROM Template WHERE TemplateID = ? AND UserID = ?'
-            ).get(templateId, userId) as { QuillDelta: string | null; HtmlContent: string } | undefined;
+                'SELECT QuillDelta, HtmlContent, DocumentJson FROM Template WHERE TemplateID = ? AND UserID = ?'
+            ).get(templateId, userId) as { QuillDelta: string | null; HtmlContent: string; DocumentJson: string | null } | undefined;
 
             if (tmpl) {
                 if (tmpl.QuillDelta) initialDelta = tmpl.QuillDelta;
+                if (tmpl.DocumentJson) initialDocumentJson = tmpl.DocumentJson;
                 initialHtml = tmpl.HtmlContent || '';
                 // Derive preview from HTML
                 const plain = initialHtml.replace(/<[^>]+>/g, ' ').trim();
@@ -52,9 +54,9 @@ export async function POST(req: NextRequest) {
             const newEntryId = result.lastInsertRowid;
 
             await db.prepare(`
-                INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent)
-                VALUES (?, ?, ?)
-            `).run(newEntryId, initialDelta, initialHtml);
+                INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent, DocumentJson)
+                VALUES (?, ?, ?, ?)
+            `).run(newEntryId, initialDelta, initialHtml, initialDocumentJson);
 
             return newEntryId;
         });

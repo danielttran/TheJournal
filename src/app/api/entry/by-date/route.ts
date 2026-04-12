@@ -33,10 +33,11 @@ export async function POST(req: NextRequest) {
         // Check and create atomically inside a transaction to prevent duplicate entries
         // from concurrent requests for the same date (TOCTOU race condition).
         const initialDelta = JSON.stringify({ ops: [{ insert: "\n" }] });
+        const initialDocumentJson = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] });
         const getOrCreateEntry = db.transaction(async () => {
             // Re-check inside the transaction so the SELECT + INSERT are atomic
             const existing = await db.prepare(`
-                SELECT e.EntryID, e.Title, ec.QuillDelta, ec.HtmlContent, e.Version
+                SELECT e.EntryID, e.Title, ec.QuillDelta, ec.HtmlContent, ec.DocumentJson, e.Version
                 FROM Entry e
                 LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
                 WHERE e.CategoryID = ? AND date(e.CreatedDate) = ?
@@ -53,11 +54,11 @@ export async function POST(req: NextRequest) {
             const newEntryId = newEntryResult.lastInsertRowid;
 
             await db.prepare(`
-                INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent)
-                VALUES (?, ?, ?)
-            `).run(newEntryId, initialDelta, '');
+                INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent, DocumentJson)
+                VALUES (?, ?, ?, ?)
+            `).run(newEntryId, initialDelta, '', initialDocumentJson);
 
-            return { entry: { EntryID: newEntryId, Title: 'New Entry', QuillDelta: initialDelta, HtmlContent: '', Version: 1 }, isNew: true };
+            return { entry: { EntryID: newEntryId, Title: 'New Entry', QuillDelta: initialDelta, HtmlContent: '', DocumentJson: initialDocumentJson, Version: 1 }, isNew: true };
         });
 
         const { entry, isNew } = await getOrCreateEntry();
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
             title: entry.Title,
             content: entry.QuillDelta ? JSON.parse(entry.QuillDelta) : null,
             html: entry.HtmlContent,
+            documentJson: entry.DocumentJson ?? null,
             Version: entry.Version ?? 1,
             isNew
         });

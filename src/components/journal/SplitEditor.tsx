@@ -71,6 +71,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose,
     const isLoadedRef = useRef(false);
     const contentRef = useRef('');
     const deltaRef = useRef<any>(null);
+    const documentJsonRef = useRef<any>(null);
     // Track server version for optimistic locking — prevents split view from silently
     // overwriting changes made in the main editor (or another tab) since load.
     const versionRef = useRef<number | null>(null);
@@ -120,7 +121,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose,
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    content: delta, html, title, preview,
+                    content: delta, html, documentJson: documentJsonRef.current, title, preview,
                     expectedVersion: versionRef.current ?? undefined,
                 }),
             });
@@ -163,6 +164,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose,
                 html,
                 title: plainText.split('\n')[0].substring(0, 100) || 'Untitled',
                 preview: plainText.substring(0, 200),
+                documentJson: documentJsonRef.current,
             };
 
             const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
@@ -240,11 +242,13 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose,
             if (data.Version) versionRef.current = data.Version;
 
             let loadedDelta: any = null;
+            let loadedDocumentJson: any = data.DocumentJson || data.documentJson || null;
             if (data.QuillDelta) {
                 try { loadedDelta = typeof data.QuillDelta === 'string' ? JSON.parse(data.QuillDelta) : data.QuillDelta; } catch { }
             }
 
             // tryLoadContent retries until Quill is mounted, guards against switched entries
+            documentJsonRef.current = loadedDocumentJson;
             tryLoadContent(id, loadedDelta, data.HtmlContent || '');
         } catch { }
     }, [performSave, tryLoadContent]);
@@ -263,6 +267,7 @@ export default function SplitEditor({ categoryId, userId, categoryType, onClose,
     const handleChange = useCallback((_content: string, _delta: any, source: string, editor: any) => {
         contentRef.current = editor.getHTML();
         deltaRef.current = editor.getContents();
+        documentJsonRef.current = null;
 
         if (source === 'user' && isLoadedRef.current) {
             isDirtyRef.current = true;
