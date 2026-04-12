@@ -16,6 +16,7 @@ class SettingsManager {
             autoBackupOnClose: false,
             backupFrequency: 3,
             retentionCount: 3,
+            defaultFontSize: 14,
             themePreferences: {
                 light: { accentPrimary: '#9333ea', bgApp: '#f3f4f6', bgSidebar: '#ffffff' },
                 dark: { accentPrimary: '#14b8a6', bgApp: '#000000', bgSidebar: '#000000' }

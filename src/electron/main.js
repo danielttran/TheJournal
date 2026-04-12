@@ -126,7 +126,6 @@ function createMenu() {
                     }
                 },
                 { type: 'separator' },
-                { type: 'separator' },
                 { role: 'quit' }
             ]
         },
@@ -169,13 +168,14 @@ function createMenu() {
                 },
                 { type: 'separator' },
                 {
+                    // No accelerator — Ctrl+Z is owned by Edit > Undo (role: 'undo').
+                    // TipTap also handles Ctrl+Z natively inside the editor.
+                    // This item lets users trigger editor undo from the menu by mouse.
                     label: 'Undo',
-                    accelerator: 'CmdOrCtrl+Z',
                     click: () => sendViewAction('undo')
                 },
                 {
                     label: 'Redo',
-                    accelerator: 'CmdOrCtrl+Shift+Z',
                     click: () => sendViewAction('redo')
                 },
                 {
