@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 const UpdateSchema = z.object({
-    content: z.any().optional(),
     html: z.string().optional(),
     documentJson: z.any().optional(),
     title: z.string().optional(),
@@ -86,7 +85,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const userId = parseInt(userIdCookie.value, 10);
 
         const entry = await db.prepare(`
-            SELECT e.EntryID, e.Title, ec.HtmlContent, ec.QuillDelta, ec.DocumentJson, e.Icon, e.Version
+            SELECT e.EntryID, e.Title, ec.HtmlContent, ec.DocumentJson, e.Icon, e.Version
             FROM Entry e
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
             JOIN Category c ON e.CategoryID = c.CategoryID
@@ -125,7 +124,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ error: result.error.issues }, { status: 400 });
         }
 
-        const { content, html, documentJson, title, preview, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, expectedVersion } = result.data;
+        const { html, documentJson, title, preview, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, expectedVersion } = result.data;
 
         // 2. Ownership check — quick pre-flight (authoritative re-check is inside the transaction)
         const ownerCheck = await db.prepare(`
@@ -161,8 +160,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             newVersion = (entry.Version ?? 1) + 1;
 
             // 4. Update Content (if provided)
-            if (content !== undefined || html !== undefined || documentJson !== undefined) {
-                const deltaString = content !== undefined ? JSON.stringify(content) : null;
+            if (html !== undefined || documentJson !== undefined) {
                 const documentJsonString = documentJson !== undefined
                     ? (typeof documentJson === 'string' ? documentJson : JSON.stringify(documentJson))
                     : null;
@@ -170,17 +168,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 const updateContent = await db.prepare(`
                     UPDATE EntryContent
                     SET
-                        QuillDelta = COALESCE(?, QuillDelta),
                         HtmlContent = COALESCE(?, HtmlContent),
                         DocumentJson = COALESCE(?, DocumentJson)
                     WHERE EntryID = ?
-                `).run(deltaString, html ?? null, documentJsonString, entryId);
+                `).run(html ?? null, documentJsonString, entryId);
 
                 if (updateContent.changes === 0) {
                     await db.prepare(`
-                        INSERT INTO EntryContent (EntryID, QuillDelta, HtmlContent, DocumentJson)
-                        VALUES (?, ?, ?, ?)
-                    `).run(entryId, deltaString ?? null, html || '', documentJsonString);
+                        INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson)
+                        VALUES (?, ?, ?)
+                    `).run(entryId, html || '', documentJsonString);
                 }
             }
 

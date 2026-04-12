@@ -17,6 +17,7 @@ export interface Entry {
     SortOrder: number;
     Icon?: string;
     IsExpanded?: boolean;
+    IsLocked?: boolean;
     CreatedDate?: string;
     HtmlContent?: string;
     DocumentJson?: string | null;

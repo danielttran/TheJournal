@@ -7,7 +7,6 @@ export interface Template {
     TemplateID: number;
     Name: string;
     HtmlContent: string;
-    QuillDelta: string | null;
     DocumentJson?: string | null;
 }
 
@@ -17,11 +16,10 @@ interface TemplatePickerProps {
     onClose: () => void;
     /** If provided, shows a "Save current as template" flow. */
     currentHtml?: string;
-    currentDelta?: any;
     currentDocumentJson?: any;
 }
 
-export default function TemplatePicker({ onSelect, onClose, currentHtml, currentDelta, currentDocumentJson }: TemplatePickerProps) {
+export default function TemplatePicker({ onSelect, onClose, currentHtml, currentDocumentJson }: TemplatePickerProps) {
     const [templates, setTemplates] = useState<Template[]>([]);
     const [loading, setLoading] = useState(true);
     const [renamingId, setRenamingId] = useState<number | null>(null);
@@ -87,7 +85,7 @@ export default function TemplatePicker({ onSelect, onClose, currentHtml, current
         const res = await fetch('/api/template', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, quillDelta: currentDelta, htmlContent: currentHtml || '', documentJson: currentDocumentJson }),
+            body: JSON.stringify({ name, htmlContent: currentHtml || '', documentJson: currentDocumentJson }),
         });
         if (res.ok) {
             const data = await res.json();
@@ -95,7 +93,6 @@ export default function TemplatePicker({ onSelect, onClose, currentHtml, current
                 TemplateID: data.id,
                 Name: name,
                 HtmlContent: currentHtml || '',
-                QuillDelta: currentDelta ? JSON.stringify(currentDelta) : null,
                 DocumentJson: currentDocumentJson ? JSON.stringify(currentDocumentJson) : null,
             };
             setTemplates(prev => [...prev, newTemplate].sort((a, b) => a.Name.localeCompare(b.Name)));

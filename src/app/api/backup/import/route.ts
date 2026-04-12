@@ -88,9 +88,9 @@ export async function POST(req: NextRequest) {
                 if (!newEntryId) continue;
 
                 await db.prepare(`
-                    INSERT INTO main.EntryContent(EntryID, QuillDelta, HtmlContent)
+                    INSERT INTO main.EntryContent(EntryID, HtmlContent, DocumentJson)
                     VALUES(?, ?, ?)
-                        `).run(newEntryId, content.QuillDelta, content.HtmlContent);
+                        `).run(newEntryId, content.HtmlContent, content.DocumentJson ?? null);
             }
 
             // E. Fix ParentEntryID (Hierarchy)

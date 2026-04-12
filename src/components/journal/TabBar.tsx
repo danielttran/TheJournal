@@ -35,15 +35,6 @@ import { logout } from '@/app/actions';
 // ---------------------------
 // Sortable Tab Component
 // ---------------------------
-interface SortableTabProps {
-    category: Category;
-    isActive: boolean;
-    onClick: () => void;
-    onDelete: (id: number) => void;
-    onRename: (id: number, name: string) => void;
-    onIconChange: (id: number, icon: string) => void;
-}
-
 function TabIcon({ category }: { category: Category }) {
     if (category.Icon) return <span className="mr-2 text-base leading-none">{category.Icon}</span>;
     return category.Type === 'Notebook'
@@ -51,7 +42,23 @@ function TabIcon({ category }: { category: Category }) {
         : <Book size={14} className="mr-2 text-accent-primary" />;
 }
 
-function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconChange }: SortableTabProps) {
+interface SortableTabProps {
+    category: Category;
+    isActive: boolean;
+    onClick: () => void;
+    onDelete: (id: number) => void;
+    onRename: (id: number, name: string) => void;
+    onIconChange: (id: number, icon: string) => void;
+    onColorChange: (id: number, color: string) => void;
+}
+
+const PRESET_COLORS = [
+    '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
+    '#f97316', '#eab308', '#22c55e', '#14b8a6',
+    '#0ea5e9', '#64748b', '#a855f7', '#06b6d4',
+];
+
+function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconChange, onColorChange }: SortableTabProps) {
     const {
         attributes,
         listeners,
@@ -64,8 +71,21 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
     const [isEditing, setIsEditing] = useState(false);
     const [editName, setEditName] = useState(category.Name);
     const [showPicker, setShowPicker] = useState(false);
+    const [showColorPicker, setShowColorPicker] = useState(false);
     const pickerRef = useRef<HTMLDivElement>(null);
+    const colorPickerRef = useRef<HTMLDivElement>(null);
     const { theme } = useTheme();
+
+    useEffect(() => {
+        if (!showColorPicker) return;
+        const handler = (e: MouseEvent) => {
+            if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+                setShowColorPicker(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [showColorPicker]);
 
     const style = {
         transform: CSS.Transform.toString(transform),
@@ -137,7 +157,10 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
     return (
         <div
             ref={setNodeRef}
-            style={style}
+            style={{
+                ...style,
+                ...(isActive ? { borderColor: category.Color || 'var(--color-accent-primary)' } : {}),
+            }}
             {...attributes}
             {...listeners}
             onClick={onClick}
@@ -148,7 +171,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
             className={`
                 relative group flex items-center min-w-[120px] max-w-[200px] h-[38px] px-3 rounded-t-lg text-sm cursor-pointer select-none transition-colors
                 ${isActive
-                    ? 'bg-bg-sidebar text-text-primary border-t-2 border-x-2 border-accent-primary translate-y-[2px] z-10'
+                    ? 'bg-bg-sidebar text-text-primary border-t-2 border-x-2 translate-y-[2px] z-10'
                     : 'bg-transparent text-text-muted hover:text-text-secondary'
                 }
             `}
@@ -158,9 +181,44 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
             </div>
 
             <span className="truncate flex-1">{category.Name}</span>
+
+            {/* Color swatch — click to open color picker (only on active tab) */}
+            {isActive && (
+                <div className="relative ml-1" ref={colorPickerRef}>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setShowColorPicker(v => !v); }}
+                        className="w-3.5 h-3.5 rounded-full border border-white/30 flex-shrink-0 opacity-70 hover:opacity-100 transition-opacity"
+                        style={{ background: category.Color || '#6366f1' }}
+                        title="Change color"
+                    />
+                    {showColorPicker && (
+                        <div
+                            className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-[200] bg-bg-card border border-border-primary rounded-xl shadow-2xl p-3"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-2 font-semibold">Tab color</p>
+                            <div className="grid grid-cols-6 gap-1.5">
+                                {PRESET_COLORS.map(c => (
+                                    <button
+                                        key={c}
+                                        onClick={() => { onColorChange(category.CategoryID, c); setShowColorPicker(false); }}
+                                        className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110"
+                                        style={{
+                                            background: c,
+                                            borderColor: (category.Color || '#6366f1') === c ? 'white' : 'transparent',
+                                        }}
+                                        title={c}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
             <button
                 onClick={(e) => { e.stopPropagation(); onDelete(category.CategoryID); }}
-                className={`p-0.5 rounded hover:bg-red-500/20 text-text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2`}
+                className={`p-0.5 rounded hover:bg-red-500/20 text-text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ml-1`}
             >
                 <X size={12} />
             </button>
@@ -351,6 +409,15 @@ export default function TabBar({ userId }: { userId: string }) {
         });
     };
 
+    const handleColorChange = async (id: number, newColor: string) => {
+        setTabs(prev => prev.map(c => c.CategoryID === id ? { ...c, Color: newColor } : c));
+        await fetch(`/api/category/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ color: newColor })
+        });
+    };
+
     const handleCreateTab = async () => {
         try {
             const res = await fetch('/api/category', {
@@ -509,6 +576,7 @@ export default function TabBar({ userId }: { userId: string }) {
                                 onDelete={deleteTab}
                                 onRename={handleRename}
                                 onIconChange={handleIconChange}
+                                onColorChange={handleColorChange}
                             />
                         ))}
                     </SortableContext>
