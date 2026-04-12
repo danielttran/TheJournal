@@ -95,6 +95,15 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run();
     }, [editor]);
 
+    useEffect(() => {
+        const handleExternalUploadTrigger = () => {
+            fileInputRef.current?.click();
+        };
+
+        window.addEventListener('trigger-image-upload', handleExternalUploadTrigger);
+        return () => window.removeEventListener('trigger-image-upload', handleExternalUploadTrigger);
+    }, []);
+
     if (!editor) {
         return null;
     }
@@ -106,15 +115,6 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const handleUploadClick = () => {
         fileInputRef.current?.click();
     };
-
-    useEffect(() => {
-        const handleExternalUploadTrigger = () => {
-            fileInputRef.current?.click();
-        };
-
-        window.addEventListener('trigger-image-upload', handleExternalUploadTrigger);
-        return () => window.removeEventListener('trigger-image-upload', handleExternalUploadTrigger);
-    }, []);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];

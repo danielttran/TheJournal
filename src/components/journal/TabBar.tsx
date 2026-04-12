@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { X, Plus, Book, FileText, LogOut, Settings } from 'lucide-react';
@@ -174,7 +175,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                     />
                     {showColorPicker && (
                         <div
-                            className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-[200] bg-bg-card border border-border-primary rounded-xl shadow-2xl p-3"
+                            className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-[200] bg-bg-card border border-border-primary rounded-xl shadow-2xl p-3 w-max"
                             onClick={e => e.stopPropagation()}
                         >
                             <p className="text-[10px] text-text-muted uppercase tracking-wider mb-2 font-semibold">Tab color</p>
@@ -205,7 +206,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
             </button>
 
             {/* Modal Portal for Emoji Picker */}
-            {showPicker && (
+            {showPicker && typeof document !== 'undefined' && createPortal(
                 <div
                     className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4 cursor-default"
                     onMouseDown={(e) => { e.stopPropagation(); setShowPicker(false); }}
@@ -225,7 +226,7 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                             theme={theme === 'dark' ? EmojiTheme.DARK : EmojiTheme.LIGHT}
                         />
                     </div>
-                </div>
+                </div>, document.body
             )}
         </div>
     );
@@ -401,14 +402,15 @@ export default function TabBar({ userId }: { userId: string }) {
 
     const handleCreateTab = async () => {
         try {
+            const randomColor = PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)];
             const res = await fetch('/api/category', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newTabName, type: newTabType, userId })
+                body: JSON.stringify({ name: newTabName, type: newTabType, userId, color: randomColor })
             });
             const newCat = await res.json();
             if (newCat.id) {
-                setTabs([...tabs, { CategoryID: newCat.id, Name: newTabName, Type: newTabType, Color: '#fff', SortOrder: tabs.length }]);
+                setTabs([...tabs, { CategoryID: newCat.id, Name: newTabName, Type: newTabType, Color: randomColor, SortOrder: tabs.length }]);
                 setIsAddMenuOpen(false);
                 setNewTabName('');
                 router.push(`/journal/${newCat.id}`);
