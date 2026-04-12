@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
                 if (!newCatId) continue; // Orphaned entry
 
                 const newEntry = await db.prepare(`
-                    INSERT INTO main.Entry(CategoryID, Title, PreviewText, IsLocked, CreatedDate, ModifiedDate, EntryType, SortOrder, Icon, IsExpanded)
-                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO main.Entry(CategoryID, Title, PreviewText, IsLocked, CreatedDate, ModifiedDate, EntryType, SortOrder, Icon, IsExpanded, Mood, IsFavorited, Tags)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         `).run(
                     newCatId,
                     entry.Title,
@@ -75,7 +75,10 @@ export async function POST(req: NextRequest) {
                     entry.EntryType || 'Page',
                     entry.SortOrder || 0,
                     entry.Icon,
-                    entry.IsExpanded ? 1 : 0
+                    entry.IsExpanded ? 1 : 0,
+                    entry.Mood ?? null,
+                    entry.IsFavorited ? 1 : 0,
+                    entry.Tags ?? '[]'
                 );
 
                 entryIdMap.set(entry.EntryID, newEntry.lastInsertRowid as number);

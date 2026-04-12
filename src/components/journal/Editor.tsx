@@ -632,12 +632,23 @@ export default function Editor({
                 if (cached) {
                     if (!isMounted || renderAbort.signal.aborted) return;
 
+                    const applyMeta = (d: any) => {
+                        if (!d) return;
+                        const m = d.Mood ?? null;
+                        const f = !!d.IsFavorited;
+                        let t: string[] = [];
+                        try { t = d.Tags ? JSON.parse(d.Tags) : []; } catch { t = []; }
+                        setMood(m); setIsFavorited(f); setTags(t);
+                        moodRef.current = m; isFavoritedRef.current = f; tagsRef.current = t;
+                    };
+
                     if (urlEntryId) {
                         setEntryId(urlEntryId);
                         onEntryChange?.(urlEntryId);
                         entryIdRef.current = urlEntryId;
                         fetch(`/api/entry/${urlEntryId}`).then(r => r.ok ? r.json() : null).then(d => {
                             if (d?.Version && versionRef.current === null) versionRef.current = d.Version;
+                            applyMeta(d);
                         }).catch(() => {});
                         setContentSafely(cached.documentJson, cached.html);
                     } else {
@@ -654,6 +665,7 @@ export default function Editor({
                             onEntryChange?.(loadedId);
                             entryIdRef.current = loadedId;
                             versionRef.current = data.Version ?? null;
+                            applyMeta(data);
                             setContentSafely(cached.documentJson, cached.html);
                         }
                     }
@@ -759,13 +771,16 @@ export default function Editor({
         if ('isFavorited' in patch) body.isFavorited = patch.isFavorited;
         if ('tags' in patch) body.tags = JSON.stringify(patch.tags);
         try {
-            await fetch(`/api/entry/${id}`, {
+            const res = await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             window.dispatchEvent(new CustomEvent('journal-entry-updated'));
-        } catch { /* silent */ }
+        } catch (err) {
+            console.error('[Editor] saveMetadata failed:', err);
+        }
     }, []);
 
     const applyPrompt = useCallback((prompt: WritingPrompt) => {

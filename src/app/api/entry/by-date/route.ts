@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
         const getOrCreateEntry = db.transaction(async () => {
             // Re-check inside the transaction so the SELECT + INSERT are atomic
             const existing = await db.prepare(`
-                SELECT e.EntryID, e.Title, ec.HtmlContent, ec.DocumentJson, e.Version
+                SELECT e.EntryID, e.Title, ec.HtmlContent, ec.DocumentJson, e.Version,
+                       e.IsFavorited, e.Mood, e.Tags
                 FROM Entry e
                 LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
                 WHERE e.CategoryID = ? AND date(e.CreatedDate) = ?
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
                 VALUES (?, ?, ?)
             `).run(newEntryId, '', initialDocumentJson);
 
-            return { entry: { EntryID: newEntryId, Title: 'New Entry', HtmlContent: '', DocumentJson: initialDocumentJson, Version: 1 }, isNew: true };
+            return { entry: { EntryID: newEntryId, Title: 'New Entry', HtmlContent: '', DocumentJson: initialDocumentJson, Version: 1, IsFavorited: 0, Mood: null, Tags: '[]' }, isNew: true };
         });
 
         const { entry, isNew } = await getOrCreateEntry();
@@ -68,6 +69,9 @@ export async function POST(req: NextRequest) {
             html: entry.HtmlContent,
             documentJson: entry.DocumentJson ?? null,
             Version: entry.Version ?? 1,
+            IsFavorited: entry.IsFavorited ?? 0,
+            Mood: entry.Mood ?? null,
+            Tags: entry.Tags ?? '[]',
             isNew
         });
 

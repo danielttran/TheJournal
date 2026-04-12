@@ -5,7 +5,6 @@ import { z } from "zod";
 const CreateCategorySchema = z.object({
     name: z.string().min(1),
     type: z.enum(['Journal', 'Notebook']),
-    userId: z.number().or(z.string().transform(val => parseInt(val, 10))),
     color: z.string().optional(),
     isPrivate: z.boolean().optional().default(true)
 });
@@ -19,7 +18,8 @@ export async function GET(req: NextRequest) {
     if (!userIdCookie) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const userId = userIdCookie.value;
+    const userId = parseInt(userIdCookie.value, 10);
+    if (isNaN(userId)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     try {
         const categories = await db.prepare('SELECT * FROM Category WHERE UserID = ? ORDER BY SortOrder ASC').all(userId);
@@ -33,11 +33,19 @@ export async function GET(req: NextRequest) {
 // POST: Create new category
 export async function POST(req: NextRequest) {
     try {
+        // userId is always read from the session cookie — never from the request body.
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const userIdCookie = cookieStore.get("userId");
+        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = parseInt(userIdCookie.value, 10);
+        if (isNaN(userId)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
         const body = await req.json();
-        const { name, type, userId, color, isPrivate } = CreateCategorySchema.parse(body);
+        const { name, type, color, isPrivate } = CreateCategorySchema.parse(body);
 
         const result = await db.prepare(`
-            INSERT INTO Category (UserID, Name, Type, Color, IsPrivate) 
+            INSERT INTO Category (UserID, Name, Type, Color, IsPrivate)
             VALUES (?, ?, ?, ?, ?)
         `).run(userId, name, type, color || '#FFFFFF', isPrivate ? 1 : 0);
 
