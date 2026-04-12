@@ -299,7 +299,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ isExpanded: expanded, userId })
+                body: JSON.stringify({ isExpanded: expanded })
             });
             // Optimization: Don't strictly need to fetchPages here if local state handles it, 
             // but fetching ensures consistency.
@@ -530,7 +530,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         const res = await fetch(`/api/entry/${entryId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ icon: icon, userId })
+            body: JSON.stringify({ icon })
         });
         if (type === 'Journal') fetchJournalEntries();
         else fetchPages();
@@ -544,7 +544,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             await fetch(`/api/entry/${id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: newTitle, userId })
+                body: JSON.stringify({ title: newTitle })
             }); // Optimistic update possible, but fetching is safer
             if (type === 'Notebook') fetchPages();
             else fetchJournalEntries();
@@ -615,7 +615,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                categoryId, userId,
+                categoryId,
                 title: entryType === 'Folder' ? 'New Folder' : (template?.Name ?? 'Untitled Page'),
                 parentEntryId: parentId,
                 entryType,

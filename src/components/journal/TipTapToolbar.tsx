@@ -30,8 +30,8 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             const parsed = new URL(url);
             return parsed.protocol === 'https:' || parsed.protocol === 'http:';
         } catch {
-            // Relative URLs (no protocol) are allowed
-            return url.startsWith('/') || (!url.includes(':'));
+            // Allow root-relative paths (/path/to/img) but not protocol-relative (//evil.com)
+            return (url.startsWith('/') && !url.startsWith('//')) || !url.includes(':');
         }
     };
 

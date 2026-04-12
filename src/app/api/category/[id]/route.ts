@@ -89,7 +89,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const { name, icon, color, viewSettings, lastSelectedEntryId } = body;
 
         // Validate color if provided (must be a valid CSS hex color)
-        if (color !== undefined && !/^#[0-9a-fA-F]{3,8}$/.test(color)) {
+        if (color !== undefined && !/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(color)) {
             return NextResponse.json({ error: "Invalid color format" }, { status: 400 });
         }
 

@@ -26,6 +26,22 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 
+// ─── Pure helpers (module-level — no closures over component state) ───────────
+
+/** Count words in an HTML string without touching the DOM. */
+function countWords(html: string): number {
+    const text = html
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .trim();
+    return text ? text.split(/\s+/).filter(Boolean).length : 0;
+}
+
 // ─── Entry content cache ──────────────────────────────────────────────────────
 const entryContentCache = new Map<string, { html: string; documentJson: any; timestamp: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;        // 10 minutes
@@ -139,13 +155,6 @@ export default function Editor({
     // without stale closures (useEditor hooks fire before refs are set)
     const editor1Ref = useRef<any>(null);
     const editor2Ref = useRef<any>(null);
-
-    const countWords = (html: string): number => {
-        const div = document.createElement('div');
-        div.innerHTML = html;
-        const text = (div.textContent || div.innerText || '').trim();
-        return text ? text.split(/\s+/).filter(Boolean).length : 0;
-    };
 
     const handleChange = useCallback((html: string, json: any, source: string) => {
         contentRef.current = html;

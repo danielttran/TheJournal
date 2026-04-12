@@ -109,19 +109,7 @@ export async function GET(req: NextRequest) {
 
         const whereClause = conditions.join(' AND ');
 
-        // Count total matches
-        const countRow = await db.prepare(`
-            SELECT COUNT(*) as total
-            FROM Entry e
-            JOIN Category c ON e.CategoryID = c.CategoryID
-            LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
-            WHERE ${whereClause}
-        `).get(...params) as { total: number };
-
-        const total = countRow?.total ?? 0;
-
-        // Fetch paginated results
-        const rows = await db.prepare(`
+        const resultQuery = `
             SELECT
                 e.EntryID,
                 e.Title,
@@ -137,10 +125,9 @@ export async function GET(req: NextRequest) {
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
             WHERE ${whereClause}
             ORDER BY e.ModifiedDate DESC
-            LIMIT ? OFFSET ?
-        `).all(...params, limit, offset) as any[];
+        `;
 
-        const results = rows.map(row => {
+        const mapRow = (row: any) => {
             const plain = row.HtmlContent ? stripHtml(row.HtmlContent) : '';
             const titleMatch = matchCase
                 ? row.Title.includes(q)
@@ -148,17 +135,9 @@ export async function GET(req: NextRequest) {
             const contentMatch = matchCase
                 ? plain.includes(q)
                 : plain.toLowerCase().includes(q.toLowerCase());
-
-            // Post-filter whole-word if requested
-            if (wholeWord) {
-                const re = new RegExp(`\\b${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, matchCase ? '' : 'i');
-                if (!re.test(row.Title) && !re.test(plain)) return null;
-            }
-
             const snippet = contentMatch
                 ? extractSnippet(plain, q)
                 : plain.substring(0, 200) + (plain.length > 200 ? '…' : '');
-
             return {
                 EntryID: row.EntryID,
                 Title: row.Title,
@@ -172,7 +151,38 @@ export async function GET(req: NextRequest) {
                 titleMatch,
                 contentMatch,
             };
-        }).filter(Boolean);
+        };
+
+        // When whole-word is active the SQL LIKE pre-filter over-counts (it matches substrings).
+        // Fetch all candidates (capped at 1000) and apply the regex post-filter before paginating
+        // so that total/hasMore are accurate.
+        if (wholeWord) {
+            const re = new RegExp(`\\b${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, matchCase ? '' : 'i');
+            const allRows = await db.prepare(`${resultQuery} LIMIT 1000`).all(...params) as any[];
+            const filtered = allRows
+                .filter(row => {
+                    const plain = row.HtmlContent ? stripHtml(row.HtmlContent) : '';
+                    return re.test(row.Title) || re.test(plain);
+                })
+                .map(mapRow);
+            const total = filtered.length;
+            const results = filtered.slice(offset, offset + limit);
+            return NextResponse.json({ results, total, hasMore: offset + limit < total });
+        }
+
+        // Normal (non-whole-word) path: SQL count + paginated fetch
+        const countRow = await db.prepare(`
+            SELECT COUNT(*) as total
+            FROM Entry e
+            JOIN Category c ON e.CategoryID = c.CategoryID
+            LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
+            WHERE ${whereClause}
+        `).get(...params) as { total: number };
+
+        const total = countRow?.total ?? 0;
+
+        const rows = await db.prepare(`${resultQuery} LIMIT ? OFFSET ?`).all(...params, limit, offset) as any[];
+        const results = rows.map(mapRow);
 
         return NextResponse.json({ results, total, hasMore: offset + limit < total });
 
