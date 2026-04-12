@@ -16,7 +16,7 @@ A cross-platform journaling and note-taking application built with Next.js and E
 - 📓 **Notebook Mode** - Hierarchical pages and sections with drag-and-drop
 - 🔒 **End-to-End Local Encryption** - Full database encryption via SQLCipher (AES-256)
 - 🔑 **Secure Key Derivation** - Argon2id master key derivation for maximum security
-- 🎨 **Rich Text Editor** - Full formatting with Quill.js
+- 🎨 **Rich Text Editor** - Full formatting with TipTap
 - 🌙 **Dark/Light Themes** - System-aware with manual toggle
 - 💾 **Auto-Save** - Content saved automatically with crash recovery
 - 📦 **Import/Export** - Encrypted backups of your entire journal
@@ -190,7 +190,7 @@ tests/
 | **TabBar** | Category tabs, drag-to-reorder, File/View menus |
 | **Sidebar** | Journal calendar or notebook tree navigation |
 | **JournalView** | Orchestrates editor, split view, and search overlay |
-| **Editor** | Quill-based rich text with auto-save, recovery, and Ctrl+F |
+| **Editor** | TipTap-based rich text with auto-save, recovery, and Ctrl+F |
 | **SplitEditor** | Dual-pane editor with independent entry loading and optimistic save |
 | **SearchPanel** | Full-text search overlay with live results and advanced filters |
 | **EntryGrid** | Grid display for browsing past entries |
@@ -254,7 +254,7 @@ Response:
 ## Tech Stack
 
 - **Frontend**: Next.js 16, React 19, TypeScript
-- **Editor**: react-quill-new
+- **Editor**: @tiptap/react (+ TipTap extensions)
 - **Styling**: Tailwind CSS with CSS variables
 - **Database**: @journeyapps/sqlcipher (AES-256 Encrypted)
 - **Key Derivation**: Argon2id

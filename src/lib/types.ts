@@ -35,6 +35,7 @@ declare global {
             onLogoutRequest: (callback: () => void) => () => void;
             onOpenSettings: (callback: () => void) => () => void;
             onToggleTheme: (callback: () => void) => () => void;
+            onViewAction: (callback: (action: string) => void) => () => void;
             selectFolder: () => Promise<string | null>;
             storePassword: (pwd: string) => Promise<boolean>;
             getStoredPassword: () => Promise<string | null>;
