@@ -108,10 +108,6 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         return null;
     }
 
-    const selectedImageWidth = editor.isActive('image')
-        ? editor.getAttributes('image').width || '100%'
-        : '100%';
-
     const handleUploadClick = () => {
         fileInputRef.current?.click();
     };
@@ -123,9 +119,20 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         e.target.value = '';
     };
 
-    const handleResizeImage = (width: string) => {
+    const selectedImageSrc = editor.isActive('image')
+        ? (editor.getAttributes('image').src as string | undefined) ?? ''
+        : '';
+    // Only allow crop for images we uploaded (they live at /api/attachment/)
+    const isAttachedImage = selectedImageSrc.startsWith('/api/attachment/');
+
+    const rawWidth = editor.isActive('image')
+        ? String(editor.getAttributes('image').width ?? '100%')
+        : '100%';
+    const imageWidthNum = Math.min(100, Math.max(10, parseInt(rawWidth.replace('%', ''), 10) || 100));
+
+    const handleResizeImage = (pct: number) => {
         if (!editor.isActive('image')) return;
-        editor.chain().focus().updateAttributes('image', { width }).run();
+        editor.chain().focus().updateAttributes('image', { width: `${pct}%` }).run();
     };
 
     const removeSelectedImage = () => {
@@ -312,17 +319,29 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             {editor.isActive('image') && (
                 <>
                     <div className="w-px h-4 bg-border-primary mx-1" />
-                    <span className="text-[11px] text-text-muted">Image:</span>
-                    {['25%', '50%', '75%', '100%'].map(width => (
+                    <span className="text-[11px] text-text-muted select-none">W:</span>
+                    <input
+                        type="range"
+                        min={10}
+                        max={100}
+                        step={1}
+                        value={imageWidthNum}
+                        onChange={e => handleResizeImage(Number(e.target.value))}
+                        className="w-24 h-1.5 accent-[color:var(--color-accent-primary)] cursor-pointer"
+                        title={`Image width: ${imageWidthNum}%`}
+                    />
+                    <span className="text-[11px] text-text-muted tabular-nums w-7 text-right select-none">
+                        {imageWidthNum}%
+                    </span>
+                    {isAttachedImage && (
                         <button
-                            key={width}
-                            onClick={() => handleResizeImage(width)}
-                            className={`text-xs px-2 py-1 rounded ${selectedImageWidth === width ? 'bg-bg-active text-text-primary' : 'text-text-muted hover:bg-bg-hover'}`}
-                            title={`Set image width to ${width}`}
+                            onClick={() => window.dispatchEvent(new Event('trigger-crop-image'))}
+                            className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
+                            title="Crop image"
                         >
-                            {width}
+                            Crop
                         </button>
-                    ))}
+                    )}
                     <button
                         onClick={removeSelectedImage}
                         className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-500/10"

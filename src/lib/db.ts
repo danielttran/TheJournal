@@ -178,6 +178,16 @@ export class DBManager {
                 CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
             )`,
+            `CREATE TABLE IF NOT EXISTS Attachment (
+                AttachmentID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                Filename TEXT NOT NULL,
+                MimeType TEXT NOT NULL,
+                Size INTEGER NOT NULL,
+                Data BLOB NOT NULL,
+                CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
             `CREATE INDEX IF NOT EXISTS "Idx_Entry_Parent" ON "Entry" ("ParentEntryID")`,
             `CREATE INDEX IF NOT EXISTS "Idx_Entry_Category_Date" ON "Entry" ("CategoryID", "CreatedDate")`,
             `CREATE INDEX IF NOT EXISTS "Idx_Category_User" ON "Category" ("UserID")`,
