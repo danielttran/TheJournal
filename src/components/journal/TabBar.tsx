@@ -76,33 +76,14 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
     const colorPickerRef = useRef<HTMLDivElement>(null);
     const { theme } = useTheme();
 
-    useEffect(() => {
-        if (!showColorPicker) return;
-        const handler = (e: MouseEvent) => {
-            if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
-                setShowColorPicker(false);
-            }
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [showColorPicker]);
+    useClickOutside(colorPickerRef, () => setShowColorPicker(false), showColorPicker);
+    useClickOutside(pickerRef, () => setShowPicker(false), showPicker);
 
     const style = {
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : 1,
     };
-
-    // Close picker when clicking outside
-    useEffect(() => {
-        function handleClickOutside(event: MouseEvent) {
-            if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
-                setShowPicker(false);
-            }
-        }
-        if (showPicker) document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [showPicker]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') handleSave();

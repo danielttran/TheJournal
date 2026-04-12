@@ -19,6 +19,7 @@ export interface Entry {
     IsExpanded?: boolean;
     IsLocked?: boolean;
     CreatedDate?: string;
+    ModifiedDate?: string;
     HtmlContent?: string;
     DocumentJson?: string | null;
     PreviewText?: string;

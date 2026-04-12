@@ -128,13 +128,45 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         // 2. Ownership check — quick pre-flight (authoritative re-check is inside the transaction)
         const ownerCheck = await db.prepare(`
-            SELECT 1 FROM Entry e
+            SELECT e.CategoryID FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
             WHERE e.EntryID = ? AND c.UserID = ?
-        `).get(entryId, userId);
+        `).get(entryId, userId) as { CategoryID: number } | undefined;
 
         if (!ownerCheck) {
             return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
+        }
+
+        // 2b. If parentEntryId is being set, validate it to prevent cycles and cross-category moves
+        if (parentEntryId !== undefined && parentEntryId !== null) {
+            if (parentEntryId === entryId) {
+                return NextResponse.json({ error: "An entry cannot be its own parent" }, { status: 400 });
+            }
+
+            const parentCheck = await db.prepare(`
+                SELECT e.CategoryID FROM Entry e
+                JOIN Category c ON e.CategoryID = c.CategoryID
+                WHERE e.EntryID = ? AND c.UserID = ? AND e.CategoryID = ?
+            `).get(parentEntryId, userId, ownerCheck.CategoryID) as { CategoryID: number } | undefined;
+
+            if (!parentCheck) {
+                return NextResponse.json({ error: "Parent entry not found or unauthorized" }, { status: 403 });
+            }
+
+            // Cycle guard: walk up from parentEntryId; if we reach entryId the move would loop
+            const cycle = await db.prepare(`
+                WITH RECURSIVE ancestors(id) AS (
+                    SELECT ParentEntryID FROM Entry WHERE EntryID = ?
+                    UNION ALL
+                    SELECT e.ParentEntryID FROM Entry e JOIN ancestors a ON e.EntryID = a.id
+                    WHERE a.id IS NOT NULL
+                )
+                SELECT 1 FROM ancestors WHERE id = ? LIMIT 1
+            `).get(parentEntryId, entryId) as any;
+
+            if (cycle) {
+                return NextResponse.json({ error: "Cannot set parent to a descendant" }, { status: 400 });
+            }
         }
 
         // 3. Perform version check + write atomically inside a single BEGIN IMMEDIATE
