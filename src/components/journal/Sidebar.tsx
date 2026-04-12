@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -158,6 +158,9 @@ const SortableNotebookItem = ({ entry, level, onSelect, onAddPage, onAddFolder, 
                         />
                     ) : (
                         <span className="truncate flex-1">{entry.Title || 'Untitled'}</span>
+                    )}
+                    {entry.IsLocked && !isEditing && (
+                        <Lock className={`w-3 h-3 ml-1 flex-shrink-0 ${isSelected ? 'text-white/70' : 'text-text-muted'}`} />
                     )}
                     {/* Loading indicator */}
                     {isLoading && loadingProgress !== null && (
@@ -548,6 +551,19 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         } catch (e) { /* silence */ }
     };
 
+    const handleToggleLock = async (id: number, currentlyLocked: boolean) => {
+        try {
+            await fetch(`/api/entry/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ isLocked: !currentlyLocked })
+            });
+            if (type === 'Notebook') fetchPages();
+            else fetchJournalEntries();
+        } catch (e) { /* silence */ }
+        setContextMenu(prev => ({ ...prev, visible: false }));
+    };
+
     const handleDelete = async (id: number) => {
         if (!confirm("Are you sure you want to delete this entry? This cannot be undone.")) return;
         try {
@@ -874,33 +890,60 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
 
             {/* Context Menu */}
             {
-                contextMenu.visible && (
-                    <div
-                        className="fixed z-50 bg-bg-card border border-border-primary rounded shadow-xl py-1 min-w-[160px]"
-                        style={{ top: contextMenu.y, left: contextMenu.x }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <button
-                            className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center hover:text-red-500"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(contextMenu.entryId!);
-                            }}
+                contextMenu.visible && (() => {
+                    const findEntry = (id: number, items: Entry[]): Entry | null => {
+                        for (const item of items) {
+                            if (item.EntryID === id) return item;
+                            if (item.children) { const f = findEntry(id, item.children); if (f) return f; }
+                        }
+                        return null;
+                    };
+                    const ctxEntry = type === 'Notebook'
+                        ? findEntry(contextMenu.entryId!, pages)
+                        : journalEntries.find(e => e.EntryID === contextMenu.entryId!) ?? null;
+                    const isLocked = ctxEntry?.IsLocked ?? false;
+
+                    return (
+                        <div
+                            className="fixed z-50 bg-bg-card border border-border-primary rounded shadow-xl py-1 min-w-[160px]"
+                            style={{ top: contextMenu.y, left: contextMenu.x }}
+                            onClick={(e) => e.stopPropagation()}
                         >
-                            <Trash className="w-4 h-4 mr-2" /> Delete
-                        </button>
-                        <button
-                            className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setContextMenu({ ...contextMenu, visible: false });
-                                setShowEmojiPicker(true);
-                            }}
-                        >
-                            <span className="mr-2">😊</span> Change Icon
-                        </button>
-                    </div>
-                )
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleLock(contextMenu.entryId!, isLocked);
+                                }}
+                            >
+                                {isLocked
+                                    ? <><LockOpen className="w-4 h-4 mr-2" /> Unlock</>
+                                    : <><Lock className="w-4 h-4 mr-2" /> Lock</>
+                                }
+                            </button>
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setContextMenu({ ...contextMenu, visible: false });
+                                    setShowEmojiPicker(true);
+                                }}
+                            >
+                                <span className="mr-2">😊</span> Change Icon
+                            </button>
+                            <div className="mx-3 my-1 border-t border-border-primary" />
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center hover:text-red-500"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(contextMenu.entryId!);
+                                }}
+                            >
+                                <Trash className="w-4 h-4 mr-2" /> Delete
+                            </button>
+                        </div>
+                    );
+                })()
             }
 
 

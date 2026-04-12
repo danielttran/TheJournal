@@ -86,7 +86,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const userId = parseInt(userIdCookie.value, 10);
 
         const body = await req.json();
-        const { name, icon, viewSettings, lastSelectedEntryId } = body;
+        const { name, icon, color, viewSettings, lastSelectedEntryId } = body;
+
+        // Validate color if provided (must be a valid CSS hex color)
+        if (color !== undefined && !/^#[0-9a-fA-F]{3,8}$/.test(color)) {
+            return NextResponse.json({ error: "Invalid color format" }, { status: 400 });
+        }
 
         // Construct dynamic update
         const simpleUpdates: string[] = [];
@@ -94,6 +99,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         if (name !== undefined) { simpleUpdates.push("Name = ?"); simpleValues.push(name); }
         if (icon !== undefined) { simpleUpdates.push("Icon = ?"); simpleValues.push(icon); }
+        if (color !== undefined) { simpleUpdates.push("Color = ?"); simpleValues.push(color); }
 
         const needsViewSettingsMerge = viewSettings !== undefined || lastSelectedEntryId !== undefined;
 

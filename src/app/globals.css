@@ -66,6 +66,37 @@ body {
   animation: slide-in 0.2s ease-out;
 }
 
+/* ── TipTap table styles ─────────────────────────────────────────────────── */
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75rem 0;
+  table-layout: fixed;
+  overflow: hidden;
+}
+.ProseMirror table td,
+.ProseMirror table th {
+  border: 1px solid var(--border-primary);
+  padding: 0.4rem 0.6rem;
+  min-width: 2rem;
+  vertical-align: top;
+  word-break: break-word;
+  position: relative;
+}
+.ProseMirror table th {
+  background: var(--bg-active);
+  font-weight: 600;
+  text-align: left;
+}
+.ProseMirror table .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-primary);
+  opacity: 0.12;
+  pointer-events: none;
+}
+
 
 
 @theme inline {

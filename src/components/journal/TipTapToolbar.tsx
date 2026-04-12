@@ -4,13 +4,26 @@ import {
     List, ListOrdered, CheckSquare,
     Quote, Highlighter,
     Image as ImageIcon, Link as LinkIcon, RemoveFormatting,
-    Undo, Redo, Minus, Upload
+    Undo, Redo, Minus, Upload, Table as TableIcon
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [showTableMenu, setShowTableMenu] = useState(false);
+    const tableMenuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!showTableMenu) return;
+        const handler = (e: MouseEvent) => {
+            if (tableMenuRef.current && !tableMenuRef.current.contains(e.target as Node)) {
+                setShowTableMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [showTableMenu]);
 
     const isSafeUrl = (url: string): boolean => {
         try {
@@ -31,7 +44,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             window.alert('Only http:// and https:// URLs are allowed.');
             return;
         }
-        editor.chain().focus().setImage({ src: url, width: '100%' }).run();
+        editor.chain().focus().setImage({ src: url, width: '100%' } as any).run();
     }, [editor]);
 
     const uploadImage = useCallback(async (file: File) => {
@@ -52,7 +65,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 throw new Error(data.error || 'Upload failed');
             }
 
-            editor.chain().focus().setImage({ src: data.url, width: '100%' }).run();
+            editor.chain().focus().setImage({ src: data.url, width: '100%' } as any).run();
         } catch (error) {
             console.error('Image upload failed', error);
             window.alert('Image upload failed. Please try again.');
@@ -230,6 +243,38 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <Minus className="w-4 h-4" />
             </button>
+
+            {/* Table button + context menu */}
+            <div className="relative" ref={tableMenuRef}>
+                <button
+                    onClick={() => setShowTableMenu(v => !v)}
+                    className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive('table') ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
+                    title="Table"
+                >
+                    <TableIcon className="w-4 h-4" />
+                </button>
+                {showTableMenu && (
+                    <div className="absolute top-full left-0 mt-1 z-[300] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[170px]">
+                        <button
+                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-text-primary"
+                            onClick={() => { editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(); setShowTableMenu(false); }}
+                        >
+                            Insert 3×3 table
+                        </button>
+                        {editor.isActive('table') && (
+                            <>
+                                <div className="mx-2 my-1 border-t border-border-primary" />
+                                <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-text-primary" onClick={() => { editor.chain().focus().addRowAfter().run(); setShowTableMenu(false); }}>Add row below</button>
+                                <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-text-primary" onClick={() => { editor.chain().focus().addColumnAfter().run(); setShowTableMenu(false); }}>Add column right</button>
+                                <div className="mx-2 my-1 border-t border-border-primary" />
+                                <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-red-400" onClick={() => { editor.chain().focus().deleteRow().run(); setShowTableMenu(false); }}>Delete row</button>
+                                <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-red-400" onClick={() => { editor.chain().focus().deleteColumn().run(); setShowTableMenu(false); }}>Delete column</button>
+                                <button className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-red-400" onClick={() => { editor.chain().focus().deleteTable().run(); setShowTableMenu(false); }}>Delete table</button>
+                            </>
+                        )}
+                    </div>
+                )}
+            </div>
 
             <div className="w-px h-4 bg-border-primary mx-1" />
 

@@ -21,6 +21,10 @@ import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { Color } from '@tiptap/extension-color';
 import { TextStyle } from '@tiptap/extension-text-style';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableCell } from '@tiptap/extension-table-cell';
+import { TableHeader } from '@tiptap/extension-table-header';
 
 // ─── Entry content cache ──────────────────────────────────────────────────────
 const entryContentCache = new Map<string, { html: string; documentJson: any; timestamp: number }>();
@@ -90,6 +94,7 @@ export default function Editor({
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
     const [isFloatingToolbar, setIsFloatingToolbar] = useState(false);
+    const [wordCount, setWordCount] = useState(0);
 
     const updateLoadingProgress = useCallback((entryId: number | null, progress: number | null) => {
         setLoadingProgress(progress);
@@ -123,6 +128,10 @@ export default function Editor({
         Superscript,
         TextStyle,
         Color,
+        Table.configure({ resizable: false }),
+        TableRow,
+        TableCell,
+        TableHeader,
         Placeholder.configure({ placeholder: 'Start writing...' })
     ], []);
 
@@ -131,9 +140,17 @@ export default function Editor({
     const editor1Ref = useRef<any>(null);
     const editor2Ref = useRef<any>(null);
 
+    const countWords = (html: string): number => {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        const text = (div.textContent || div.innerText || '').trim();
+        return text ? text.split(/\s+/).filter(Boolean).length : 0;
+    };
+
     const handleChange = useCallback((html: string, json: any, source: string) => {
         contentRef.current = html;
         documentJsonRef.current = json;
+        setWordCount(countWords(html));
 
         if (source === 'user') {
             if (!isDirtyRef.current) {
@@ -567,7 +584,8 @@ export default function Editor({
             
             contentRef.current = html;
             documentJsonRef.current = editor ? editor.getJSON() : json;
-            
+            setWordCount(countWords(html));
+
             updateLoadingProgress(null, null);
             isFullyLoadedRef.current = true;
         };
@@ -748,6 +766,11 @@ export default function Editor({
                         />
                     </div>
                     <div className="flex items-center ml-4 flex-shrink-0 gap-3">
+                        {wordCount > 0 && (
+                            <span className="text-[10px] text-text-muted tabular-nums select-none">
+                                {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
+                            </span>
+                        )}
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
                             <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${saveError ? 'bg-red-500' : saving ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`} />
                             {saveError ? 'Error Saving' : saving ? 'Saving' : 'Saved'}
