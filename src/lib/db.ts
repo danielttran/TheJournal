@@ -111,6 +111,8 @@ export class DBManager {
                         }
                         // Enable WAL mode so reads don't block writes (reduces concurrency errors)
                         tempDb.run('PRAGMA journal_mode = WAL');
+                        // Flush every transaction fully to disk before returning — maximum crash safety
+                        tempDb.run('PRAGMA synchronous = FULL');
                         // Enable foreign key enforcement
                         tempDb.run('PRAGMA foreign_keys = ON');
                         // Wait up to 5 seconds when a lock is held, reducing SQLITE_BUSY failures.

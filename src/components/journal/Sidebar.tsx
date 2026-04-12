@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen, Star } from 'lucide-react';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, addYears, subYears } from 'date-fns';
@@ -355,6 +355,45 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     const [activeDragId, setActiveDragId] = useState<number | null>(null);
     const [activeDragItem, setActiveDragItem] = useState<Entry | null>(null);
 
+    // ─── Data fetchers (hoisted & stable so useEffect deps are correct) ──────
+    const buildTree = useCallback((entries: Entry[]) => {
+        const map = new Map<number, Entry>();
+        const roots: Entry[] = [];
+        entries.forEach(e => map.set(e.EntryID, { ...e, children: [] }));
+        entries.forEach(e => {
+            if (e.ParentEntryID && map.has(e.ParentEntryID)) map.get(e.ParentEntryID)!.children!.push(map.get(e.EntryID)!);
+            else roots.push(map.get(e.EntryID)!);
+        });
+        const sortNodes = (nodes: Entry[]) => {
+            nodes.sort((a, b) => (a.SortOrder || 0) - (b.SortOrder || 0));
+            nodes.forEach(n => { if (n.children?.length) sortNodes(n.children); });
+        };
+        sortNodes(roots);
+        return roots;
+    }, []);
+
+    const fetchPages = useCallback(async () => {
+        try {
+            const res = await fetch(`/api/entry?categoryId=${categoryId}`, { cache: 'no-store' });
+            const data = await res.json();
+            if (Array.isArray(data)) setPages(prev => {
+                // Avoid a re-render if the data is identical (same entry IDs in same order)
+                const newIds = data.map((e: Entry) => e.EntryID).join(',');
+                const oldIds = prev.map(e => e.EntryID).join(',');
+                if (newIds === oldIds) return prev;
+                return buildTree(data);
+            });
+        } catch (e) { /* silence */ }
+    }, [categoryId, buildTree]);
+
+    const fetchJournalEntries = useCallback(async () => {
+        try {
+            const res = await fetch(`/api/entry/dates?categoryId=${categoryId}`, { cache: 'no-store' });
+            const data = await res.json();
+            if (Array.isArray(data)) setJournalEntries(data as Entry[]);
+        } catch (e) { /* silence */ }
+    }, [categoryId]);
+
 
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ visible: boolean; x: number; y: number; entryId: number | null }>({
@@ -410,21 +449,14 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     );
 
     useEffect(() => {
+        // Initial load when the category changes
         if (type === 'Notebook') fetchPages();
         else if (type === 'Journal') fetchJournalEntries();
 
-        let timeoutId: NodeJS.Timeout | null = null;
-
+        // Single-fetch on external update events (no duplicate delayed fetch)
         const handleUpdate = () => {
-            // Immediate fetch (fast)
             if (type === 'Notebook') fetchPages();
             if (type === 'Journal') fetchJournalEntries();
-
-            // Delayed fetch (catch race conditions) - tracked for cleanup
-            timeoutId = setTimeout(() => {
-                if (type === 'Notebook') fetchPages();
-                if (type === 'Journal') fetchJournalEntries();
-            }, 300);
         };
         window.addEventListener('journal-entry-updated', handleUpdate);
 
@@ -434,11 +466,10 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         document.addEventListener('click', handleClickOutside);
 
         return () => {
-            if (timeoutId) clearTimeout(timeoutId);
             window.removeEventListener('journal-entry-updated', handleUpdate);
             document.removeEventListener('click', handleClickOutside);
         };
-    }, [categoryId, type]);
+    }, [categoryId, type, fetchPages, fetchJournalEntries]);
 
     // Auto-select entry for notebooks (client-side to avoid flash)
     useEffect(() => {
@@ -501,37 +532,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         return () => abortController.abort();
     }, [type, urlEntryId, urlFolderId, pages, categoryId, router]);
 
-    const fetchPages = async () => {
-        try {
-            const res = await fetch(`/api/entry?categoryId=${categoryId}`, { cache: 'no-store' });
-            const data = await res.json();
-            if (Array.isArray(data)) setPages(buildTree(data));
-        } catch (e) { /* silence */ }
-    };
 
-    const buildTree = (entries: Entry[]) => {
-        const map = new Map<number, Entry>();
-        const roots: Entry[] = [];
-        entries.forEach(e => map.set(e.EntryID, { ...e, children: [] }));
-        entries.forEach(e => {
-            if (e.ParentEntryID && map.has(e.ParentEntryID)) map.get(e.ParentEntryID)!.children!.push(map.get(e.EntryID)!);
-            else roots.push(map.get(e.EntryID)!);
-        });
-        const sortNodes = (nodes: Entry[]) => {
-            nodes.sort((a, b) => (a.SortOrder || 0) - (b.SortOrder || 0));
-            nodes.forEach(n => { if (n.children?.length) sortNodes(n.children); });
-        };
-        sortNodes(roots);
-        return roots;
-    };
-
-    const fetchJournalEntries = async () => {
-        try {
-            const res = await fetch(`/api/entry/dates?categoryId=${categoryId}`, { cache: 'no-store' });
-            const data = await res.json();
-            if (Array.isArray(data)) setJournalEntries(data as Entry[]);
-        } catch (e) { /* silence */ }
-    };
 
     const handleContextMenu = (e: React.MouseEvent, entryId: number) => {
         e.preventDefault();

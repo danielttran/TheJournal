@@ -19,6 +19,77 @@ function getDatabasePath() {
         : path.join(app.getPath('userData'), 'journal.tjdb');
 }
 
+// ─── Backup Logic ─────────────────────────────────────────────────────────────
+// Extracted from before-quit so it can also be called on a recurring schedule.
+// Safe to call concurrently — if the DB file doesn't exist it fails gracefully.
+async function performAutoBackup() {
+    const fs = require('fs');
+    const s = settingsManager.getSettings();
+
+    console.log('[Electron] performAutoBackup: checking settings...');
+    if (!s.autoBackupOnClose || !s.backupPath) {
+        console.log('[Electron] performAutoBackup: disabled or no path set, skipping.');
+        return;
+    }
+
+    const dbPath = process.env.JOURNAL_DB_PATH || getDatabasePath();
+    console.log('[Electron] performAutoBackup: source DB =', dbPath);
+
+    if (!fs.existsSync(dbPath)) {
+        console.error('[Electron] ❌ performAutoBackup: source DB not found at:', dbPath);
+        return;
+    }
+
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupName = `backup-${timestamp}.tjdb`;
+
+        // DATA RETENTION LOGIC
+        const maxBackups = s.retentionCount > 0 ? s.retentionCount : 3;
+
+        if (!fs.existsSync(s.backupPath)) {
+            fs.mkdirSync(s.backupPath, { recursive: true });
+        }
+
+        // Collect all existing .tjdb backups and prune oldest if over limit
+        const files = fs.readdirSync(s.backupPath);
+        const tjdbFiles = [];
+        for (const file of files) {
+            if (file.endsWith('.tjdb')) {
+                const fullPath = path.join(s.backupPath, file);
+                const stat = fs.statSync(fullPath);
+                tjdbFiles.push({ name: file, path: fullPath, ctimeMs: stat.ctimeMs });
+            }
+        }
+        tjdbFiles.sort((a, b) => a.ctimeMs - b.ctimeMs);
+
+        while (tjdbFiles.length > (maxBackups - 1) && tjdbFiles.length > 0) {
+            const oldest = tjdbFiles.shift();
+            try {
+                fs.unlinkSync(oldest.path);
+                console.log(`[Electron] Deleted old backup: ${oldest.name}`);
+            } catch (e) {
+                console.error(`[Electron] Failed to delete old backup ${oldest.name}:`, e);
+            }
+        }
+
+        const dest = path.join(s.backupPath, backupName);
+        fs.copyFileSync(dbPath, dest);
+
+        // Copy WAL and SHM sidecars to ensure consistency
+        ['wal', 'shm'].forEach(suffix => {
+            const sidecar = `${dbPath}-${suffix}`;
+            if (fs.existsSync(sidecar)) {
+                fs.copyFileSync(sidecar, `${dest}-${suffix}`);
+            }
+        });
+
+        console.log('[Electron] ✅ Auto-backup SUCCESS at:', dest);
+    } catch (err) {
+        console.error('[Electron] ❌ Auto-backup FAILED:', err);
+    }
+}
+
 async function startServer() {
     // Set DB Path for Next.js and the renderer to use
     process.env.JOURNAL_DB_PATH = getDatabasePath();
@@ -346,6 +417,20 @@ app.whenReady().then(async () => {
             if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
         });
 
+        // ── Scheduled background backup ────────────────────────────────────────
+        // If auto-backup is enabled, run performAutoBackup every 6 hours so that
+        // long-running sessions are covered even if the machine never restarts.
+        const SIX_HOURS_MS = 6 * 60 * 60 * 1000; // 21_600_000 ms
+        const initialSettings = settingsManager.getSettings();
+        if (initialSettings.autoBackupOnClose) {
+            console.log('[Electron] Scheduling background backup every 6 hours.');
+            setInterval(() => {
+                performAutoBackup().catch(err =>
+                    console.error('[Electron] Background backup error:', err)
+                );
+            }, SIX_HOURS_MS);
+        }
+
     } catch (err) {
         console.error('Failed to start app:', err);
     }
@@ -364,69 +449,12 @@ app.on('will-quit', () => {
 });
 
 app.on('before-quit', (e) => {
-    console.log('[Electron] App closing, checking backup settings...');
-    const s = settingsManager.getSettings();
-    console.log('[Electron] Settings:', { autoBackup: s.autoBackupOnClose, path: s.backupPath });
-
-    if (s.autoBackupOnClose && s.backupPath) {
-        const fs = require('fs');
-        const dbPath = process.env.JOURNAL_DB_PATH || getDatabasePath();
-
-        console.log('[Electron] Attempting auto-backup from:', dbPath);
-
-        if (fs.existsSync(dbPath)) {
-            try {
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const backupName = `backup-${timestamp}.tjdb`;
-                
-                // DATA RETENTION LOGIC
-                const maxBackups = s.retentionCount > 0 ? s.retentionCount : 3;
-                
-                if (!fs.existsSync(s.backupPath)) {
-                    fs.mkdirSync(s.backupPath, { recursive: true });
-                }
-
-                // Fetch all .tjdb files
-                const files = fs.readdirSync(s.backupPath);
-                const tjdbFiles = [];
-                
-                for (const file of files) {
-                    if (file.endsWith('.tjdb')) {
-                        const fullPath = path.join(s.backupPath, file);
-                        const stat = fs.statSync(fullPath);
-                        tjdbFiles.push({ name: file, path: fullPath, ctimeMs: stat.ctimeMs });
-                    }
-                }
-                
-                tjdbFiles.sort((a, b) => a.ctimeMs - b.ctimeMs);
-                
-                while (tjdbFiles.length > (maxBackups - 1) && tjdbFiles.length > 0) {
-                    const oldest = tjdbFiles.shift();
-                    try {
-                        fs.unlinkSync(oldest.path);
-                        console.log(`[Electron] Deleted old backup: ${oldest.name}`);
-                    } catch (e) {
-                        console.error(`[Electron] Failed to delete old backup ${oldest.name}:`, e);
-                    }
-                }
-
-                const dest = path.join(s.backupPath, backupName);
-                fs.copyFileSync(dbPath, dest);
-                
-                // Also copy WAL and SHM files if they exist to ensure data consistency
-                ['wal', 'shm'].forEach(suffix => {
-                    const sidecar = `${dbPath}-${suffix}`;
-                    if (fs.existsSync(sidecar)) {
-                        fs.copyFileSync(sidecar, `${dest}-${suffix}`);
-                    }
-                });
-                
-                console.log('[Electron] ✅ Auto-backup SUCCESS at:', dest);
-            } catch (err) {
-                console.error('[Electron] ❌ Auto-backup FAILED:', err);
-            }
-        } else {
-            console.error('[Electron] ❌ Source DB not found at:', dbPath);
-        }
-    }
+    // Delegate to the shared performAutoBackup function.
+    // Note: before-quit fires synchronously so we cannot await here —
+    // the backup copy is synchronous (copyFileSync) and completes before
+    // the process exits under normal OS conditions.
+    console.log('[Electron] before-quit: triggering auto-backup...');
+    performAutoBackup().catch(err =>
+        console.error('[Electron] before-quit backup error:', err)
+    );
 });

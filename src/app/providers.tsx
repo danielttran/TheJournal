@@ -9,7 +9,13 @@ import GlobalIPCManager from "@/components/GlobalIPCManager";
 export function Providers({ children }: { children: React.ReactNode }) {
     return (
         <ErrorBoundary>
-            <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            <ThemeProvider
+                attribute="class"
+                defaultTheme="system"
+                enableSystem
+                disableTransitionOnChange={false}
+                scriptProps={{ suppressHydrationWarning: true }}
+            >
                 <LoadingProvider>
                     <ToastProvider>
                         <GlobalIPCManager />

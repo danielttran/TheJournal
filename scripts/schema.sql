@@ -4,7 +4,7 @@
 -- Run these PRAGMAs every time you connect to the database.
 PRAGMA foreign_keys = ON;  -- Enforce relationships (prevent orphans)
 PRAGMA journal_mode = WAL; -- Write-Ahead Logging (prevents corruption, allows concurrent reads)
-PRAGMA synchronous = NORMAL; -- Good balance of speed and safety in WAL mode
+PRAGMA synchronous = FULL; -- Maximum data safety: every commit is fully flushed to disk (slight write overhead)
 PRAGMA encoding = "UTF-8"; -- Ensure text is stored correctly
 
 BEGIN TRANSACTION;
