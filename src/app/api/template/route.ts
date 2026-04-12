@@ -19,7 +19,7 @@ export async function GET() {
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const templates = await db.prepare(`
-            SELECT TemplateID, Name, HtmlContent, QuillDelta, CreatedDate
+            SELECT TemplateID, Name, HtmlContent, QuillDelta, DocumentJson, CreatedDate
             FROM Template
             WHERE UserID = ?
             ORDER BY Name ASC
@@ -36,6 +36,7 @@ const CreateSchema = z.object({
     name: z.string().min(1).max(100),
     quillDelta: z.any().optional(),
     htmlContent: z.string().optional().default(''),
+    documentJson: z.any().optional(),
 });
 
 // POST /api/template — create a new template
@@ -45,12 +46,18 @@ export async function POST(req: NextRequest) {
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const body = await req.json();
-        const { name, quillDelta, htmlContent } = CreateSchema.parse(body);
+        const { name, quillDelta, htmlContent, documentJson } = CreateSchema.parse(body);
 
         const result = await db.prepare(`
-            INSERT INTO Template (UserID, Name, QuillDelta, HtmlContent)
-            VALUES (?, ?, ?, ?)
-        `).run(userId, name, quillDelta ? JSON.stringify(quillDelta) : null, htmlContent);
+            INSERT INTO Template (UserID, Name, QuillDelta, HtmlContent, DocumentJson)
+            VALUES (?, ?, ?, ?, ?)
+        `).run(
+            userId,
+            name,
+            quillDelta ? JSON.stringify(quillDelta) : null,
+            htmlContent,
+            documentJson ? (typeof documentJson === "string" ? documentJson : JSON.stringify(documentJson)) : null
+        );
 
         return NextResponse.json({ id: result.lastInsertRowid, name });
     } catch (error) {

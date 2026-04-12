@@ -68,6 +68,9 @@ CREATE TABLE "EntryContent" (
     -- The raw HTML (Optional). Useful for exporting to PDF/Web without Quill.
     "HtmlContent" TEXT,
 
+    -- TipTap JSON document structure (headless editor storage)
+    "DocumentJson" TEXT,
+
     FOREIGN KEY("EntryID") REFERENCES "Entry"("EntryID") ON DELETE CASCADE
 );
 

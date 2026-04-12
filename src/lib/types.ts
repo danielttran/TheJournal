@@ -19,6 +19,7 @@ export interface Entry {
     IsExpanded?: boolean;
     CreatedDate?: string;
     HtmlContent?: string;
+    DocumentJson?: string | null;
     PreviewText?: string;
     children?: Entry[];
 }

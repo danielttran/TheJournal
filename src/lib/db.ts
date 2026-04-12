@@ -159,6 +159,7 @@ export class DBManager {
                 EntryID INTEGER PRIMARY KEY,
                 QuillDelta TEXT,
                 HtmlContent TEXT,
+                DocumentJson TEXT,
                 FOREIGN KEY (EntryID) REFERENCES Entry(EntryID) ON DELETE CASCADE
             )`,
             `CREATE VIRTUAL TABLE IF NOT EXISTS EntrySearch USING fts5(
@@ -173,6 +174,7 @@ export class DBManager {
                 Name TEXT NOT NULL,
                 QuillDelta TEXT,
                 HtmlContent TEXT,
+                DocumentJson TEXT,
                 CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
             )`,
@@ -196,6 +198,8 @@ export class DBManager {
             `DROP INDEX IF EXISTS "Idx_Entry_Journal_UniqueDate"`,
             // Add PasswordHash column to User table (nullable so legacy accounts still work)
             `ALTER TABLE User ADD COLUMN PasswordHash TEXT`,
+            `ALTER TABLE EntryContent ADD COLUMN DocumentJson TEXT`,
+            `ALTER TABLE Template ADD COLUMN DocumentJson TEXT`,
         ];
         for (const migration of migrations) {
             await new Promise<void>((res) => this.instance!.run(migration, () => res()));

@@ -159,6 +159,7 @@ export default function Editor({
     // Refs for Data Safety
     const contentRef = useRef('');
     const deltaRef = useRef<any>(null);
+    const documentJsonRef = useRef<any>(null);
     const entryIdRef = useRef<number | null>(null);
     const isDirtyRef = useRef(false);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -246,6 +247,145 @@ export default function Editor({
         };
     }, [isDistractionFree, onToggleSplitMode, onOpenSearch]);
 
+    const undoHandler = useCallback(() => {
+        try { quillRef.current?.getEditor().history.undo(); } catch { }
+    }, []);
+
+    const redoHandler = useCallback(() => {
+        try { quillRef.current?.getEditor().history.redo(); } catch { }
+    }, []);
+
+    const inlineCodeHandler = useCallback(() => {
+        try { quillRef.current?.getEditor().format('code', true, 'user'); } catch { }
+    }, []);
+
+    const checklistHandler = useCallback(() => {
+        try { quillRef.current?.getEditor().format('list', 'check', 'user'); } catch { }
+    }, []);
+
+    const highlightHandler = useCallback(() => {
+        if (!quillRef.current) return;
+        try {
+            const quill = quillRef.current.getEditor();
+            const range = quill.getSelection(true);
+            if (!range) return;
+            const current = quill.getFormat(range);
+            const next = current.background === '#fff59d' ? false : '#fff59d';
+            quill.format('background', next, 'user');
+        } catch { }
+    }, []);
+
+    const hrHandler = useCallback(() => {
+        if (!quillRef.current) return;
+        try {
+            const quill = quillRef.current.getEditor();
+            const range = quill.getSelection(true);
+            quill.insertText(range.index, '\n──────────\n', 'user');
+        } catch { }
+    }, []);
+
+    const tableHandler = useCallback(() => {
+        if (!quillRef.current) return;
+        try {
+            const quill = quillRef.current.getEditor();
+            const range = quill.getSelection(true);
+            quill.clipboard.dangerouslyPasteHTML(
+                range.index,
+                '<table><tbody><tr><th>Header 1</th><th>Header 2</th></tr><tr><td>Cell 1</td><td>Cell 2</td></tr></tbody></table><p><br/></p>',
+                'user'
+            );
+        } catch { }
+    }, []);
+
+    const mentionHandler = useCallback(() => {
+        if (!quillRef.current) return;
+        const mention = window.prompt('Insert mention (without @):');
+        if (!mention) return;
+        try {
+            const quill = quillRef.current.getEditor();
+            const range = quill.getSelection(true);
+            quill.insertText(range.index, `@${mention.trim()} `, 'user');
+        } catch { }
+    }, []);
+
+    const emojiHandler = useCallback(() => {
+        if (!quillRef.current) return;
+        const emoji = window.prompt('Insert emoji:', '😀');
+        if (!emoji) return;
+        try {
+            const quill = quillRef.current.getEditor();
+            const range = quill.getSelection(true);
+            quill.insertText(range.index, emoji, 'user');
+        } catch { }
+    }, []);
+
+    const slashHandler = useCallback(() => {
+        if (!quillRef.current) return;
+        const cmd = window.prompt('Slash command: h1, h2, todo, quote, code, hr, table');
+        if (!cmd) return;
+        const normalized = cmd.trim().toLowerCase();
+        const quill = quillRef.current.getEditor();
+
+        if (normalized === 'h1') return quill.format('header', 1, 'user');
+        if (normalized === 'h2') return quill.format('header', 2, 'user');
+        if (normalized === 'todo') return quill.format('list', 'check', 'user');
+        if (normalized === 'quote') return quill.format('blockquote', true, 'user');
+        if (normalized === 'code') return quill.format('code-block', true, 'user');
+        if (normalized === 'hr') return hrHandler();
+        if (normalized === 'table') return tableHandler();
+    }, [hrHandler, tableHandler]);
+
+    const imageToolsHandler = useCallback(() => {
+        if (!quillRef.current) return;
+        try {
+            const quill = quillRef.current.getEditor();
+            const range = quill.getSelection(true);
+            if (!range) return;
+            const [leaf] = quill.getLeaf(range.index);
+            const node = leaf?.domNode as HTMLElement | undefined;
+            if (!node || node.tagName !== 'IMG') {
+                alert('Place the cursor on an image first.');
+                return;
+            }
+            const image = node as HTMLImageElement;
+            const width = window.prompt('Image width in px (empty = auto):', image.style.width.replace('px', ''));
+            const caption = window.prompt('Caption / alt text:', image.alt || '');
+
+            if (width !== null) {
+                image.style.width = width.trim() ? `${width.trim()}px` : '';
+                image.style.maxWidth = '100%';
+                image.style.height = 'auto';
+            }
+            if (caption !== null) {
+                image.alt = caption;
+                image.title = caption;
+            }
+        } catch {
+            alert('Unable to update image properties.');
+        }
+    }, []);
+
+    useEffect(() => {
+        const eventMap: Array<[string, () => void]> = [
+            ['trigger-undo', undoHandler],
+            ['trigger-redo', redoHandler],
+            ['trigger-inline-code', inlineCodeHandler],
+            ['trigger-checklist', checklistHandler],
+            ['trigger-highlight', highlightHandler],
+            ['trigger-hr', hrHandler],
+            ['trigger-table', tableHandler],
+            ['trigger-mention', mentionHandler],
+            ['trigger-emoji', emojiHandler],
+            ['trigger-slash', slashHandler],
+            ['trigger-image-tools', imageToolsHandler],
+        ];
+
+        eventMap.forEach(([event, handler]) => window.addEventListener(event, handler));
+        return () => {
+            eventMap.forEach(([event, handler]) => window.removeEventListener(event, handler));
+        };
+    }, [checklistHandler, emojiHandler, highlightHandler, hrHandler, imageToolsHandler, inlineCodeHandler, mentionHandler, redoHandler, slashHandler, tableHandler, undoHandler]);
+
     // entryIdRef is kept in sync by setting it directly alongside every setEntryId() call.
     // Do NOT rely purely on a useEffect for this — there is a render-cycle gap where
     // the ref is stale (null) even though state has the new ID. Fast switching in that
@@ -255,7 +395,7 @@ export default function Editor({
     // to avoid re-reading refs that may point to a different note after a switch.
     const performSave = useCallback(async (
         id: number, isAutoSave = false, retryCount = 0,
-        snapshot?: { delta: any; html: string; version: number | null }
+        snapshot?: { delta: any; html: string; documentJson: any; version: number | null }
     ): Promise<boolean> => {
         if (!isFullyLoadedRef.current) {
             console.warn("Save blocked: Editor not fully loaded");
@@ -288,10 +428,10 @@ export default function Editor({
                 delta = { ops: [{ insert: html }] };
             }
 
-            snapshot = { delta, html: html || '', version: versionRef.current };
+            snapshot = { delta, html: html || '', documentJson: documentJsonRef.current, version: versionRef.current };
         }
 
-        const { delta, html, version } = snapshot;
+        const { delta, html, documentJson, version } = snapshot;
 
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html || '';
@@ -310,6 +450,7 @@ export default function Editor({
                 body: JSON.stringify({
                     content: delta,
                     html: html,
+                    documentJson: documentJson,
                     title: derivedTitle,
                     preview: derivedPreview,
                     expectedVersion: version ?? undefined
@@ -360,6 +501,7 @@ export default function Editor({
                     entryId: id,
                     content: snapshot.html,
                     delta: snapshot.delta,
+                    documentJson: snapshot.documentJson,
                     timestamp: Date.now()
                 }));
             } catch (e) { /* localStorage might be full, but we tried */ }
@@ -376,6 +518,7 @@ export default function Editor({
         // ALWAYS update refs on every change
         contentRef.current = editor.getHTML();
         deltaRef.current = editor.getContents();
+        documentJsonRef.current = null;
 
         if (source === 'user') {
             // ALWAYS mark dirty on user input — even during loading.
@@ -413,6 +556,7 @@ export default function Editor({
                     entryId: entryIdRef.current,
                     content: contentRef.current,
                     delta: deltaRef.current,
+                    documentJson: documentJsonRef.current,
                     timestamp: Date.now()
                 }));
             }
@@ -422,7 +566,7 @@ export default function Editor({
 
     // Build the JSON payload for a save, given snapshotted data.
     // Extracted so both flushPendingSave and beforeunload/sendBeacon can use it.
-    const buildSavePayload = (id: number, delta: any, html: string, version: number | null) => {
+    const buildSavePayload = (id: number, delta: any, html: string, documentJson: any, version: number | null) => {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = html || '';
         const plainText = tempDiv.textContent || tempDiv.innerText || '';
@@ -434,6 +578,7 @@ export default function Editor({
             body: {
                 content: delta && (delta.ops ? delta : { ops: [{ insert: html }] }),
                 html: html,
+                documentJson: documentJson,
                 title: derivedTitle,
                 preview: derivedPreview,
                 expectedVersion: version ?? undefined
@@ -455,7 +600,7 @@ export default function Editor({
         if (!delta && html) {
             delta = { ops: [{ insert: html }] };
         }
-        return { delta, html };
+        return { delta, html, documentJson: documentJsonRef.current };
     };
 
     // Flush any pending save using captured ref data before switching notes.
@@ -471,7 +616,7 @@ export default function Editor({
         // and must be saved before switching to avoid data loss.
         if (isDirtyRef.current && entryIdRef.current) {
             const id = entryIdRef.current;
-            const { delta, html } = snapshotEditorState();
+            const { delta, html, documentJson } = snapshotEditorState();
             const currentCacheKey = cacheKeyRef.current;
             const version = versionRef.current; // Snapshot before reset
 
@@ -480,6 +625,7 @@ export default function Editor({
                 entryId: id,
                 content: html,
                 delta: delta,
+                documentJson: documentJsonRef.current,
                 timestamp: Date.now()
             }));
 
@@ -496,7 +642,7 @@ export default function Editor({
 
             console.log(`[Editor] FLUSHING entry ${id} (isDirty: ${isDirtyRef.current}) | CacheKey: ${currentCacheKey} | HTML: ${html.length} chars`);
 
-            const { url, body } = buildSavePayload(id, delta, html, version);
+            const { url, body } = buildSavePayload(id, delta, html, documentJson, version);
 
             // Attempt save with retry on failure
             const attemptSave = (attempt: number) => {
@@ -586,6 +732,7 @@ export default function Editor({
         if (isSyncingRef.current) return;
         contentRef.current = editor.getHTML();
         deltaRef.current = editor.getContents();
+        documentJsonRef.current = null;
 
         if (source === 'user') {
             if (!isDirtyRef.current) {
@@ -616,14 +763,15 @@ export default function Editor({
             if (!isDirtyRef.current || !entryIdRef.current || !isFullyLoadedRef.current) return;
 
             const id = entryIdRef.current;
-            const { delta, html } = snapshotEditorState();
-            const { url, body } = buildSavePayload(id, delta, html, versionRef.current);
+            const { delta, html, documentJson } = snapshotEditorState();
+            const { url, body } = buildSavePayload(id, delta, html, documentJson, versionRef.current);
 
             // Always write localStorage backup first — this is synchronous and guaranteed
             localStorage.setItem('editor_backup', JSON.stringify({
                 entryId: id,
                 content: html,
                 delta: delta,
+                documentJson: documentJsonRef.current,
                 timestamp: Date.now()
             }));
 
@@ -831,6 +979,7 @@ export default function Editor({
         isDirtyRef.current = false;
         contentRef.current = '';
         deltaRef.current = null;
+        documentJsonRef.current = null;
         versionRef.current = null;
         setIsNewEntry(false);
 
@@ -918,6 +1067,7 @@ export default function Editor({
                     const loadedId = data.EntryID || data.id;
                     let loadedHtml = data.HtmlContent || data.html || '';
                     let loadedDelta = null;
+                    let loadedDocumentJson = data.DocumentJson || data.documentJson || null;
 
                     if (data.QuillDelta) {
                         try {
@@ -946,6 +1096,7 @@ export default function Editor({
                                     console.warn(`RECOVERY: Using localStorage backup for entry ${loadedId} (backup: ${backupLen} chars, server: ${serverLen} chars)`);
                                     loadedHtml = backup.content;
                                     loadedDelta = backup.delta || null;
+                                    loadedDocumentJson = backup.documentJson || loadedDocumentJson;
                                     // Mark as dirty so it gets saved to server
                                     isDirtyRef.current = true;
                                 }
@@ -961,6 +1112,7 @@ export default function Editor({
                     }
 
                     // Always cache the fetched content (even if user switched away)
+                    documentJsonRef.current = loadedDocumentJson;
                     cacheEntry(cacheKey, loadedHtml, loadedDelta);
 
                     console.log("Loaded entry:", loadedId, "Delta ops:", loadedDelta?.ops?.length || 0, "HTML length:", loadedHtml.length);
@@ -1043,6 +1195,9 @@ export default function Editor({
         try {
             const quill = quillRef.current.getEditor();
             let delta: any = null;
+            if (template.DocumentJson) {
+                try { documentJsonRef.current = JSON.parse(template.DocumentJson); } catch { documentJsonRef.current = null; }
+            }
             if (template.QuillDelta) {
                 try { delta = JSON.parse(template.QuillDelta); } catch { /* fall through to html */ }
             }
@@ -1083,6 +1238,7 @@ export default function Editor({
                         const quill = quillRef.current.getEditor();
                         const range = quill.getSelection(true);
                         quill.insertEmbed(range.index, 'image', data.url);
+                        documentJsonRef.current = null;
                     }
                 } catch (e) {
                     console.error('Image upload failed', e);
@@ -1099,19 +1255,36 @@ export default function Editor({
                 [{ 'font': [] }, { 'size': [false, '8px', '9px', '10px', '11px', '12px', '14px', '16px', '18px', '20px', '22px', '24px', '26px', '28px', '36px', '48px', '72px'] }],
                 [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
                 ['bold', 'italic', 'underline', 'strike'],
+                ['code'],
                 [{ 'color': [] }, { 'background': [] }],
                 [{ 'script': 'sub' }, { 'script': 'super' }],
                 [{ 'header': 1 }, { 'header': 2 }, 'blockquote', 'code-block'],
-                [{ 'list': 'ordered' }, { 'list': 'bullet' }, { 'indent': '-1' }, { 'indent': '+1' }],
+                [{ 'list': 'ordered' }, { 'list': 'bullet' }, { 'list': 'check' }, { 'indent': '-1' }, { 'indent': '+1' }],
                 [{ 'direction': 'rtl' }, { 'align': [] }],
+                ['undo', 'redo', 'highlight', 'hr'],
+                ['table', 'mention', 'emoji', 'slash', 'imageTools'],
                 ['link', 'image', 'video', 'formula'],
                 ['clean']
             ],
             handlers: {
-                image: imageHandler
+                image: imageHandler,
+                undo: undoHandler,
+                redo: redoHandler,
+                highlight: highlightHandler,
+                hr: hrHandler,
+                table: tableHandler,
+                mention: mentionHandler,
+                emoji: emojiHandler,
+                slash: slashHandler,
+                imageTools: imageToolsHandler,
             }
         },
-    }), [imageHandler]);
+        history: {
+            delay: 1000,
+            maxStack: 300,
+            userOnly: true,
+        },
+    }), [emojiHandler, highlightHandler, hrHandler, imageHandler, imageToolsHandler, mentionHandler, redoHandler, slashHandler, tableHandler, undoHandler]);
 
     // Bottom pane has no toolbar — just a plain editable area
     const modules2 = useMemo(() => ({ toolbar: false }), []);
@@ -1156,6 +1329,15 @@ export default function Editor({
                 }
                 .ql-snow .ql-picker.ql-size { width: 70px; }
                 .ql-toolbar { flex-shrink: 0; }
+                .ql-toolbar .ql-undo::before { content: '↶'; font-size: 15px; }
+                .ql-toolbar .ql-redo::before { content: '↷'; font-size: 15px; }
+                .ql-toolbar .ql-highlight::before { content: 'H'; font-weight: 700; }
+                .ql-toolbar .ql-hr::before { content: '―'; font-size: 16px; }
+                .ql-toolbar .ql-table::before { content: '▦'; font-size: 14px; }
+                .ql-toolbar .ql-mention::before { content: '@'; font-weight: 700; }
+                .ql-toolbar .ql-emoji::before { content: '😊'; font-size: 12px; }
+                .ql-toolbar .ql-slash::before { content: '/'; font-size: 14px; font-weight: 700; }
+                .ql-toolbar .ql-imageTools::before { content: '🖼'; font-size: 12px; }
 
                 /* Distraction-free mode overrides */
                 .df-toolbar-hidden .ql-toolbar.ql-snow {
@@ -1251,6 +1433,7 @@ export default function Editor({
                     }}
                     currentHtml={isFullyLoadedRef.current ? contentRef.current : undefined}
                     currentDelta={isFullyLoadedRef.current ? deltaRef.current : undefined}
+                    currentDocumentJson={isFullyLoadedRef.current ? documentJsonRef.current : undefined}
                 />
             )}
 

@@ -466,6 +466,18 @@ export default function TabBar({ userId }: { userId: string }) {
                                     <kbd className="text-[10px] opacity-70 font-sans">Ctrl+\\</kbd>
                                 </button>
                                 <div className="border-t border-border-primary my-1"></div>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-undo')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Undo</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-redo')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Redo</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-inline-code')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Inline Code</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-checklist')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Checklist</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-highlight')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Highlight</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-hr')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Horizontal Rule</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-table')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Insert Table</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-mention')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Insert Mention</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-emoji')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Insert Emoji</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-slash')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Slash Command…</button>
+                                <button onClick={() => { window.dispatchEvent(new CustomEvent('trigger-image-tools')); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Image Tools</button>
+                                <div className="border-t border-border-primary my-1"></div>
                                 <button
                                     onClick={() => {
                                         setTheme(theme === 'dark' ? 'light' : 'dark');
