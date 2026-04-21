@@ -4,13 +4,15 @@ import {
     List, ListOrdered, CheckSquare,
     Quote, Highlighter,
     Image as ImageIcon, Link as LinkIcon, RemoveFormatting,
-    Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles
+    Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles, ChevronDown
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [lastTextColor, setLastTextColor] = useState('#ffffff');
+    const [lastHighlightColor, setLastHighlightColor] = useState('#ffff00');
     const [showTableMenu, setShowTableMenu] = useState(false);
     const [tableHover, setTableHover] = useState({ r: 0, c: 0 });
     const [gridSize, setGridSize] = useState({ r: 10, c: 10 });
@@ -151,6 +153,103 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 accept="image/*"
                 onChange={handleFileChange}
             />
+
+            <select
+                onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                        editor.chain().focus().unsetFontFamily().run();
+                    } else {
+                        editor.chain().focus().setFontFamily(val).run();
+                    }
+                }}
+                value={editor.getAttributes('textStyle').fontFamily || ''}
+                className="p-1 px-1.5 text-xs bg-transparent border border-border-primary rounded hover:bg-bg-hover text-text-primary outline-none focus:ring-1 focus:ring-[color:var(--color-accent-primary)]"
+                title="Font Family"
+            >
+                <option value="">Default Font</option>
+                <option value="Inter, sans-serif">Inter</option>
+                <option value="Arial, sans-serif">Arial</option>
+                <option value="'Comic Sans MS', cursive">Comic Sans</option>
+                <option value="'Courier New', monospace">Courier New</option>
+                <option value="Georgia, serif">Georgia</option>
+                <option value="'Times New Roman', serif">Times Roman</option>
+                <option value="'Trebuchet MS', sans-serif">Trebuchet</option>
+                <option value="Verdana, sans-serif">Verdana</option>
+            </select>
+
+            <select
+                onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '') {
+                        editor.chain().focus().unsetFontSize().run();
+                    } else {
+                        editor.chain().focus().setFontSize(val).run();
+                    }
+                }}
+                value={editor.getAttributes('textStyle').fontSize || ''}
+                className="p-1 px-1.5 text-xs bg-transparent border border-border-primary rounded hover:bg-bg-hover text-text-primary outline-none focus:ring-1 focus:ring-[color:var(--color-accent-primary)]"
+                title="Font Size"
+            >
+                <option value="">Size</option>
+                <option value="12px">12</option>
+                <option value="14px">14</option>
+                <option value="16px">16</option>
+                <option value="18px">18</option>
+                <option value="20px">20</option>
+                <option value="24px">24</option>
+                <option value="28px">28</option>
+                <option value="32px">32</option>
+                <option value="36px">36</option>
+            </select>
+
+            <div className="flex flex-row items-stretch border border-transparent hover:border-border-primary rounded bg-transparent group ml-1">
+                <button
+                    onClick={() => editor.chain().focus().setColor(lastTextColor).run()}
+                    className="flex flex-col items-center justify-center p-1 w-7 h-7 rounded-l hover:bg-bg-hover"
+                    title="Text Color"
+                >
+                    <span className="font-bold font-serif text-[13px] leading-none text-text-muted mt-[1px] pointer-events-none">A</span>
+                    <div className="w-[14px] h-[3px] mt-[1px] rounded-sm pointer-events-none border border-black/20" style={{ backgroundColor: lastTextColor }} />
+                </button>
+                <div className="relative flex items-center justify-center px-0.5 rounded-r hover:bg-bg-hover cursor-pointer" title="Choose Text Color">
+                    <input
+                        type="color"
+                        onChange={(e) => {
+                            setLastTextColor(e.target.value);
+                            editor.chain().focus().setColor(e.target.value).run();
+                        }}
+                        value={lastTextColor}
+                        className="w-4 h-full p-0 border-0 rounded cursor-pointer opacity-0 absolute inset-0 z-10"
+                    />
+                    <ChevronDown className="w-3 h-3 text-text-muted pointer-events-none" />
+                </div>
+            </div>
+
+            <div className="flex flex-row items-stretch border border-transparent hover:border-border-primary rounded bg-transparent group">
+                <button
+                    onClick={() => editor.chain().focus().toggleHighlight({ color: lastHighlightColor }).run()}
+                    className="flex flex-col items-center justify-center p-1 w-7 h-7 rounded-l hover:bg-bg-hover"
+                    title="Text Background Color"
+                >
+                    <Highlighter className="w-3.5 h-3.5 text-text-muted pointer-events-none" />
+                    <div className="w-[14px] h-[3px] mt-[1px] rounded-sm pointer-events-none border border-black/20" style={{ backgroundColor: lastHighlightColor }} />
+                </button>
+                <div className="relative flex items-center justify-center px-0.5 rounded-r hover:bg-bg-hover cursor-pointer" title="Choose Background Color">
+                    <input
+                        type="color"
+                        onChange={(e) => {
+                            setLastHighlightColor(e.target.value);
+                            editor.chain().focus().setHighlight({ color: e.target.value }).run();
+                        }}
+                        value={lastHighlightColor}
+                        className="w-4 h-full p-0 border-0 rounded cursor-pointer opacity-0 absolute inset-0 z-10"
+                    />
+                    <ChevronDown className="w-3 h-3 text-text-muted pointer-events-none" />
+                </div>
+            </div>
+
+            <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
                 onClick={() => editor.chain().focus().toggleBold().run()}
@@ -318,14 +417,6 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             </div>
 
             <div className="w-px h-4 bg-border-primary mx-1" />
-
-            <button
-                onClick={() => editor.chain().focus().toggleHighlight().run()}
-                className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive('highlight') ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
-                title="Highlight"
-            >
-                <Highlighter className="w-4 h-4" />
-            </button>
 
             <button
                 onClick={addImageFromUrl}

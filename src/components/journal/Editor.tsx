@@ -24,6 +24,8 @@ import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { Color } from '@tiptap/extension-color';
 import { TextStyle } from '@tiptap/extension-text-style';
+import FontFamily from '@tiptap/extension-font-family';
+import { FontSize } from './extensions/FontSize';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
@@ -155,11 +157,13 @@ export default function Editor({
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
         TaskList,
         TaskItem.configure({ nested: true }),
-        Highlight,
+        Highlight.configure({ multicolor: true }),
         Subscript,
         Superscript,
         TextStyle,
         Color,
+        FontFamily,
+        FontSize,
         Table.configure({ resizable: false }),
         TableRow,
         TableCell,
