@@ -18,6 +18,7 @@ type Params = { params: Promise<{ id: string }> };
 export const PUT = authedHandler<[NextRequest, Params]>('PUT /api/topic/[id]', async (userId, req, { params }) => {
     const { id } = await params;
     const topicId = parseInt(id, 10);
+    if (!Number.isFinite(topicId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
     const body = await req.json();
     const parsed = UpdateSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
@@ -32,6 +33,8 @@ export const PUT = authedHandler<[NextRequest, Params]>('PUT /api/topic/[id]', a
 
 export const DELETE = authedHandler<[NextRequest, Params]>('DELETE /api/topic/[id]', async (userId, _req, { params }) => {
     const { id } = await params;
-    await deleteTopic(dbManager, userId, parseInt(id, 10));
+    const topicId = parseInt(id, 10);
+    if (!Number.isFinite(topicId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+    await deleteTopic(dbManager, userId, topicId);
     return NextResponse.json({ success: true });
 });

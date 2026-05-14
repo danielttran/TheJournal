@@ -24,6 +24,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         const { id } = await params;
         const templateId = parseInt(id, 10);
+        if (!Number.isFinite(templateId)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
         const existing = await db.prepare(
             'SELECT 1 FROM Template WHERE TemplateID = ? AND UserID = ?'
@@ -66,6 +67,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
         const { id } = await params;
         const templateId = parseInt(id, 10);
+        if (!Number.isFinite(templateId)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
         const result = await db.prepare(
             'DELETE FROM Template WHERE TemplateID = ? AND UserID = ?'

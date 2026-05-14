@@ -406,6 +406,10 @@ export default function Editor({
         const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
         const derivedPreview = plainText.substring(0, 200);
 
+        // Snapshot the cache key here so an in-flight save for entry A can't
+        // write A's content into B's cache slot if the user navigates mid-save.
+        const cacheKeyAtSave = cacheKeyRef.current;
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
 
@@ -430,15 +434,18 @@ export default function Editor({
                 isDirtyRef.current = false;
                 localStorage.removeItem('editor_backup');
                 cacheEntry(`entry-${id}`, html, documentJson);
-                if (cacheKeyRef.current && cacheKeyRef.current !== `entry-${id}`) {
-                    cacheEntry(cacheKeyRef.current, html, documentJson);
+                if (cacheKeyAtSave && cacheKeyAtSave !== `entry-${id}` && cacheKeyAtSave === cacheKeyRef.current) {
+                    cacheEntry(cacheKeyAtSave, html, documentJson);
                 }
                 return true;
             }
             if (res.status === 409) {
                 setSaveError(true);
                 entryContentCache.delete(`entry-${id}`);
-                if (cacheKeyRef.current) entryContentCache.delete(cacheKeyRef.current);
+                if (cacheKeyAtSave) entryContentCache.delete(cacheKeyAtSave);
+                // Surface stale-version state by clearing the in-memory version
+                // so the next save round-trips and refreshes before retrying.
+                versionRef.current = null;
                 return false;
             }
             throw new Error(`HTTP ${res.status}`);
@@ -595,15 +602,13 @@ export default function Editor({
                 timestamp: Date.now()
             }));
 
+            // sendBeacon issues a POST (route aliases POST → PUT) and is the
+            // only reliable way to ship data during unload. Modern browsers
+            // block sync XHR in beforeunload and Chrome warns/freezes the tab —
+            // so if the beacon is rejected (e.g. > 64KB payload limit) we rely
+            // on the localStorage backup written above and recover on reopen.
             const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
-            if (!navigator.sendBeacon(url, blob)) {
-                try {
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('PUT', url, false);
-                    xhr.setRequestHeader('Content-Type', 'application/json');
-                    xhr.send(JSON.stringify(body));
-                } catch (e) { }
-            }
+            navigator.sendBeacon(url, blob);
 
             isDirtyRef.current = false;
             e.preventDefault();

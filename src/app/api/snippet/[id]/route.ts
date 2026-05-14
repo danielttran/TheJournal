@@ -17,6 +17,7 @@ type Params = { params: Promise<{ id: string }> };
 export const PUT = authedHandler<[NextRequest, Params]>('PUT /api/snippet/[id]', async (userId, req, { params }) => {
     const { id } = await params;
     const snippetId = parseInt(id, 10);
+    if (!Number.isFinite(snippetId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
     const body = await req.json();
     const parsed = UpdateSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
@@ -28,6 +29,8 @@ export const PUT = authedHandler<[NextRequest, Params]>('PUT /api/snippet/[id]',
 
 export const DELETE = authedHandler<[NextRequest, Params]>('DELETE /api/snippet/[id]', async (userId, _req, { params }) => {
     const { id } = await params;
-    await deleteSnippet(dbManager, userId, parseInt(id, 10));
+    const snippetId = parseInt(id, 10);
+    if (!Number.isFinite(snippetId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+    await deleteSnippet(dbManager, userId, snippetId);
     return NextResponse.json({ success: true });
 });

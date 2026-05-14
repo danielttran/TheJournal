@@ -35,34 +35,38 @@ export async function login(prevState: unknown, formData: FormData) {
     }
 
     try {
-        console.log(`[Action:Login] Attempting login for: ${validatedFields.data.username}`);
-
         // Unlock DB with fixed app key (never changes, never locks)
         await dbManager.unlock(getAppDbKey());
 
-        const user = await db.prepare('SELECT * FROM User WHERE Username = ?').get(validatedFields.data.username) as any;
+        const user = await db.prepare('SELECT * FROM User WHERE Username = ?').get(validatedFields.data.username) as { UserID: number; PasswordHash: string | null } | undefined;
 
         if (!user) {
-            console.warn("[Action:Login] User not found");
             return { message: "Invalid credentials." };
         }
 
-        // Verify password against stored hash
         if (user.PasswordHash) {
             const ok = await verifyPassword(user.PasswordHash, validatedFields.data.password);
             if (!ok) {
-                console.warn("[Action:Login] Bad password");
                 return { message: "Invalid credentials." };
             }
+        } else {
+            // Legacy account migration: a pre-migration row with no PasswordHash
+            // is claimed by the first login by hashing and storing the supplied
+            // password. Without this, NULL hash would silently accept any
+            // password (an auth-bypass vector). After this branch runs, the
+            // account requires the same password on subsequent logins.
+            const newHash = await hashPassword(validatedFields.data.password);
+            await db.prepare('UPDATE User SET PasswordHash = ? WHERE UserID = ? AND PasswordHash IS NULL')
+                .run(newHash, user.UserID);
+            console.warn(`[Action:Login] Migrated legacy account (UserID=${user.UserID}) to hashed password`);
         }
-        // (If no PasswordHash stored yet — legacy account — allow login so user isn't locked out)
 
         await setSession(user.UserID);
-        console.log("[Action:Login] Success, redirecting to dashboard");
         redirect("/dashboard");
     } catch (error) {
-        if ((error as any).digest?.startsWith('NEXT_REDIRECT')) throw error;
-        return { message: "Database error: " + (error as Error).message };
+        if ((error as { digest?: string }).digest?.startsWith?.('NEXT_REDIRECT')) throw error;
+        console.error('[Action:Login] error:', error);
+        return { message: "Login failed. Please try again." };
     }
 }
 
@@ -97,25 +101,27 @@ export async function register(prevState: unknown, formData: FormData) {
     }
 
     try {
-        console.log(`[Action:Register] Attempting registration for: ${validatedFields.data.username}`);
-
         // Unlock DB with fixed app key
         await dbManager.unlock(getAppDbKey());
 
+        // Hash before existence check so timing is constant whether or not the
+        // username is taken. Rely on the UNIQUE index (or duplicate check inside
+        // the INSERT) to surface conflicts.
+        const passwordHash = await hashPassword(validatedFields.data.password);
+
         const existingUser = await db.prepare('SELECT 1 FROM User WHERE Username = ?').get(validatedFields.data.username);
         if (existingUser) {
-            return { message: "Username already taken." };
+            // Generic message — do not confirm or deny username existence.
+            return { message: "Registration failed. Please try a different username." };
         }
 
-        // Hash the password and store it
-        const passwordHash = await hashPassword(validatedFields.data.password);
         const result = await db.prepare('INSERT INTO User (Username, PasswordHash) VALUES (?, ?)').run(validatedFields.data.username, passwordHash);
 
         await setSession(result.lastInsertRowid);
-        console.log("[Action:Register] Success, auto-logged in, redirecting to dashboard");
         redirect("/dashboard");
     } catch (error) {
-        if ((error as any).digest?.startsWith('NEXT_REDIRECT')) throw error;
-        return { message: "Registration error: " + (error as Error).message };
+        if ((error as { digest?: string }).digest?.startsWith?.('NEXT_REDIRECT')) throw error;
+        console.error('[Action:Register] error:', error);
+        return { message: "Registration failed. Please try again." };
     }
 }
