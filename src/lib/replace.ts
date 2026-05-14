@@ -79,18 +79,21 @@ export async function executeReplace(
 ): Promise<{ totalEntriesChanged: number; totalReplacements: number }> {
     const regex = buildReplaceRegex(params.find, params);
 
-    const rows = await dbm.prepare(`
-        SELECT e.EntryID, ec.HtmlContent
-        FROM Entry e
-        JOIN Category c ON e.CategoryID = c.CategoryID
-        LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
-        WHERE c.UserID = ? AND e.CategoryID = ? AND e.IsDeleted = 0
-    `).all(userId, params.categoryId) as { EntryID: number; HtmlContent: string | null }[];
-
     let entriesChanged = 0;
     let total = 0;
 
+    // Read inside the transaction so concurrent edits to the same entries
+    // can't be silently overwritten — previously the SELECT ran before
+    // BEGIN IMMEDIATE, leaving a TOCTOU window between read and update.
     const tx = dbm.transaction(async () => {
+        const rows = await dbm.prepare(`
+            SELECT e.EntryID, ec.HtmlContent
+            FROM Entry e
+            JOIN Category c ON e.CategoryID = c.CategoryID
+            LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
+            WHERE c.UserID = ? AND e.CategoryID = ? AND e.IsDeleted = 0
+        `).all(userId, params.categoryId) as { EntryID: number; HtmlContent: string | null }[];
+
         for (const row of rows) {
             const { newHtml, count } = replaceTextOnly(row.HtmlContent ?? '', regex, params.replace);
             if (count > 0) {

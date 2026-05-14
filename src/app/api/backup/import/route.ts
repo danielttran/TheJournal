@@ -1,5 +1,6 @@
-import { join } from 'path';
+import { join, extname, resolve } from 'path';
 import { writeFile, unlink } from 'fs/promises';
+import { tmpdir } from 'os';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cookies } from 'next/headers';
@@ -19,10 +20,17 @@ export async function POST(req: NextRequest) {
             // We read the file directly in the Next.js process (same machine).
             // No base64 encoding / HTTP body size limits to worry about.
             const body = await req.json();
-            if (!body?.filePath) {
+            if (!body?.filePath || typeof body.filePath !== 'string') {
                 return NextResponse.json({ error: 'filePath required' }, { status: 400 });
             }
-            tempPath = body.filePath;
+            // Defense in depth: same constraint as the read-file-for-import
+            // IPC. A compromised renderer can't redirect this endpoint at an
+            // unrelated file expecting it to be a SQLCipher database.
+            const resolved = resolve(body.filePath);
+            if (extname(resolved).toLowerCase() !== '.tjdb') {
+                return NextResponse.json({ error: 'filePath must be a .tjdb file' }, { status: 400 });
+            }
+            tempPath = resolved;
             ownsTempFile = false; // don't delete the user's original file
         } else {
             // Web browser: standard FormData file upload
@@ -32,7 +40,10 @@ export async function POST(req: NextRequest) {
                 return NextResponse.json({ error: "No file provided" }, { status: 400 });
             }
             const buffer = Buffer.from(await file.arrayBuffer());
-            tempPath = join(process.cwd(), `import-${Date.now()}.db`);
+            // tmpdir() is always writable; process.cwd() is the app install
+            // directory in packaged Electron, which is read-only on
+            // macOS/Windows. Writing there would crash the import.
+            tempPath = join(tmpdir(), `thejournal-import-${Date.now()}-${process.pid}.tjdb`);
             await writeFile(tempPath, buffer);
             ownsTempFile = true;
         }
