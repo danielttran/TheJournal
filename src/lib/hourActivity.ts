@@ -14,7 +14,9 @@ export interface HourBucket {
  * naive timestamps (matches how the app writes CreatedDate today).
  */
 export async function hourActivity(dbm: DBManager, userId: number, days: number): Promise<HourBucket[]> {
-    const safeDays = Number.isFinite(days) && days > 0 ? Math.min(Math.floor(days), 3650) : 30;
+    // Cap at ~273 years of hourly aggregation — effectively unbounded for any
+    // realistic journaling history while still preventing pathological input.
+    const safeDays = Number.isFinite(days) && days > 0 ? Math.min(Math.floor(days), 100_000) : 30;
 
     const rows = await dbm.prepare(`
         SELECT strftime('%H', e.CreatedDate) AS h, ec.HtmlContent

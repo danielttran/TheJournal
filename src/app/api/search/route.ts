@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
         const wholeWord = searchParams.get('wholeWord') === '1';
         const parsedLimit = Number.parseInt(searchParams.get('limit') || '50', 10);
         const parsedOffset = Number.parseInt(searchParams.get('offset') || '0', 10);
-        const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 200) : 50;
+        const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 1000) : 50;
         const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
 
         if (!q) {

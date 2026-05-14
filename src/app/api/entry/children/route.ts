@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_LIMIT = 500;
-const MAX_LIMIT = 2000;
+const DEFAULT_LIMIT = 1000;
+const MAX_LIMIT = 10000;
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
