@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
                     Icon: null,
                     SortOrder: m,
                     _monthKey: row.monthKey,   // extra field for correct navigation
-                } as any;
+                };
             });
 
             return NextResponse.json(monthEntries);

@@ -6,7 +6,7 @@
  *  - Pinned entries always float to the top (PinnedDate desc).
  */
 import { describe, it, expect } from 'vitest';
-import { sortEntries, type SortMode } from '../../src/lib/sort';
+import { sortEntries } from '../../src/lib/sort';
 
 const mkEntry = (over: Partial<any> = {}) => ({
     EntryID: Math.random(),

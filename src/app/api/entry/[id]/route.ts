@@ -173,7 +173,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                     WHERE a.id IS NOT NULL
                 )
                 SELECT 1 FROM ancestors WHERE id = ? LIMIT 1
-            `).get(parentEntryId, entryId) as any;
+            `).get(parentEntryId, entryId) as { 1: number } | undefined;
 
             if (cycle) {
                 return NextResponse.json({ error: "Cannot set parent to a descendant" }, { status: 400 });
@@ -250,15 +250,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         try {
             await updateTransaction();
-        } catch (txErr: any) {
-            if (txErr.status === 409) {
+        } catch (txErr) {
+            const e = txErr as { status?: number; message?: string; serverVersion?: number };
+            if (e.status === 409) {
                 return NextResponse.json({
                     error: 'conflict',
-                    message: txErr.message,
-                    serverVersion: txErr.serverVersion,
+                    message: e.message,
+                    serverVersion: e.serverVersion,
                 }, { status: 409 });
             }
-            if (txErr.status === 404) {
+            if (e.status === 404) {
                 return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
             }
             throw txErr; // re-throw unexpected errors

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import { Upload } from 'lucide-react';
 
 export default function ImportCard() {

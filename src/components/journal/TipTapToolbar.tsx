@@ -48,6 +48,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             window.alert('Only http:// and https:// URLs are allowed.');
             return;
         }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ResizableImage adds `width` but its type isn't merged into TipTap's command map
         editor.chain().focus().setImage({ src: url, width: '100%' } as any).run();
     }, [editor]);
 
@@ -69,6 +70,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 throw new Error(data.error || 'Upload failed');
             }
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ResizableImage adds `width` but its type isn't merged into TipTap's command map
             editor.chain().focus().setImage({ src: data.url, width: '100%' } as any).run();
         } catch (error) {
             console.error('Image upload failed', error);

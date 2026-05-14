@@ -65,7 +65,7 @@ export function htmlToMarkdown(html: string): string {
     if (!html) return '';
 
     // Self-closing hr first
-    let out = html.replace(/<hr\s*\/?>/gi, '\n---\n');
+    const out = html.replace(/<hr\s*\/?>/gi, '\n---\n');
 
     // Block-level matching: greedily eat each top-level block tag.
     const blockRe = /<(h[1-6]|p|blockquote|pre|ul|ol)>([\s\S]*?)<\/\1>/gi;

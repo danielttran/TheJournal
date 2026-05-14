@@ -3,9 +3,31 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import JournalView from '@/components/journal/JournalView';
 
-async function getCategory(categoryId: string, userId: string): Promise<any> {
-    const category = await db.prepare('SELECT * FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as any;
-    return category;
+interface CategoryRow {
+    CategoryID: number;
+    UserID: number;
+    Name: string;
+    Type: 'Journal' | 'Notebook';
+    Color: string | null;
+    Icon: string | null;
+    IsPrivate: number;
+    ViewSettings: string | null;
+    SortOrder: number;
+}
+
+interface GridEntryRow {
+    EntryID: number;
+    Title: string;
+    CreatedDate?: string;
+    Icon?: string | null;
+    PreviewText?: string | null;
+    EntryType?: 'Page' | 'Folder';
+    SortOrder?: number;
+    _monthKey?: string;
+}
+
+async function getCategory(categoryId: string, userId: string): Promise<CategoryRow | undefined> {
+    return await db.prepare('SELECT * FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as CategoryRow | undefined;
 }
 
 export default async function JournalPage({ params, searchParams }: {
@@ -27,7 +49,7 @@ export default async function JournalPage({ params, searchParams }: {
     if (!category) redirect("/dashboard");
 
     // Grid View Logic
-    let gridEntries: any[] | null = null;
+    let gridEntries: GridEntryRow[] | null = null;
     let gridTitle = "";
     let dataUrl = "";
     // Tells JournalView / EntryGrid how to handle click-navigation on grid cards.
@@ -45,9 +67,9 @@ export default async function JournalPage({ params, searchParams }: {
             FROM Entry
             WHERE ParentEntryID = ?
             ORDER BY SortOrder ASC, CreatedDate DESC
-        `).all(folderId) as any[];
+        `).all(folderId) as GridEntryRow[];
 
-        const folder = await db.prepare('SELECT Title FROM Entry WHERE EntryID = ?').get(folderId) as any;
+        const folder = await db.prepare('SELECT Title FROM Entry WHERE EntryID = ?').get(folderId) as { Title: string } | undefined;
         gridTitle = folder ? folder.Title : "Folder";
 
     } else if (sp.year) {
@@ -89,7 +111,7 @@ export default async function JournalPage({ params, searchParams }: {
             FROM Entry
             WHERE CategoryID = ? AND strftime('%Y-%m', CreatedDate) = ?
             ORDER BY CreatedDate ASC
-        `).all(categoryId, monthKey) as any[];
+        `).all(categoryId, monthKey) as GridEntryRow[];
 
         const [y, m] = monthKey.split('-');
         const d = new Date(parseInt(y), parseInt(m) - 1);
@@ -102,7 +124,7 @@ export default async function JournalPage({ params, searchParams }: {
             userId={userId}
             categoryName={category.Name}
             categoryType={category.Type}
-            viewSettings={category.ViewSettings}
+            viewSettings={category.ViewSettings ?? undefined}
             gridEntries={gridEntries}
             gridTitle={gridTitle}
             dataUrl={dataUrl}

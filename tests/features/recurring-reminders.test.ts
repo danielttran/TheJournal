@@ -10,7 +10,7 @@ import { join } from 'path';
 import { unlink } from 'fs/promises';
 import { DBManager } from '../../src/lib/db';
 import { advanceDueAt, type RecurInterval } from '../../src/lib/recurring';
-import { createReminder, listReminders, toggleComplete } from '../../src/lib/reminders';
+import { createReminder, toggleComplete } from '../../src/lib/reminders';
 
 const TEST_DB_PATH = join(process.cwd(), `test-recur-${Date.now()}.tjdb`);
 const TEST_KEY = 'deadbeef'.repeat(8);

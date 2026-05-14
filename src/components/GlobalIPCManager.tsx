@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import SettingsModal from './SettingsModal';
 import { logout } from '@/app/actions';
@@ -63,6 +63,8 @@ export default function GlobalIPCManager() {
     // Stash the latest callbacks in refs so the IPC effect can subscribe exactly
     // once on mount. Without this, an identity change in any callback or in
     // setTheme would tear down + re-register every Electron IPC listener.
+    // The sync runs in a layout effect (not during render) per React 19 rules —
+    // mutating a ref during render is now a violation.
     const callbacksRef = useRef({
         setTheme,
         handleExportClick,
@@ -70,19 +72,22 @@ export default function GlobalIPCManager() {
         handleLogout,
         dispatchViewAction,
     });
-    callbacksRef.current = {
-        setTheme,
-        handleExportClick,
-        handleFileImport,
-        handleLogout,
-        dispatchViewAction,
-    };
+    useLayoutEffect(() => {
+        callbacksRef.current = {
+            setTheme,
+            handleExportClick,
+            handleFileImport,
+            handleLogout,
+            dispatchViewAction,
+        };
+    });
 
     useEffect(() => {
         if (window.electron) {
             window.electron.getSettings().then((settings) => {
-                if (settings && settings.theme) {
-                    callbacksRef.current.setTheme(settings.theme);
+                const theme = settings?.theme;
+                if (typeof theme === 'string') {
+                    callbacksRef.current.setTheme(theme);
                 }
             });
         }

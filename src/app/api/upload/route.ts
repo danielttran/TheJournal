@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
         // executable payloads — this just keeps the stored label clean so any
         // future download/UX flow doesn't have to re-sanitize.
         const rawName = typeof file.name === 'string' && file.name.length > 0 ? file.name : 'image';
-        // eslint-disable-next-line no-control-regex
+         
         const safeName = rawName.replace(/[\x00-\x1f\\/:*?"<>|]+/g, '_').slice(0, 255) || 'image';
 
         // Store the image blob in the database so it is included in backups

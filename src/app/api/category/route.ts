@@ -10,7 +10,7 @@ const CreateCategorySchema = z.object({
 });
 
 // GET: List all categories for user
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
     const { cookies } = await import("next/headers");
     const cookieStore = await cookies();
     const userIdCookie = cookieStore.get("userId");

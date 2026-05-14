@@ -41,7 +41,11 @@ export async function POST(req: NextRequest) {
                 FROM Entry e
                 LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
                 WHERE e.CategoryID = ? AND date(e.CreatedDate) = ? AND e.IsDeleted = 0
-            `).get(categoryId, date) as any;
+            `).get(categoryId, date) as {
+                EntryID: number; Title: string; Version: number;
+                HtmlContent: string | null; DocumentJson: string | null;
+                IsFavorited: number | boolean; Mood: string | null; Tags: string | null;
+            } | undefined;
 
             if (existing) return { entry: existing, isNew: false };
 

@@ -38,13 +38,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         const userId = parseInt(userIdCookie.value, 10);
 
         // Verify ownership
-        const category = await db.prepare('SELECT Name FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as any;
+        const category = await db.prepare('SELECT Name FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as { Name: string } | undefined;
         if (!category) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 404 });
         }
 
         // Count entries that will be destroyed (for client-side confirmation)
-        const entryCount = await db.prepare('SELECT COUNT(*) as count FROM Entry WHERE CategoryID = ?').get(categoryId) as any;
+        const entryCount = await db.prepare('SELECT COUNT(*) as count FROM Entry WHERE CategoryID = ?').get(categoryId) as { count: number } | undefined;
         const count = entryCount?.count || 0;
 
         // Check if client confirmed deletion with entry count (prevents accidental cascade)
@@ -117,11 +117,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 // Re-read inside the transaction so concurrent writes don't clobber each other
                 const category = await db.prepare(
                     'SELECT ViewSettings FROM Category WHERE CategoryID = ? AND UserID = ?'
-                ).get(categoryId, userId) as any;
+                ).get(categoryId, userId) as { ViewSettings: string | null } | undefined;
 
                 if (!category) return null; // ownership check — return null signals 404
 
-                let currentSettings: Record<string, any> = {};
+                let currentSettings: Record<string, unknown> = {};
                 if (category.ViewSettings) {
                     try { currentSettings = JSON.parse(category.ViewSettings); } catch { /* corrupt JSON — start fresh */ }
                 }

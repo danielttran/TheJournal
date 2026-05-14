@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { Providers } from "./providers";
-import ThemeProvider from '@/components/ThemeProvider';
 import ThemeManager from '@/components/ThemeManager';
 
 // ─── Font configuration ───────────────────────────────────────────────────────

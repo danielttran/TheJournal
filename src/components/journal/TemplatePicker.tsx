@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Pencil, Check, FileText } from 'lucide-react';
+import type { JSONContent } from '@tiptap/react';
 
 export interface Template {
     TemplateID: number;
@@ -16,7 +17,7 @@ interface TemplatePickerProps {
     onClose: () => void;
     /** If provided, shows a "Save current as template" flow. */
     currentHtml?: string;
-    currentDocumentJson?: any;
+    currentDocumentJson?: JSONContent | null;
 }
 
 export default function TemplatePicker({ onSelect, onClose, currentHtml, currentDocumentJson }: TemplatePickerProps) {

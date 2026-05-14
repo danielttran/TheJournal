@@ -21,7 +21,7 @@
  * 12. Rapid entry creation then deletion leaves DB clean
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { join } from 'path';
 import { unlink, access } from 'fs/promises';
 import { DBManager } from '../../src/lib/db';

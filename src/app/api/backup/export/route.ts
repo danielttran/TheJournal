@@ -22,7 +22,7 @@ export async function GET() {
         }
 
         // 2. Validate that there is data to export
-        const liveCount = await db.prepare("SELECT count(*) as c FROM Category").get() as any;
+        const liveCount = await db.prepare("SELECT count(*) as c FROM Category").get() as { c: number };
         if (liveCount.c === 0) {
             return NextResponse.json({ error: "Export Aborted: The current database is empty." }, { status: 400 });
         }

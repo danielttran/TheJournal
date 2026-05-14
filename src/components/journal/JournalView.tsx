@@ -16,7 +16,19 @@ interface JournalViewProps {
     categoryName: string;
     categoryType: string;
     viewSettings?: string;
-    gridEntries?: any[] | null;
+    // GridEntryRow shapes from the server have `Icon`/`PreviewText` as nullable,
+    // and the year view inserts synthetic month rows without ParentEntryID.
+    // Accept a permissive shape and let EntryGrid coerce where needed.
+    gridEntries?: ({
+        EntryID: number;
+        Title: string;
+        CreatedDate?: string;
+        Icon?: string | null;
+        PreviewText?: string | null;
+        EntryType?: string;
+        SortOrder?: number;
+        _monthKey?: string;
+    })[] | null;
     gridTitle?: string;
     dataUrl?: string;
     gridMode?: 'section' | 'journal-month' | 'journal-year';
@@ -86,7 +98,7 @@ export default function JournalView({
                             }
                         >
                             <EntryGrid
-                                entries={gridEntries!}
+                                entries={gridEntries as never as import('@/lib/types').Entry[]}
                                 title={gridTitle || ""}
                                 dataUrl={dataUrl || ""}
                                 categoryId={categoryId}

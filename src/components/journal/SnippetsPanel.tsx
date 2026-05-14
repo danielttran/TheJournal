@@ -30,7 +30,7 @@ export default function SnippetsPanel({ onClose, onInsert }: Props) {
             if (signal?.aborted) return;
             setItems(data.items ?? []);
         } catch (err) {
-            if ((err as any)?.name !== 'AbortError') throw err;
+            if ((err as { name?: string })?.name !== 'AbortError') throw err;
         }
     }, []);
 

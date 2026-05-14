@@ -33,7 +33,7 @@ export default function GoalsPanel({ onClose }: GoalsPanelProps) {
             if (signal?.aborted) return;
             setGoals(data.goals ?? []);
         } catch (err) {
-            if ((err as any)?.name !== 'AbortError') throw err;
+            if ((err as { name?: string })?.name !== 'AbortError') throw err;
         }
     }, []);
 

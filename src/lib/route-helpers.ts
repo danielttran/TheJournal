@@ -23,7 +23,7 @@ export function authedHandler<Args extends unknown[]>(
             return await handler(userId, ...args);
         } catch (err) {
             // Log full detail server-side; never echo internal errors to clients.
-            // eslint-disable-next-line no-console
+             
             console.error(`[${routeName}]`, err);
             const body: { error: string; detail?: string } = { error: 'Internal Server Error' };
             if (process.env.NODE_ENV !== 'production') {

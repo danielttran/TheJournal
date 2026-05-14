@@ -73,6 +73,40 @@ export async function POST(req: NextRequest) {
             throw new Error('Could not read the database file');
         }
 
+        // Row shapes from the attached imported DB. These mirror the table
+        // schemas in src/lib/db.ts — keep in sync if a column is added.
+        interface ImportedCategoryRow {
+            CategoryID: number; Name: string; Color: string | null; IsPrivate: number;
+            Type: string | null; Icon: string | null; ViewSettings: string | null;
+            SortOrder: number | null;
+        }
+        interface ImportedEntryRow {
+            EntryID: number; CategoryID: number; Title: string; PreviewText: string | null;
+            IsLocked: number; CreatedDate: string; ModifiedDate: string;
+            EntryType: string | null; SortOrder: number | null; Icon: string | null;
+            IsExpanded: number; Mood: string | null; IsFavorited: number;
+            Tags: string | null; IsDeleted: number; DeletedDate: string | null;
+            IsPinned: number; PinnedDate: string | null; ParentEntryID: number | null;
+        }
+        interface ImportedAttachmentRow {
+            AttachmentID: number; Filename: string; MimeType: string; Size: number; Data: Buffer;
+        }
+        interface ImportedContentRow {
+            EntryID: number; HtmlContent: string | null; DocumentJson: string | null;
+        }
+        interface ImportedReminderRow {
+            Title: string; Notes: string | null; DueAt: string; IsComplete: number;
+            CompletedAt: string | null; EntryID: number | null; CreatedAt: string | null;
+            RecurInterval: string | null; RecurEvery: number | null;
+        }
+        interface ImportedGoalRow {
+            Type: string; Target: number; StartDate: string; EndDate: string | null;
+            CategoryID: number | null; CreatedAt: string | null;
+        }
+        interface ImportedSavedSearchRow {
+            Name: string; QueryJson: string; CreatedAt: string | null;
+        }
+
         // 2. Perform Restore Transaction
         const transaction = db.transaction(async () => {
             // A. Clear current user's data (Attachment has no cascade, must delete explicitly)
@@ -80,7 +114,7 @@ export async function POST(req: NextRequest) {
             await db.prepare('DELETE FROM Category WHERE UserID = ?').run(userId);
 
             // B. Remap Categories
-            const importedCats = await db.prepare("SELECT * FROM imported.Category").all() as any[];
+            const importedCats = await db.prepare("SELECT * FROM imported.Category").all() as ImportedCategoryRow[];
             const catIdMap = new Map<number, number>();
             for (const cat of importedCats) {
                 const r = await db.prepare(`
@@ -91,7 +125,7 @@ export async function POST(req: NextRequest) {
             }
 
             // C. Remap Entries
-            const importedEntries = await db.prepare("SELECT * FROM imported.Entry").all() as any[];
+            const importedEntries = await db.prepare("SELECT * FROM imported.Entry").all() as ImportedEntryRow[];
             const entryIdMap = new Map<number, number>();
             for (const entry of importedEntries) {
                 const newCatId = catIdMap.get(entry.CategoryID);
@@ -112,7 +146,7 @@ export async function POST(req: NextRequest) {
 
             // D. Remap Attachments (images stored as blobs)
             const attIdMap = new Map<number, number>();
-            const importedAtts = await db.prepare("SELECT * FROM imported.Attachment").all() as any[];
+            const importedAtts = await db.prepare("SELECT * FROM imported.Attachment").all() as ImportedAttachmentRow[];
             console.log(`[Import] Copying ${importedAtts.length} attachment(s)...`);
             for (const att of importedAtts) {
                 const r = await db.prepare(`
@@ -123,7 +157,7 @@ export async function POST(req: NextRequest) {
             }
 
             // E. Copy EntryContent — rewriting /api/attachment/{oldId} → {newId}
-            const importedContent = await db.prepare("SELECT * FROM imported.EntryContent").all() as any[];
+            const importedContent = await db.prepare("SELECT * FROM imported.EntryContent").all() as ImportedContentRow[];
             for (const content of importedContent) {
                 const newEntryId = entryIdMap.get(content.EntryID);
                 if (!newEntryId) continue;
@@ -156,11 +190,11 @@ export async function POST(req: NextRequest) {
             }
 
             // G. Import Reminders / WordGoals / SavedSearches (tables added post-launch — safe to skip if absent)
-            const safeAll = async (sql: string): Promise<any[]> => {
-                try { return await db.prepare(sql).all() as any[]; }
+            const safeAll = async <T>(sql: string): Promise<T[]> => {
+                try { return await db.prepare(sql).all() as T[]; }
                 catch { return []; }
             };
-            const importedReminders = await safeAll("SELECT * FROM imported.Reminder");
+            const importedReminders = await safeAll<ImportedReminderRow>("SELECT * FROM imported.Reminder");
             for (const rem of importedReminders) {
                 const newEntryId = rem.EntryID ? entryIdMap.get(rem.EntryID) ?? null : null;
                 await db.prepare(`
@@ -172,7 +206,7 @@ export async function POST(req: NextRequest) {
                     rem.RecurInterval ?? null, rem.RecurEvery ?? null
                 );
             }
-            const importedGoals = await safeAll("SELECT * FROM imported.WordGoal");
+            const importedGoals = await safeAll<ImportedGoalRow>("SELECT * FROM imported.WordGoal");
             for (const g of importedGoals) {
                 const newCatId = g.CategoryID ? catIdMap.get(g.CategoryID) ?? null : null;
                 await db.prepare(`
@@ -180,7 +214,7 @@ export async function POST(req: NextRequest) {
                     VALUES(?, ?, ?, ?, ?, ?, ?)
                 `).run(userId, g.Type, g.Target, g.StartDate, g.EndDate ?? null, newCatId, g.CreatedAt ?? null);
             }
-            const importedSearches = await safeAll("SELECT * FROM imported.SavedSearch");
+            const importedSearches = await safeAll<ImportedSavedSearchRow>("SELECT * FROM imported.SavedSearch");
             for (const s of importedSearches) {
                 await db.prepare(`
                     INSERT INTO main.SavedSearch(UserID, Name, QueryJson, CreatedAt)

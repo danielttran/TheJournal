@@ -38,7 +38,7 @@ function replaceTextOnly(html: string, regex: RegExp, replacement: string): { ne
         } else {
             const next = html.indexOf('<', i);
             const segment = next === -1 ? html.slice(i) : html.slice(i, next);
-            const replaced = segment.replace(regex, (m) => { count += 1; return replacement; });
+            const replaced = segment.replace(regex, () => { count += 1; return replacement; });
             out.push(replaced);
             i = next === -1 ? html.length : next;
         }
