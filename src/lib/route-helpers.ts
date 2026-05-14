@@ -22,11 +22,14 @@ export function authedHandler<Args extends unknown[]>(
             }
             return await handler(userId, ...args);
         } catch (err) {
-            // Log enough to debug without leaking internals to the client.
+            // Log full detail server-side; never echo internal errors to clients.
             // eslint-disable-next-line no-console
             console.error(`[${routeName}]`, err);
-            const message = err instanceof Error ? err.message : 'Internal Server Error';
-            return NextResponse.json({ error: 'Internal Server Error', detail: message }, { status: 500 });
+            const body: { error: string; detail?: string } = { error: 'Internal Server Error' };
+            if (process.env.NODE_ENV !== 'production') {
+                body.detail = err instanceof Error ? err.message : String(err);
+            }
+            return NextResponse.json(body, { status: 500 });
         }
     };
 }

@@ -98,6 +98,10 @@ async function rewriteTags(
             `SELECT EntryID, Tags FROM Entry WHERE EntryID IN (${placeholders})`
         ).all(...owned) as { EntryID: number; Tags: string | null }[];
 
+        // Prepare statement once and reuse — avoids per-row parse overhead on bulk ops.
+        const updateStmt = dbm.prepare(
+            `UPDATE Entry SET Tags = ?, ModifiedDate = CURRENT_TIMESTAMP WHERE EntryID = ?`
+        );
         let changed = 0;
         for (const row of rows) {
             let parsed: unknown;
@@ -106,11 +110,10 @@ async function rewriteTags(
                 ? parsed.filter((t): t is string => typeof t === 'string')
                 : [];
             const after = mutate(before);
-            // Only write if changed
-            if (JSON.stringify(before) !== JSON.stringify(after)) {
-                await dbm.prepare(
-                    `UPDATE Entry SET Tags = ?, ModifiedDate = CURRENT_TIMESTAMP WHERE EntryID = ?`
-                ).run(JSON.stringify(after), row.EntryID);
+            const beforeJson = JSON.stringify(before);
+            const afterJson = JSON.stringify(after);
+            if (beforeJson !== afterJson) {
+                await updateStmt.run(afterJson, row.EntryID);
                 changed += 1;
             }
         }

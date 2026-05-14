@@ -1,20 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import SettingsModal from './SettingsModal';
 import { logout } from '@/app/actions';
 
 export default function GlobalIPCManager() {
-    const { theme, setTheme } = useTheme();
+    const { setTheme } = useTheme();
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
     const handleExportClick = useCallback(async () => {
         if (window.electron) {
-            // In Electron, use the native Save dialog via IPC (already wired in main.js)
             await window.electron.exportDatabase();
         } else {
-            // Web: trigger the streaming download endpoint
             window.open('/api/backup/export', '_blank');
         }
     }, []);
@@ -26,15 +24,12 @@ export default function GlobalIPCManager() {
             let res: Response;
 
             if (window.electron) {
-                // Electron: send the local file path as JSON.
-                // The server reads the file directly from disk — no base64 encoding needed.
                 res = await fetch('/api/backup/import', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ filePath }),
                 });
             } else {
-                // Web: filePath is an http(s) URL from a <input type="file"> object URL
                 const response = await fetch(filePath);
                 const blob = await response.blob();
                 const formData = new FormData();
@@ -65,20 +60,36 @@ export default function GlobalIPCManager() {
         window.dispatchEvent(new CustomEvent(`trigger-${action}`));
     }, []);
 
+    // Stash the latest callbacks in refs so the IPC effect can subscribe exactly
+    // once on mount. Without this, an identity change in any callback or in
+    // setTheme would tear down + re-register every Electron IPC listener.
+    const callbacksRef = useRef({
+        setTheme,
+        handleExportClick,
+        handleFileImport,
+        handleLogout,
+        dispatchViewAction,
+    });
+    callbacksRef.current = {
+        setTheme,
+        handleExportClick,
+        handleFileImport,
+        handleLogout,
+        dispatchViewAction,
+    };
+
     useEffect(() => {
-        // Initial load for Electron
         if (window.electron) {
             window.electron.getSettings().then((settings) => {
                 if (settings && settings.theme) {
-                    setTheme(settings.theme);
+                    callbacksRef.current.setTheme(settings.theme);
                 }
             });
         }
 
-        // Listen for global settings trigger (works for both Electron and Web custom events)
         const handleOpenSettings = () => setIsSettingsOpen(true);
         window.addEventListener('trigger-settings', handleOpenSettings);
-        
+
         if (!window.electron) return () => {
             window.removeEventListener('trigger-settings', handleOpenSettings);
         };
@@ -88,7 +99,7 @@ export default function GlobalIPCManager() {
         });
 
         const unsubscribeToggleTheme = window.electron.onToggleTheme?.(() => {
-            setTheme(currentTheme => {
+            callbacksRef.current.setTheme(currentTheme => {
                 const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
                 if (window.electron) {
                     window.electron.saveSetting('theme', newTheme);
@@ -98,19 +109,19 @@ export default function GlobalIPCManager() {
         });
 
         const unsubscribeImport = window.electron.onImportDB?.((filePath: string) => {
-            handleFileImport(filePath);
+            callbacksRef.current.handleFileImport(filePath);
         });
 
         const unsubscribeExport = window.electron.onExportDB?.(() => {
-            handleExportClick();
+            callbacksRef.current.handleExportClick();
         });
 
         const unsubscribeLogout = window.electron.onLogoutRequest?.(() => {
-            handleLogout();
+            callbacksRef.current.handleLogout();
         });
 
         const unsubscribeViewAction = window.electron.onViewAction?.((action: string) => {
-            dispatchViewAction(action);
+            callbacksRef.current.dispatchViewAction(action);
         });
 
         return () => {
@@ -122,7 +133,7 @@ export default function GlobalIPCManager() {
             unsubscribeLogout?.();
             unsubscribeViewAction?.();
         };
-    }, [setTheme, handleExportClick, handleFileImport, handleLogout, dispatchViewAction]);
+    }, []);
 
     return (
         <>

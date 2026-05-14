@@ -12,6 +12,8 @@ const dir = path.join(__dirname, '../../'); // Adjust based on where main.js is 
 // settingsManager is initialized inside app.whenReady() because SettingsManager's
 // constructor calls app.getPath('userData'), which requires the app to be ready.
 let settingsManager;
+// Track scheduled background backup so we can stop it cleanly at shutdown.
+let backupIntervalHandle = null;
 
 function getDatabasePath() {
     const currentSettings = settingsManager.getSettings();
@@ -510,11 +512,12 @@ app.whenReady().then(async () => {
         // ── Scheduled background backup ────────────────────────────────────────
         // If auto-backup is enabled, run performAutoBackup every 6 hours so that
         // long-running sessions are covered even if the machine never restarts.
+        // Handle is tracked in module scope so it can be cleared on quit.
         const SIX_HOURS_MS = 6 * 60 * 60 * 1000; // 21_600_000 ms
         const initialSettings = settingsManager.getSettings();
         if (initialSettings.autoBackupOnClose) {
             console.log('[Electron] Scheduling background backup every 6 hours.');
-            setInterval(() => {
+            backupIntervalHandle = setInterval(() => {
                 performAutoBackup().catch(err =>
                     console.error('[Electron] Background backup error:', err)
                 );
@@ -533,6 +536,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+    if (backupIntervalHandle) {
+        clearInterval(backupIntervalHandle);
+        backupIntervalHandle = null;
+    }
     if (serverInstance) {
         serverInstance.close();
     }

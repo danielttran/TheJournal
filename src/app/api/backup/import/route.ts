@@ -48,13 +48,18 @@ export async function POST(req: NextRequest) {
         try {
             const key = db.currentKey;
             if (key) {
+                // Defensive: key must be lowercase hex; reject anything else before embedding.
+                // (Key is internal — sourced from OS keychain — but interpolation deserves a guard.)
+                if (!/^[0-9a-f]+$/i.test(key)) {
+                    throw new Error('Invalid database key format');
+                }
                 await db.prepare(`ATTACH DATABASE ? AS imported KEY "x'${key}'"`).run(tempPath);
             } else {
                 await db.prepare(`ATTACH DATABASE ? AS imported`).run(tempPath);
             }
-        } catch (e: any) {
+        } catch (e: unknown) {
             console.error("Import: Failed to attach", e);
-            throw new Error(`Could not read the database file: ${e.message}`);
+            throw new Error('Could not read the database file');
         }
 
         // 2. Perform Restore Transaction
@@ -185,10 +190,14 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ success: true });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Import failed:", error);
         try { await db.prepare("DETACH imported").run(); } catch { }
         try { if (ownsTempFile && tempPath) await unlink(tempPath); } catch { }
-        return NextResponse.json({ error: "Failed to import", details: error.message }, { status: 500 });
+        const body: { error: string; details?: string } = { error: "Failed to import" };
+        if (process.env.NODE_ENV !== 'production') {
+            body.details = error instanceof Error ? error.message : String(error);
+        }
+        return NextResponse.json(body, { status: 500 });
     }
 }

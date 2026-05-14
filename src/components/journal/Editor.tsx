@@ -37,6 +37,25 @@ import { applyBuiltins, parseTemplateVariables, substituteVariables } from '@/li
 // hand-rolled an `countWords` that drifted from the test-covered version.
 import { wordCount as countWords, readingTimeMinutesFromWords } from '@/lib/readingTime';
 
+// Strip HTML tags and decode common entities without touching the DOM —
+// avoids the layout thrashing of `div.innerHTML = ...; div.textContent` in
+// the autosave hot path.
+function htmlToPlainText(html: string): string {
+    if (!html) return '';
+    return html
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+}
+
 // ─── Entry content cache ──────────────────────────────────────────────────────
 const entryContentCache = new Map<string, { html: string; documentJson: any; timestamp: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;        // 10 minutes
@@ -383,9 +402,7 @@ export default function Editor({
 
         const { html, documentJson, version } = snapshot;
 
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html || '';
-        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+        const plainText = editor ? editor.getText() : htmlToPlainText(html || '');
         const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
         const derivedPreview = plainText.substring(0, 200);
 
@@ -467,9 +484,7 @@ export default function Editor({
     }, []);
 
     const buildSavePayload = (id: number, html: string, documentJson: any, version: number | null) => {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html || '';
-        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+        const plainText = htmlToPlainText(html || '');
         const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
         const derivedPreview = plainText.substring(0, 200);
 

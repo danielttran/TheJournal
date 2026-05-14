@@ -8,6 +8,7 @@ import Editor from '@/components/journal/Editor';
 import EntryGrid from '@/components/journal/EntryGrid';
 import SearchPanel from '@/components/journal/SearchPanel';
 import Breadcrumbs from '@/components/journal/Breadcrumbs';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 interface JournalViewProps {
     categoryId: string;
@@ -77,33 +78,57 @@ export default function JournalView({
                     )}
 
                     {isGridView ? (
-                        <EntryGrid
-                            entries={gridEntries!}
-                            title={gridTitle || ""}
-                            dataUrl={dataUrl || ""}
-                            categoryId={categoryId}
-                            gridMode={gridMode}
-                        />
+                        <ErrorBoundary
+                            fallback={
+                                <div className="p-6 text-text-secondary text-sm">
+                                    Failed to render entries. Try reloading the page.
+                                </div>
+                            }
+                        >
+                            <EntryGrid
+                                entries={gridEntries!}
+                                title={gridTitle || ""}
+                                dataUrl={dataUrl || ""}
+                                categoryId={categoryId}
+                                gridMode={gridMode}
+                            />
+                        </ErrorBoundary>
                     ) : (
-                        <Editor
-                            categoryId={categoryId}
-                            categoryName={categoryName}
-                            categoryType={categoryType}
-                            userId={userId}
-                            onEnterSplitMode={toggleSplitMode}
-                            isSplitMode={isSplitMode}
-                            onOpenSearch={openSearch}
-                        />
+                        <ErrorBoundary
+                            fallback={
+                                <div className="p-6 text-text-secondary text-sm">
+                                    The editor crashed. Your last save is intact — reload to recover.
+                                </div>
+                            }
+                        >
+                            <Editor
+                                categoryId={categoryId}
+                                categoryName={categoryName}
+                                categoryType={categoryType}
+                                userId={userId}
+                                onEnterSplitMode={toggleSplitMode}
+                                isSplitMode={isSplitMode}
+                                onOpenSearch={openSearch}
+                            />
+                        </ErrorBoundary>
                     )}
                 </main>
 
                 {showSearch && (
-                    <SearchPanel
-                        currentCategoryId={categoryId}
-                        currentCategoryType={categoryType}
-                        onClose={closeSearch}
-                        onNavigate={handleSearchNavigate}
-                    />
+                    <ErrorBoundary
+                        fallback={
+                            <div className="w-96 border-l border-border-primary p-4 text-text-secondary text-sm">
+                                Search failed to render.
+                            </div>
+                        }
+                    >
+                        <SearchPanel
+                            currentCategoryId={categoryId}
+                            currentCategoryType={categoryType}
+                            onClose={closeSearch}
+                            onNavigate={handleSearchNavigate}
+                        />
+                    </ErrorBoundary>
                 )}
             </div>
         </LoadingProvider>

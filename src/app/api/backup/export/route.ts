@@ -1,5 +1,4 @@
 import { join } from 'path';
-import { copyFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
@@ -40,8 +39,12 @@ export async function GET() {
                 'Content-Length': fileBuffer.length.toString()
             }
         });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Export failed", error);
-        return NextResponse.json({ error: error.message || "Failed to export database" }, { status: 500 });
+        const body: { error: string; detail?: string } = { error: "Failed to export database" };
+        if (process.env.NODE_ENV !== 'production') {
+            body.detail = error instanceof Error ? error.message : String(error);
+        }
+        return NextResponse.json(body, { status: 500 });
     }
 }

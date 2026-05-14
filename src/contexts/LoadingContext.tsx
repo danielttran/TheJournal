@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 
 interface LoadingState {
     entryId: number | null;
@@ -29,8 +29,14 @@ export function LoadingProvider({ children }: { children: ReactNode }) {
         setLoadingState({ entryId: null, progress: null });
     }, []);
 
+    // Memoize so consumers don't re-render unless loadingState actually changes.
+    const value = useMemo(
+        () => ({ loadingState, setLoading, clearLoading }),
+        [loadingState, setLoading, clearLoading]
+    );
+
     return (
-        <LoadingContext.Provider value={{ loadingState, setLoading, clearLoading }}>
+        <LoadingContext.Provider value={value}>
             {children}
         </LoadingContext.Provider>
     );
