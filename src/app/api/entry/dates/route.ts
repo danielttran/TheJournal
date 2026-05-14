@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
                 SELECT strftime('%Y-%m', CreatedDate) AS monthKey,
                        COUNT(*) AS entryCount
                 FROM Entry
-                WHERE CategoryID = ? AND strftime('%Y', CreatedDate) = ?
+                WHERE CategoryID = ? AND IsDeleted = 0 AND strftime('%Y', CreatedDate) = ?
                 GROUP BY monthKey
                 ORDER BY monthKey ASC
             `).all(categoryId, yearParam) as { monthKey: string; entryCount: number }[];
@@ -56,9 +56,9 @@ export async function GET(req: NextRequest) {
         }
 
         let query = `
-            SELECT EntryID, Title, CreatedDate, EntryType, Icon, PreviewText, IsFavorited, Mood, Tags
+            SELECT EntryID, Title, CreatedDate, EntryType, Icon, PreviewText, IsFavorited, IsPinned, PinnedDate, Mood, Tags
             FROM Entry
-            WHERE CategoryID = ?
+            WHERE CategoryID = ? AND IsDeleted = 0
         `;
         const params: (string | number)[] = [categoryId];
 

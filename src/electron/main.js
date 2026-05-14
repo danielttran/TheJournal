@@ -202,6 +202,41 @@ function createMenu() {
                     }
                 },
                 { type: 'separator' },
+                {
+                    label: 'Print Entry...',
+                    accelerator: process.platform === 'darwin' ? 'Cmd+P' : 'Ctrl+P',
+                    click: () => {
+                        // The renderer owns the "currently open entry" state.
+                        // Asking it to print keeps print-target selection in one place.
+                        if (mainWindow) {
+                            mainWindow.webContents.send('print-current-entry');
+                        }
+                    }
+                },
+                {
+                    label: 'Export Entry to PDF...',
+                    click: () => {
+                        if (mainWindow) {
+                            mainWindow.webContents.send('export-current-entry-pdf');
+                        }
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: 'Open Another Journal...',
+                    click: async () => {
+                        if (!mainWindow) return;
+                        const result = await dialog.showOpenDialog(mainWindow, {
+                            properties: ['openFile'],
+                            filters: [{ name: 'TheJournal database', extensions: ['tjdb'] }],
+                            title: 'Open Journal',
+                        });
+                        if (!result.canceled && result.filePaths.length > 0) {
+                            mainWindow.webContents.send('open-journal', result.filePaths[0]);
+                        }
+                    }
+                },
+                { type: 'separator' },
                 { role: 'quit' }
             ]
         },
@@ -412,6 +447,42 @@ app.whenReady().then(async () => {
             } catch (err) {
                 console.error('[Electron] read-file-for-import failed:', err);
                 return null;
+            }
+        });
+
+        // David RM parity — export current entry to PDF. The renderer
+        // resolves the entry's HTML via the /api/entry/:id/print route, then
+        // hands the document here. We spawn a hidden BrowserWindow, load the
+        // HTML as a data URL, run printToPDF, and write the result to a
+        // user-chosen path. Hidden window is destroyed at the end either way.
+        ipcMain.handle('save-entry-pdf', async (_event, entryHtml, suggestedName) => {
+            const fs = require('fs/promises');
+            const { dialog } = require('electron');
+            if (typeof entryHtml !== 'string' || entryHtml.length === 0) {
+                return { saved: false, reason: 'empty' };
+            }
+            const result = await dialog.showSaveDialog(mainWindow ?? undefined, {
+                defaultPath: `${(suggestedName || 'entry').replace(/[^A-Za-z0-9 _.-]/g, '_')}.pdf`,
+                filters: [{ name: 'PDF', extensions: ['pdf'] }],
+                title: 'Export Entry to PDF',
+            });
+            if (result.canceled || !result.filePath) return { saved: false, reason: 'canceled' };
+
+            const printer = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+            try {
+                await printer.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(entryHtml));
+                const pdf = await printer.webContents.printToPDF({
+                    printBackground: true,
+                    pageSize: 'Letter',
+                    margins: { marginType: 'default' },
+                });
+                await fs.writeFile(result.filePath, pdf);
+                return { saved: true, path: result.filePath };
+            } catch (err) {
+                console.error('[Electron] save-entry-pdf failed:', err);
+                return { saved: false, reason: err && err.message ? err.message : 'error' };
+            } finally {
+                try { printer.destroy(); } catch { /* hidden window already gone */ }
             }
         });
 

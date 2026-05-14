@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen, Star, Hash, Pin, ArrowUpDown } from 'lucide-react';
+import { sortEntries, type SortMode } from '@/lib/sort';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -607,13 +608,54 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     const prevYear = () => setCurrentMonth(subYears(currentMonth, 1));
 
     const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+    const [showTagFilter, setShowTagFilter] = useState(false);
+    const [activeTags, setActiveTags] = useState<string[]>([]);
+    const [availableTags, setAvailableTags] = useState<{ tag: string; count: number }[]>([]);
+    const sortKey = `sort-${categoryId}`;
+    const [sortMode, setSortMode] = useState<SortMode>(() => {
+        if (typeof window === 'undefined') return 'manual';
+        return (localStorage.getItem(sortKey) as SortMode) ?? 'manual';
+    });
+    const [showSortMenu, setShowSortMenu] = useState(false);
+    const applySortMode = useCallback((m: SortMode) => {
+        setSortMode(m);
+        try { localStorage.setItem(sortKey, m); } catch {}
+        setShowSortMenu(false);
+    }, [sortKey]);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch('/api/tags')
+            .then(r => r.ok ? r.json() : { tags: [] })
+            .then(d => { if (!cancelled) setAvailableTags(d.tags ?? []); })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, [pages, journalEntries]);
+
+    const entryHasAllTags = useCallback((entry: Entry, wanted: string[]) => {
+        if (!wanted.length) return true;
+        let parsed: unknown;
+        try { parsed = entry.Tags ? JSON.parse(entry.Tags) : []; } catch { return false; }
+        if (!Array.isArray(parsed)) return false;
+        const set = new Set(parsed.filter((t): t is string => typeof t === 'string').map(t => t.toLowerCase()));
+        return wanted.every(w => set.has(w.toLowerCase()));
+    }, []);
 
     const filteredJournalEntries = useMemo(() => {
         let entries = journalEntries;
         if (matchedEntryIds !== null) entries = entries.filter(e => matchedEntryIds.has(e.EntryID));
         if (showFavoritesOnly) entries = entries.filter(e => !!e.IsFavorited);
-        return entries;
-    }, [journalEntries, matchedEntryIds, showFavoritesOnly]);
+        if (activeTags.length) entries = entries.filter(e => entryHasAllTags(e, activeTags));
+        // Journal mode preserves CreatedDate grouping (year/month headers below), so we
+        // only run sortEntries to float pinned items to the top — actual ordering inside
+        // groups uses the grouping logic, not the user-selected sortMode.
+        return sortEntries(entries as any, 'manual') as typeof entries;
+    }, [journalEntries, matchedEntryIds, showFavoritesOnly, activeTags, entryHasAllTags]);
+
+    const pinnedJournalEntries = useMemo(
+        () => filteredJournalEntries.filter(e => !!e.IsPinned).sort((a, b) => (b.PinnedDate ?? '').localeCompare(a.PinnedDate ?? '')),
+        [filteredJournalEntries]
+    );
 
     const groupedEntries = filteredJournalEntries.reduce((acc: Record<string, Record<string, { entries: Entry[], key: string }>>, entry: Entry) => {
         if (!entry.CreatedDate) return acc;
@@ -696,25 +738,30 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         } catch (err) { /* silence */ }
     };
     const filteredPages = useMemo(() => {
-        if (matchedEntryIds === null) return pages;
+        const sortRecursive = (nodes: Entry[]): Entry[] => {
+            const out = sortEntries(nodes as any, sortMode) as Entry[];
+            return out.map(n => n.children ? { ...n, children: sortRecursive(n.children) } : n);
+        };
+
+        if (matchedEntryIds === null && activeTags.length === 0) return sortRecursive(pages);
 
         const filterTree = (nodes: Entry[]): Entry[] => {
             return nodes.reduce<Entry[]>((acc, node) => {
-                const matchesSelf = matchedEntryIds.has(node.EntryID);
+                const matchesSearch = matchedEntryIds === null || matchedEntryIds.has(node.EntryID);
+                const matchesTags = activeTags.length === 0 || entryHasAllTags(node, activeTags);
+                const matchesSelf = matchesSearch && matchesTags;
                 const filteredChildren = node.children ? filterTree(node.children) : [];
 
-                // If it matches itself or has matching children, include it
                 if (matchesSelf || filteredChildren.length > 0) {
-                    // Force expand if it matched something inside to make it visible
-                    const forceExpand = matchedEntryIds !== null && (matchesSelf || filteredChildren.length > 0);
+                    const forceExpand = (matchedEntryIds !== null || activeTags.length > 0) && (matchesSelf || filteredChildren.length > 0);
                     acc.push({ ...node, children: filteredChildren, IsExpanded: forceExpand ? true : node.IsExpanded });
                 }
                 return acc;
             }, []);
         };
 
-        return filterTree(pages);
-    }, [pages, matchedEntryIds]);
+        return sortRecursive(filterTree(pages));
+    }, [pages, matchedEntryIds, activeTags, entryHasAllTags, sortMode]);
 
     const rootIds = useMemo(() => filteredPages.map(p => p.EntryID), [filteredPages]);
     const dropAnimation: DropAnimation = { sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0.5' } } }) };
@@ -757,15 +804,25 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                             {calendarDays.map((day, i) => {
                                 const isSelected = isSameDay(day, selectedDate);
                                 const isCurrentMonth = isSameMonth(day, currentMonth);
-                                const entryForDay = journalEntries.find(e => e.CreatedDate && isSameDay(new Date(e.CreatedDate), day));
+                                const entriesForDay = journalEntries.filter(e => e.CreatedDate && isSameDay(new Date(e.CreatedDate), day));
+                                const entryForDay = entriesForDay[0];
+                                const dayCount = entriesForDay.length;
                                 return (
                                     <div
                                         key={i}
                                         onClick={() => onDateClick(day)}
-                                        className={`p-1 rounded cursor-pointer flex items-center justify-center h-8 w-8 mx-auto ${!isCurrentMonth ? 'text-text-muted opacity-50' : ''} ${isSelected ? 'bg-accent-primary text-white font-bold' : 'hover:bg-bg-hover text-text-secondary'}`}
-                                        title={entryForDay?.Title || ""}
+                                        className={`relative p-1 rounded cursor-pointer flex items-center justify-center h-8 w-8 mx-auto ${!isCurrentMonth ? 'text-text-muted opacity-50' : ''} ${isSelected ? 'bg-accent-primary text-white font-bold' : 'hover:bg-bg-hover text-text-secondary'}`}
+                                        title={dayCount > 1 ? `${dayCount} entries on ${format(day, 'PP')}` : (entryForDay?.Title || "")}
                                     >
                                         {entryForDay?.Icon ? <span className="text-base leading-none">{entryForDay.Icon}</span> : format(day, 'd')}
+                                        {dayCount > 0 && !entryForDay?.Icon && (
+                                            <span className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-accent-primary'}`} />
+                                        )}
+                                        {dayCount > 1 && (
+                                            <span className={`absolute -top-0.5 -right-0.5 text-[8px] leading-none rounded-full px-1 ${isSelected ? 'bg-white text-accent-primary' : 'bg-accent-primary text-white'}`}>
+                                                {dayCount}
+                                            </span>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -773,15 +830,52 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                     </div>
                     {/* Journal Tree — uses the same JournalTreeItem visual as the notebook tree */}
                     <div className="flex-1 overflow-y-auto p-2 pb-16 min-h-0 space-y-0.5">
-                        <div className="flex items-center justify-between px-2 mb-1">
+                        <div className="flex items-center justify-between px-2 mb-1 relative">
                             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Entries</span>
-                            <button
-                                onClick={() => setShowFavoritesOnly(v => !v)}
-                                className={`p-1 rounded transition-colors ${showFavoritesOnly ? 'text-yellow-400' : 'text-text-muted hover:text-text-primary'}`}
-                                title={showFavoritesOnly ? 'Show all entries' : 'Show favorites only'}
-                            >
-                                <Star className={`w-3.5 h-3.5 ${showFavoritesOnly ? 'fill-yellow-400' : ''}`} />
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => setShowTagFilter(v => !v)}
+                                    className={`p-1 rounded transition-colors ${activeTags.length > 0 ? 'text-accent-primary' : 'text-text-muted hover:text-text-primary'}`}
+                                    title={activeTags.length ? `Filtering by ${activeTags.length} tag(s)` : 'Filter by tag'}
+                                >
+                                    <Hash className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                    onClick={() => setShowFavoritesOnly(v => !v)}
+                                    className={`p-1 rounded transition-colors ${showFavoritesOnly ? 'text-yellow-400' : 'text-text-muted hover:text-text-primary'}`}
+                                    title={showFavoritesOnly ? 'Show all entries' : 'Show favorites only'}
+                                >
+                                    <Star className={`w-3.5 h-3.5 ${showFavoritesOnly ? 'fill-yellow-400' : ''}`} />
+                                </button>
+                            </div>
+                            {showTagFilter && (
+                                <div className="absolute top-full right-0 mt-1 w-64 bg-bg-card border border-border-primary rounded shadow-lg z-50 p-2 max-h-72 overflow-y-auto">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Tags</span>
+                                        {activeTags.length > 0 && (
+                                            <button onClick={() => setActiveTags([])} className="text-[10px] text-accent-primary hover:underline">Clear</button>
+                                        )}
+                                    </div>
+                                    {availableTags.length === 0 && (
+                                        <div className="text-xs text-text-muted py-2">No tags yet</div>
+                                    )}
+                                    <div className="flex flex-wrap gap-1">
+                                        {availableTags.map(({ tag, count }) => {
+                                            const isActive = activeTags.includes(tag);
+                                            return (
+                                                <button
+                                                    key={tag}
+                                                    onClick={() => setActiveTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
+                                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${isActive ? 'bg-accent-primary text-white' : 'bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25'}`}
+                                                >
+                                                    {tag}
+                                                    <span className="opacity-70">{count}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         {Object.keys(groupedEntries).sort((a, b) => b.localeCompare(a)).map(year => {
                             const isYearOpen = journalExpanded[year] !== false;
@@ -845,12 +939,75 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                 <>
                     {/* Notebook Tree */}
                     <div className="flex-1 overflow-y-auto p-2 pb-20 min-h-0">
-                        <div className="flex items-center justify-between px-2 mb-2">
+                        <div className="flex items-center justify-between px-2 mb-2 relative">
                             <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Notebook</span>
                             <div className="flex space-x-1">
-                            <button title="New page" onClick={() => onCreateEntry(null, 'Page')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><File className="w-3 h-3" /></button>
+                                <button
+                                    onClick={() => setShowSortMenu(v => !v)}
+                                    className={`p-1 rounded transition-colors ${sortMode !== 'manual' ? 'text-accent-primary' : 'text-text-muted hover:text-text-primary'}`}
+                                    title={`Sort: ${sortMode}`}
+                                >
+                                    <ArrowUpDown className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                    onClick={() => setShowTagFilter(v => !v)}
+                                    className={`p-1 rounded transition-colors ${activeTags.length > 0 ? 'text-accent-primary' : 'text-text-muted hover:text-text-primary'}`}
+                                    title={activeTags.length ? `Filtering by ${activeTags.length} tag(s)` : 'Filter by tag'}
+                                >
+                                    <Hash className="w-3.5 h-3.5" />
+                                </button>
+                                <button title="New page" onClick={() => onCreateEntry(null, 'Page')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><File className="w-3 h-3" /></button>
                                 <button title="New folder" onClick={() => onCreateEntry(null, 'Folder')} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><Folder className="w-3 h-3" /></button>
                             </div>
+                            {showSortMenu && (
+                                <div className="absolute top-full right-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-lg z-50 py-1">
+                                    {([
+                                        ['manual', 'Manual (default)'],
+                                        ['title-asc', 'Title A→Z'],
+                                        ['title-desc', 'Title Z→A'],
+                                        ['created-newest', 'Created (newest)'],
+                                        ['created-oldest', 'Created (oldest)'],
+                                        ['modified-newest', 'Modified (newest)'],
+                                        ['modified-oldest', 'Modified (oldest)'],
+                                    ] as [SortMode, string][]).map(([m, label]) => (
+                                        <button
+                                            key={m}
+                                            onClick={() => applySortMode(m)}
+                                            className={`w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover ${sortMode === m ? 'text-accent-primary font-medium' : 'text-text-primary'}`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                            {showTagFilter && (
+                                <div className="absolute top-full right-0 mt-1 w-64 bg-bg-card border border-border-primary rounded shadow-lg z-50 p-2 max-h-72 overflow-y-auto">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Tags</span>
+                                        {activeTags.length > 0 && (
+                                            <button onClick={() => setActiveTags([])} className="text-[10px] text-accent-primary hover:underline">Clear</button>
+                                        )}
+                                    </div>
+                                    {availableTags.length === 0 && (
+                                        <div className="text-xs text-text-muted py-2">No tags yet</div>
+                                    )}
+                                    <div className="flex flex-wrap gap-1">
+                                        {availableTags.map(({ tag, count }) => {
+                                            const isActive = activeTags.includes(tag);
+                                            return (
+                                                <button
+                                                    key={tag}
+                                                    onClick={() => setActiveTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
+                                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${isActive ? 'bg-accent-primary text-white' : 'bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25'}`}
+                                                >
+                                                    {tag}
+                                                    <span className="opacity-70">{count}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         <div className="space-y-0.5">
                             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -939,6 +1096,18 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
                             style={{ top: contextMenu.y, left: contextMenu.x }}
                             onClick={(e) => e.stopPropagation()}
                         >
+                            <button
+                                className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center"
+                                onClick={async (e) => {
+                                    e.stopPropagation();
+                                    await fetch(`/api/entry/${contextMenu.entryId}/pin`, { method: 'POST' });
+                                    setContextMenu({ ...contextMenu, visible: false });
+                                    fetchPages();
+                                }}
+                            >
+                                <Pin className={`w-4 h-4 mr-2 ${ctxEntry?.IsPinned ? 'fill-current' : ''}`} />
+                                {ctxEntry?.IsPinned ? 'Unpin' : 'Pin'}
+                            </button>
                             <button
                                 className="w-full text-left px-4 py-2 hover:bg-bg-hover text-text-primary text-sm flex items-center"
                                 onClick={(e) => {

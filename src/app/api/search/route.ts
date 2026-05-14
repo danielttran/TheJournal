@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ results: [], total: 0, hasMore: false });
         }
 
-        const conditions: string[] = ['c.UserID = ?'];
+        const conditions: string[] = ['c.UserID = ?', 'e.IsDeleted = 0'];
         const params: Array<number | string> = [userId];
 
         if (categoryId) {

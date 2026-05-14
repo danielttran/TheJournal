@@ -42,12 +42,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-    dbm.close();
-    // Clean up temp DB files
+    // close() returns a Promise — without awaiting it on Windows the file
+    // handle stays open and the unlink below silently fails, then the
+    // cleanup-verification assertion explodes.
+    await dbm.close();
     for (const suffix of ['', '-shm', '-wal']) {
         await unlink(TEST_DB_PATH + suffix).catch(() => {/* may not exist */});
     }
-    // Verify cleanup
     await expect(access(TEST_DB_PATH)).rejects.toThrow();
 });
 

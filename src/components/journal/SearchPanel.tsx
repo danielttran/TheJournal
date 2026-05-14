@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useId } from 'react';
-import { Search, X, ChevronDown, ChevronUp, SlidersHorizontal, Calendar, Tag, FileText, AlignLeft, BookOpen } from 'lucide-react';
+import { Search, X, ChevronDown, ChevronUp, SlidersHorizontal, Calendar, Tag, FileText, AlignLeft, BookOpen, Star, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -60,6 +60,8 @@ export default function SearchPanel({
     // ── Query state ──────────────────────────────────────────────────────────
     const [query, setQuery] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [saved, setSaved] = useState<{ SavedSearchID: number; Name: string; QueryJson: string }[]>([]);
+    const [showSavedMenu, setShowSavedMenu] = useState(false);
 
     // Advanced filters
     const [searchIn, setSearchIn] = useState<'both' | 'title' | 'content'>('both');
@@ -189,6 +191,82 @@ export default function SearchPanel({
                     {loading && (
                         <div className="w-3.5 h-3.5 border-2 border-accent-primary/40 border-t-accent-primary rounded-full animate-spin flex-shrink-0" />
                     )}
+                    {/* Saved searches dropdown */}
+                    <div className="relative flex-shrink-0">
+                        <button
+                            onClick={async () => {
+                                setShowSavedMenu(v => !v);
+                                if (!showSavedMenu) {
+                                    try {
+                                        const res = await fetch('/api/saved-search');
+                                        const data = await res.json();
+                                        setSaved(data.items ?? []);
+                                    } catch {}
+                                }
+                            }}
+                            title="Saved searches"
+                            className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+                        >
+                            <Star className="w-3.5 h-3.5" />
+                        </button>
+                        {showSavedMenu && (
+                            <div className="absolute top-full right-0 mt-1 w-64 bg-bg-card border border-border-primary rounded shadow-lg z-50 py-1 max-h-80 overflow-y-auto">
+                                <button
+                                    onClick={async () => {
+                                        const name = prompt('Name this search:');
+                                        if (!name) return;
+                                        await fetch('/api/saved-search', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                                name,
+                                                query: { q: query, searchIn, scopeCategory, dateFrom, dateTo, entryType, matchCase, wholeWord },
+                                            }),
+                                        });
+                                        const res = await fetch('/api/saved-search');
+                                        const data = await res.json();
+                                        setSaved(data.items ?? []);
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 text-xs text-accent-primary hover:bg-bg-hover border-b border-border-primary"
+                                >
+                                    + Save current search
+                                </button>
+                                {saved.length === 0 && <div className="px-3 py-2 text-xs text-text-muted">No saved searches</div>}
+                                {saved.map(s => (
+                                    <div key={s.SavedSearchID} className="flex items-center group hover:bg-bg-hover">
+                                        <button
+                                            onClick={() => {
+                                                try {
+                                                    const q = JSON.parse(s.QueryJson);
+                                                    if (typeof q.q === 'string') setQuery(q.q);
+                                                    if (q.searchIn) setSearchIn(q.searchIn);
+                                                    if (q.scopeCategory) setScopeCategory(q.scopeCategory);
+                                                    if (typeof q.dateFrom === 'string') setDateFrom(q.dateFrom);
+                                                    if (typeof q.dateTo === 'string') setDateTo(q.dateTo);
+                                                    if (typeof q.entryType === 'string') setEntryType(q.entryType as any);
+                                                    if (typeof q.matchCase === 'boolean') setMatchCase(q.matchCase);
+                                                    if (typeof q.wholeWord === 'boolean') setWholeWord(q.wholeWord);
+                                                } catch {}
+                                                setShowSavedMenu(false);
+                                            }}
+                                            className="flex-1 text-left px-3 py-1.5 text-sm text-text-primary"
+                                        >
+                                            {s.Name}
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                await fetch(`/api/saved-search/${s.SavedSearchID}`, { method: 'DELETE' });
+                                                setSaved(prev => prev.filter(x => x.SavedSearchID !== s.SavedSearchID));
+                                            }}
+                                            className="p-1 mr-2 text-red-400 opacity-0 group-hover:opacity-100"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     {/* Advanced toggle */}
                     <button
                         onClick={() => setShowAdvanced(v => !v)}

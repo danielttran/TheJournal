@@ -19,6 +19,8 @@ export interface Entry {
     IsExpanded?: boolean;
     IsLocked?: boolean;
     IsFavorited?: boolean;
+    IsPinned?: boolean;
+    PinnedDate?: string | null;
     Mood?: string | null;
     Tags?: string; // JSON array string, e.g. '["travel","work"]'
     CreatedDate?: string;

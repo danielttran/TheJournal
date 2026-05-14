@@ -1,4 +1,5 @@
-import { db } from "@/lib/db";
+import { db, dbManager } from "@/lib/db";
+import { softDeleteEntry, permanentlyDeleteEntry } from "@/lib/trash";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -43,31 +44,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
             return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
         }
 
-        const deleteTransaction = db.transaction(async () => {
-            // Single recursive CTE collects the full subtree in one query — no N+1 BFS loop.
-            // Running inside BEGIN IMMEDIATE ensures no new children can be inserted
-            // between the tree walk and the delete.
-            const rows = await db.prepare(`
-                WITH RECURSIVE subtree(id) AS (
-                    SELECT ?
-                    UNION ALL
-                    SELECT e.EntryID FROM Entry e JOIN subtree s ON e.ParentEntryID = s.id
-                )
-                SELECT id FROM subtree
-            `).all(entryId) as { id: number }[];
+        const { searchParams } = new URL(req.url);
+        const permanent = searchParams.get('permanent') === 'true';
 
-            if (rows.length === 0) return;
-
-            const idsToDelete = rows.map(r => r.id);
-            const placeholders = idsToDelete.map(() => '?').join(',');
-
-            // Delete content first (EntryContent FK has ON DELETE CASCADE from Entry,
-            // but explicit deletion is clearer and avoids relying purely on cascade order).
-            await db.prepare(`DELETE FROM EntryContent WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
-            await db.prepare(`DELETE FROM Entry WHERE EntryID IN (${placeholders})`).run(...idsToDelete);
-        });
-
-        await deleteTransaction();
+        if (permanent) {
+            await permanentlyDeleteEntry(dbManager, entryId);
+        } else {
+            await softDeleteEntry(dbManager, entryId);
+        }
 
         return NextResponse.json({ success: true });
     } catch (error) {

@@ -81,13 +81,15 @@ export async function POST(req: NextRequest) {
                 const newCatId = catIdMap.get(entry.CategoryID);
                 if (!newCatId) continue;
                 const r = await db.prepare(`
-                    INSERT INTO main.Entry(CategoryID, Title, PreviewText, IsLocked, CreatedDate, ModifiedDate, EntryType, SortOrder, Icon, IsExpanded, Mood, IsFavorited, Tags)
-                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO main.Entry(CategoryID, Title, PreviewText, IsLocked, CreatedDate, ModifiedDate, EntryType, SortOrder, Icon, IsExpanded, Mood, IsFavorited, Tags, IsDeleted, DeletedDate, IsPinned, PinnedDate)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `).run(
                     newCatId, entry.Title, entry.PreviewText, entry.IsLocked,
                     entry.CreatedDate, entry.ModifiedDate, entry.EntryType || 'Page',
                     entry.SortOrder || 0, entry.Icon, entry.IsExpanded ? 1 : 0,
-                    entry.Mood ?? null, entry.IsFavorited ? 1 : 0, entry.Tags ?? '[]'
+                    entry.Mood ?? null, entry.IsFavorited ? 1 : 0, entry.Tags ?? '[]',
+                    entry.IsDeleted ? 1 : 0, entry.DeletedDate ?? null,
+                    entry.IsPinned ? 1 : 0, entry.PinnedDate ?? null
                 );
                 entryIdMap.set(entry.EntryID, r.lastInsertRowid as number);
             }
@@ -137,7 +139,40 @@ export async function POST(req: NextRequest) {
                 }
             }
 
-            console.log(`[Import] Done. ${importedCats.length} categories, ${importedEntries.length} entries, ${importedAtts.length} attachments.`);
+            // G. Import Reminders / WordGoals / SavedSearches (tables added post-launch — safe to skip if absent)
+            const safeAll = async (sql: string): Promise<any[]> => {
+                try { return await db.prepare(sql).all() as any[]; }
+                catch { return []; }
+            };
+            const importedReminders = await safeAll("SELECT * FROM imported.Reminder");
+            for (const rem of importedReminders) {
+                const newEntryId = rem.EntryID ? entryIdMap.get(rem.EntryID) ?? null : null;
+                await db.prepare(`
+                    INSERT INTO main.Reminder(UserID, Title, Notes, DueAt, IsComplete, CompletedAt, EntryID, CreatedAt, RecurInterval, RecurEvery)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                    userId, rem.Title, rem.Notes ?? null, rem.DueAt,
+                    rem.IsComplete ? 1 : 0, rem.CompletedAt ?? null, newEntryId, rem.CreatedAt ?? null,
+                    rem.RecurInterval ?? null, rem.RecurEvery ?? null
+                );
+            }
+            const importedGoals = await safeAll("SELECT * FROM imported.WordGoal");
+            for (const g of importedGoals) {
+                const newCatId = g.CategoryID ? catIdMap.get(g.CategoryID) ?? null : null;
+                await db.prepare(`
+                    INSERT INTO main.WordGoal(UserID, Type, Target, StartDate, EndDate, CategoryID, CreatedAt)
+                    VALUES(?, ?, ?, ?, ?, ?, ?)
+                `).run(userId, g.Type, g.Target, g.StartDate, g.EndDate ?? null, newCatId, g.CreatedAt ?? null);
+            }
+            const importedSearches = await safeAll("SELECT * FROM imported.SavedSearch");
+            for (const s of importedSearches) {
+                await db.prepare(`
+                    INSERT INTO main.SavedSearch(UserID, Name, QueryJson, CreatedAt)
+                    VALUES(?, ?, ?, ?)
+                `).run(userId, s.Name, s.QueryJson, s.CreatedAt ?? null);
+            }
+
+            console.log(`[Import] Done. ${importedCats.length} categories, ${importedEntries.length} entries, ${importedAtts.length} attachments, ${importedReminders.length} reminders, ${importedGoals.length} goals.`);
         });
 
         await transaction();

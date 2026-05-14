@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.davidrm.com)",
+      "mcp__jcodemunch__index_folder",
+      "mcp__jcodemunch__get_repo_outline",
+      "Bash(npx vitest *)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

@@ -4,7 +4,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { X, Plus, Book, FileText, LogOut, Settings } from 'lucide-react';
+import { X, Plus, Book, FileText, LogOut, Settings, Trash, Bell, Target, BarChart3, Replace, Calendar, Cloud } from 'lucide-react';
+import TrashPanel from './TrashPanel';
+import RemindersPanel from './RemindersPanel';
+import GoalsPanel from './GoalsPanel';
+import StatsPanel from './StatsPanel';
+import ReplacePanel from './ReplacePanel';
+import OnThisDayPanel from './OnThisDayPanel';
+import WordCloudPanel from './WordCloudPanel';
+import SnippetsPanel from './SnippetsPanel';
+import { Scissors } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Theme as EmojiTheme } from 'emoji-picker-react';
 import { useClickOutside } from '@/hooks';
@@ -247,6 +256,14 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isTrashOpen, setIsTrashOpen] = useState(false);
+    const [isRemindersOpen, setIsRemindersOpen] = useState(false);
+    const [isGoalsOpen, setIsGoalsOpen] = useState(false);
+    const [isStatsOpen, setIsStatsOpen] = useState(false);
+    const [isReplaceOpen, setIsReplaceOpen] = useState(false);
+    const [isOnThisDayOpen, setIsOnThisDayOpen] = useState(false);
+    const [isWordCloudOpen, setIsWordCloudOpen] = useState(false);
+    const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
     const [isClient, setIsClient] = useState(false);
     useEffect(() => setIsClient(true), []);
 
@@ -442,6 +459,50 @@ export default function TabBar({ userId }: { userId: string }) {
                             <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
                                 <button onClick={handleImportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Import DB...</button>
                                 <button onClick={handleExportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Export DB</button>
+                                <button onClick={() => { setIsTrashOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Trash size={14} className="mr-2" />
+                                    Trash...
+                                </button>
+                                <button onClick={() => { setIsRemindersOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Bell size={14} className="mr-2" />
+                                    Reminders...
+                                </button>
+                                <button onClick={() => { setIsGoalsOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Target size={14} className="mr-2" />
+                                    Word Goals...
+                                </button>
+                                <button onClick={() => { setIsStatsOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <BarChart3 size={14} className="mr-2" />
+                                    Statistics...
+                                </button>
+                                <button onClick={() => { setIsOnThisDayOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Calendar size={14} className="mr-2" />
+                                    On this day...
+                                </button>
+                                <button onClick={() => { setIsWordCloudOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Cloud size={14} className="mr-2" />
+                                    Word cloud...
+                                </button>
+                                <button onClick={() => { setIsSnippetsOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Scissors size={14} className="mr-2" />
+                                    Snippets...
+                                </button>
+                                {activeId && (
+                                    <>
+                                        <button onClick={() => { setIsReplaceOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                            <Replace size={14} className="mr-2" />
+                                            Find &amp; Replace...
+                                        </button>
+                                        <a
+                                            href={`/api/category/${activeId}/export`}
+                                            onClick={() => setIsFileMenuOpen(false)}
+                                            className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center"
+                                        >
+                                            <FileText size={14} className="mr-2" />
+                                            Export current as Markdown
+                                        </a>
+                                    </>
+                                )}
                                 <button onClick={() => { window.dispatchEvent(new Event('trigger-settings')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
                                     <Settings size={14} className="mr-2" />
                                     Settings...
@@ -561,6 +622,44 @@ export default function TabBar({ userId }: { userId: string }) {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {isTrashOpen && (
+                <TrashPanel
+                    onClose={() => setIsTrashOpen(false)}
+                    onChanged={() => window.dispatchEvent(new Event('journal-entry-updated'))}
+                />
+            )}
+
+            {isRemindersOpen && (
+                <RemindersPanel onClose={() => setIsRemindersOpen(false)} />
+            )}
+
+            {isGoalsOpen && (
+                <GoalsPanel onClose={() => setIsGoalsOpen(false)} />
+            )}
+
+            {isStatsOpen && (
+                <StatsPanel onClose={() => setIsStatsOpen(false)} />
+            )}
+
+            {isReplaceOpen && activeId && (
+                <ReplacePanel categoryId={parseInt(activeId, 10)} onClose={() => setIsReplaceOpen(false)} />
+            )}
+
+            {isOnThisDayOpen && (
+                <OnThisDayPanel onClose={() => setIsOnThisDayOpen(false)} />
+            )}
+
+            {isWordCloudOpen && (
+                <WordCloudPanel
+                    categoryId={activeId ? parseInt(activeId, 10) : undefined}
+                    onClose={() => setIsWordCloudOpen(false)}
+                />
+            )}
+
+            {isSnippetsOpen && (
+                <SnippetsPanel onClose={() => setIsSnippetsOpen(false)} />
             )}
 
         </div>

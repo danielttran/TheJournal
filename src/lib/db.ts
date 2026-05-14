@@ -10,30 +10,50 @@ export class DatabaseNotUnlockedError extends Error {
     }
 }
 
+/**
+ * Prepared statement that auto-resolves the underlying Database from its parent
+ * DBManager at execute time — so callers can `dbm.prepare(...).run(...)` even
+ * before the connection is unlocked. The first method call will trigger
+ * `ensureUnlocked()` and then delegate.
+ *
+ * This is the core of the mission-critical fix: every entry point can use
+ * `dbManager` (or the `db` proxy) safely without coordinating unlock state.
+ */
 export class AsyncStatement {
-    constructor(private db: Database, private query: string) {}
+    constructor(private dbm: DBManager, private query: string) {}
 
-    get<T = unknown>(...params: SQLValue[]): Promise<T | undefined> {
+    /** Lazily ensure unlock + return the underlying SQLCipher handle. */
+    private async resolved(): Promise<Database> {
+        if (!this.dbm.instance) {
+            await this.dbm.ensureUnlocked();
+        }
+        return this.dbm.instance!;
+    }
+
+    async get<T = unknown>(...params: SQLValue[]): Promise<T | undefined> {
+        const handle = await this.resolved();
         return new Promise((resolve, reject) => {
-            this.db.get(this.query, params, (err, row) => {
+            handle.get(this.query, params, (err, row) => {
                 if (err) reject(err);
                 else resolve(row as T | undefined);
             });
         });
     }
 
-    all<T = unknown>(...params: SQLValue[]): Promise<T[]> {
+    async all<T = unknown>(...params: SQLValue[]): Promise<T[]> {
+        const handle = await this.resolved();
         return new Promise((resolve, reject) => {
-            this.db.all(this.query, params, (err, rows) => {
+            handle.all(this.query, params, (err, rows) => {
                 if (err) reject(err);
                 else resolve(rows as T[]);
             });
         });
     }
 
-    run(...params: SQLValue[]): Promise<{ lastInsertRowid: number, changes: number }> {
+    async run(...params: SQLValue[]): Promise<{ lastInsertRowid: number, changes: number }> {
+        const handle = await this.resolved();
         return new Promise((resolve, reject) => {
-            this.db.run(this.query, params, function(this: { lastID: number; changes: number }, err) {
+            handle.run(this.query, params, function(this: { lastID: number; changes: number }, err) {
                 if (err) reject(err);
                 else resolve({ lastInsertRowid: this.lastID, changes: this.changes });
             });
@@ -189,6 +209,79 @@ export class DBManager {
                 CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
             )`,
+            `CREATE TABLE IF NOT EXISTS Reminder (
+                ReminderID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                Title TEXT NOT NULL,
+                Notes TEXT,
+                DueAt DATETIME NOT NULL,
+                IsComplete BOOLEAN DEFAULT 0,
+                CompletedAt DATETIME,
+                EntryID INTEGER REFERENCES Entry(EntryID) ON DELETE SET NULL,
+                CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Reminder_User_Due" ON "Reminder" ("UserID", "DueAt")`,
+            `CREATE TABLE IF NOT EXISTS WordGoal (
+                WordGoalID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                Type TEXT NOT NULL CHECK(Type IN ('daily', 'total')),
+                Target INTEGER NOT NULL,
+                StartDate TEXT NOT NULL,
+                EndDate TEXT,
+                CategoryID INTEGER REFERENCES Category(CategoryID) ON DELETE CASCADE,
+                CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
+            `CREATE INDEX IF NOT EXISTS "Idx_WordGoal_User" ON "WordGoal" ("UserID")`,
+            `CREATE TABLE IF NOT EXISTS SavedSearch (
+                SavedSearchID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                Name TEXT NOT NULL,
+                QueryJson TEXT NOT NULL,
+                CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
+            `CREATE INDEX IF NOT EXISTS "Idx_SavedSearch_User" ON "SavedSearch" ("UserID")`,
+            // Topics: DavidRM-style colored classification with optional hotkey
+            `CREATE TABLE IF NOT EXISTS Topic (
+                TopicID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                Name TEXT NOT NULL,
+                Color TEXT NOT NULL DEFAULT '#6366f1',
+                Hotkey INTEGER,
+                SortOrder REAL DEFAULT 0,
+                CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE,
+                UNIQUE (UserID, Name)
+            )`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Topic_User" ON "Topic" ("UserID")`,
+            `CREATE TABLE IF NOT EXISTS EntryTopic (
+                EntryID INTEGER NOT NULL,
+                TopicID INTEGER NOT NULL,
+                PRIMARY KEY (EntryID, TopicID),
+                FOREIGN KEY (EntryID) REFERENCES Entry(EntryID) ON DELETE CASCADE,
+                FOREIGN KEY (TopicID) REFERENCES Topic(TopicID) ON DELETE CASCADE
+            )`,
+            `CREATE INDEX IF NOT EXISTS "Idx_EntryTopic_Topic" ON "EntryTopic" ("TopicID")`,
+            // Habits: daily tracker tied to a user
+            `CREATE TABLE IF NOT EXISTS Habit (
+                HabitID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                Name TEXT NOT NULL,
+                Color TEXT DEFAULT '#10b981',
+                Goal INTEGER DEFAULT 1,
+                CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
+            `CREATE TABLE IF NOT EXISTS HabitLog (
+                HabitID INTEGER NOT NULL,
+                Date TEXT NOT NULL,
+                Count INTEGER DEFAULT 1,
+                PRIMARY KEY (HabitID, Date),
+                FOREIGN KEY (HabitID) REFERENCES Habit(HabitID) ON DELETE CASCADE
+            )`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Habit_User" ON "Habit" ("UserID")`,
             `CREATE TABLE IF NOT EXISTS Attachment (
                 AttachmentID INTEGER PRIMARY KEY AUTOINCREMENT,
                 UserID INTEGER NOT NULL,
@@ -203,7 +296,18 @@ export class DBManager {
             `CREATE INDEX IF NOT EXISTS "Idx_Entry_Category_Date" ON "Entry" ("CategoryID", "CreatedDate")`,
             `CREATE INDEX IF NOT EXISTS "Idx_Category_User" ON "Category" ("UserID")`,
             `CREATE INDEX IF NOT EXISTS "Idx_Entry_Type" ON "Entry" ("CategoryID", "EntryType")`,
-            `CREATE INDEX IF NOT EXISTS "Idx_Template_User" ON "Template" ("UserID")`
+            `CREATE INDEX IF NOT EXISTS "Idx_Template_User" ON "Template" ("UserID")`,
+            // Snippets (sprint 6) — kept in main queries array for consistency
+            `CREATE TABLE IF NOT EXISTS Snippet (
+                SnippetID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                Name TEXT NOT NULL,
+                Content TEXT NOT NULL,
+                Shortcut TEXT,
+                CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Snippet_User_Shortcut" ON "Snippet" ("UserID", "Shortcut")`,
         ];
 
         for (const query of queries) {
@@ -225,7 +329,39 @@ export class DBManager {
             `ALTER TABLE Entry ADD COLUMN Mood TEXT`,
             `ALTER TABLE Entry ADD COLUMN IsFavorited BOOLEAN DEFAULT 0`,
             `ALTER TABLE Entry ADD COLUMN Tags TEXT DEFAULT '[]'`,
+            // Sprint 3: soft-delete (trash)
+            `ALTER TABLE Entry ADD COLUMN IsDeleted BOOLEAN DEFAULT 0`,
+            `ALTER TABLE Entry ADD COLUMN DeletedDate DATETIME`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Entry_Deleted" ON "Entry" ("IsDeleted", "DeletedDate")`,
+            // Sprint 4: pinned entries
+            `ALTER TABLE Entry ADD COLUMN IsPinned BOOLEAN DEFAULT 0`,
+            `ALTER TABLE Entry ADD COLUMN PinnedDate DATETIME`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Entry_Pinned" ON "Entry" ("IsPinned", "PinnedDate")`,
+            // Sprint 5: recurring reminders
+            `ALTER TABLE Reminder ADD COLUMN RecurInterval TEXT`,
+            `ALTER TABLE Reminder ADD COLUMN RecurEvery INTEGER`,
+            // Sprint 7: recently-accessed tracking + user settings + backup schedule
+            `ALTER TABLE Entry ADD COLUMN LastAccessedDate DATETIME`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Entry_LastAccessed" ON "Entry" ("LastAccessedDate")`,
+            `CREATE TABLE IF NOT EXISTS UserSetting (
+                UserID INTEGER NOT NULL,
+                Key TEXT NOT NULL,
+                Value TEXT,
+                PRIMARY KEY (UserID, Key),
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
+            `CREATE TABLE IF NOT EXISTS BackupSchedule (
+                BackupScheduleID INTEGER PRIMARY KEY AUTOINCREMENT,
+                UserID INTEGER NOT NULL,
+                IntervalDays INTEGER NOT NULL,
+                DestPath TEXT NOT NULL,
+                LastRun DATETIME,
+                Enabled BOOLEAN DEFAULT 1,
+                FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
+            )`,
+            `CREATE INDEX IF NOT EXISTS "Idx_BackupSchedule_User" ON "BackupSchedule" ("UserID")`,
         ];
+
         for (const migration of migrations) {
             await new Promise<void>((res) => this.instance!.run(migration, () => res()));
         }
@@ -378,16 +514,48 @@ export class DBManager {
     }
 
 
+    /**
+     * Build a lazy prepared statement. NEVER throws synchronously — the actual
+     * unlock + query happens when .get/.all/.run is awaited. This makes every
+     * route/page/lib that uses `dbm.prepare(...)` safe under cold-worker
+     * conditions (Next.js dev with Turbopack, electron restart, etc.).
+     */
     prepare(query: string): AsyncStatement {
-        if (!this.instance) {
-            throw new DatabaseNotUnlockedError();
-        }
-        return new AsyncStatement(this.instance, query);
+        return new AsyncStatement(this, query);
+    }
+
+    private _unlockInFlight: Promise<void> | null = null;
+
+    /**
+     * Idempotent unlock. Order of preference for the key:
+     *   1. Already-unlocked instance → no-op
+     *   2. `currentKey` remembered from a prior unlock in this process →
+     *      reuse it (covers `close()` + lazy reopen, including dev-time
+     *      worker recycle, and test DBs created with a custom key)
+     *   3. Fall back to `getAppDbKey()` from auth — only used the very first
+     *      time the process opens this DB
+     *
+     * Reusing the prior key avoids silently rekeying if `JOURNAL_DB_SECRET`
+     * changes between an unlock and a reconnect. Concurrent callers are
+     * de-duped via `_unlockInFlight` so we never trigger parallel sqlcipher
+     * key derivations.
+     */
+    async ensureUnlocked(): Promise<void> {
+        if (this.instance) return;
+        if (this._unlockInFlight) return this._unlockInFlight;
+
+        this._unlockInFlight = (async () => {
+            const key = this.currentKey ?? (await import('./auth')).getAppDbKey();
+            await this.unlock(key);
+        })().finally(() => {
+            this._unlockInFlight = null;
+        });
+        return this._unlockInFlight;
     }
 
     transaction<T, TArgs extends unknown[]>(cb: (...args: TArgs) => Promise<T>): (...args: TArgs) => Promise<T> {
         return async (...args: TArgs) => {
-            if (!this.instance) throw new DatabaseNotUnlockedError();
+            await this.ensureUnlocked();
             await this.mutex.acquire();
             await this.prepare('BEGIN IMMEDIATE').run();
             try {
@@ -418,6 +586,14 @@ const globalForDb = global as unknown as { dbManager: DBManager | undefined };
 export const dbManager = globalForDb.dbManager ?? new DBManager();
 if (process.env.NODE_ENV !== 'production') globalForDb.dbManager = dbManager;
 
+/**
+ * Module-level convenience: ensure the singleton is unlocked. Equivalent to
+ * `dbManager.ensureUnlocked()` — exported because some old code may import it.
+ */
+export async function ensureUnlocked(): Promise<void> {
+    return dbManager.ensureUnlocked();
+}
+
 interface DBClient {
     prepare: DBManager['prepare'];
     transaction: DBManager['transaction'];
@@ -425,6 +601,12 @@ interface DBClient {
     readonly currentKey: string | null;
 }
 
+/**
+ * Thin proxy around the singleton — kept for backward compatibility with
+ * existing callsites that import `db` (rather than `dbManager`). The underlying
+ * `DBManager.prepare/transaction` are already lazy, so this proxy needs no
+ * additional unlock logic.
+ */
 export const db: DBClient = new Proxy({} as DBClient, {
     get: (_target, prop: string) => {
         if (prop === 'prepare') return dbManager.prepare.bind(dbManager);

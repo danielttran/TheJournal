@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Minimize2, Star, Hash, X } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
@@ -31,22 +31,11 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { Markdown } from 'tiptap-markdown';
-
-// ─── Pure helpers (module-level — no closures over component state) ───────────
-
-/** Count words in an HTML string without touching the DOM. */
-function countWords(html: string): number {
-    const text = html
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .trim();
-    return text ? text.split(/\s+/).filter(Boolean).length : 0;
-}
+import { isSafeImageUrl } from '@/lib/hotlinkImages';
+import { applyBuiltins, parseTemplateVariables, substituteVariables } from '@/lib/smartTemplates';
+// Shared HTML-stripping count + reading-time helpers — the editor previously
+// hand-rolled an `countWords` that drifted from the test-covered version.
+import { wordCount as countWords, readingTimeMinutesFromWords } from '@/lib/readingTime';
 
 // ─── Entry content cache ──────────────────────────────────────────────────────
 const entryContentCache = new Map<string, { html: string; documentJson: any; timestamp: number }>();
@@ -99,6 +88,8 @@ export default function Editor({
     onEntryChange?: (id: number | null) => void;
 }) {
     const searchParams = useSearchParams();
+    const router = useRouter();
+    const pathname = usePathname();
     const urlDate = searchParams.get('date');
     const selectedDate = urlDate || new Date().toISOString().split('T')[0];
     const urlEntryId = searchParams.get('entry') ? parseInt(searchParams.get('entry')!, 10) : null;
@@ -125,6 +116,8 @@ export default function Editor({
     const [showMoodPicker, setShowMoodPicker] = useState(false);
     const [showWritingPrompts, setShowWritingPrompts] = useState(false);
     const [tagInput, setTagInput] = useState('');
+    const [tagSuggestions, setTagSuggestions] = useState<{ tag: string; count: number }[]>([]);
+    const [tagSuggestIndex, setTagSuggestIndex] = useState(0);
     const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
     const moodRef = useRef<string | null>(null);
     const isFavoritedRef = useRef(false);
@@ -201,6 +194,9 @@ export default function Editor({
         extensions,
         content: '',
         immediatelyRender: false,
+        editorProps: {
+            attributes: { spellcheck: 'true' },
+        },
         onUpdate: ({ editor: e, transaction }) => {
             if (!transaction.docChanged) return;
             handleChange(e.getHTML(), e.getJSON(), isSyncingRef.current ? 'api' : 'user');
@@ -218,6 +214,9 @@ export default function Editor({
         extensions,
         content: '',
         immediatelyRender: false,
+        editorProps: {
+            attributes: { spellcheck: 'true' },
+        },
         onUpdate: ({ editor: e, transaction }) => {
             if (!transaction.docChanged) return;
             handleChange(e.getHTML(), e.getJSON(), isSyncingRef.current ? 'api' : 'user');
@@ -233,6 +232,31 @@ export default function Editor({
     // Keep refs in sync with the actual editor instances
     useEffect(() => { editor1Ref.current = editor; }, [editor]);
     useEffect(() => { editor2Ref.current = editor2; }, [editor2]);
+
+    // Tag autocomplete — fetches /api/tags/suggest 150 ms after the user
+    // stops typing. Filters out tags already on the entry so the dropdown
+    // never suggests a duplicate.
+    useEffect(() => {
+        const q = tagInput.trim();
+        if (q.length === 0) {
+            setTagSuggestions([]);
+            setTagSuggestIndex(0);
+            return;
+        }
+        const ctl = new AbortController();
+        const timer = setTimeout(() => {
+            fetch(`/api/tags/suggest?prefix=${encodeURIComponent(q)}&limit=8`, { signal: ctl.signal })
+                .then(r => r.ok ? r.json() : { suggestions: [] })
+                .then((d: { suggestions: { tag: string; count: number }[] }) => {
+                    if (ctl.signal.aborted) return;
+                    const fresh = (d.suggestions ?? []).filter(s => !tags.includes(s.tag));
+                    setTagSuggestions(fresh);
+                    setTagSuggestIndex(0);
+                })
+                .catch(err => { if (err?.name !== 'AbortError') setTagSuggestions([]); });
+        }, 150);
+        return () => { clearTimeout(timer); ctl.abort(); };
+    }, [tagInput, tags]);
 // Font Size Settings
     const [defaultFontSize, setDefaultFontSize] = useState(14);
     useEffect(() => {
@@ -826,12 +850,23 @@ export default function Editor({
         }
     }, [uploadImageFile, insertImage]);
 
-    // Paste images from clipboard (e.g. screenshots)
+    // Paste images from clipboard (e.g. screenshots) OR hot-link an image URL
     useEffect(() => {
         if (!editor) return;
         const handlePaste = async (e: ClipboardEvent) => {
             if (!editor.isFocused) return;
             const items = Array.from(e.clipboardData?.items ?? []);
+
+            // First check for pasted image-URL text — hot-link without uploading
+            const text = e.clipboardData?.getData('text/plain')?.trim();
+            if (text && /^https?:\/\/\S+\.(png|jpe?g|gif|webp|svg|bmp|avif)(\?\S*)?(#\S*)?$/i.test(text)) {
+                if (isSafeImageUrl(text)) {
+                    e.preventDefault();
+                    insertImage(text);
+                    return;
+                }
+            }
+
             const imageItem = items.find(i => i.type.startsWith('image/'));
             if (!imageItem) return;
             e.preventDefault();
@@ -868,16 +903,29 @@ export default function Editor({
     const applyTemplate = useCallback((template: Template) => {
         if (!editor) return;
         try {
-            let json = null;
-            if (template.DocumentJson) {
-                try { json = JSON.parse(template.DocumentJson); } catch {}
+            // Smart template substitution: scan for {{prompt:Question?}} placeholders first.
+            // For each, ask the user via prompt(). Then apply built-in {{date}}, {{title}}, etc.
+            const rawHtml = template.HtmlContent ?? '';
+            const vars = parseTemplateVariables(rawHtml);
+            const promptValues: Record<string, string> = {};
+            for (const v of vars) {
+                if (v.key === 'prompt' && v.arg) {
+                    const answer = window.prompt(v.arg, '');
+                    if (answer !== null) {
+                        const placeholder = v.raw.replace(/^\{\{|\}\}$/g, '').trim();
+                        promptValues[placeholder] = answer;
+                    }
+                }
             }
-            if (json) {
-                editor.commands.setContent(json, { emitUpdate: false });
-            } else if (template.HtmlContent) {
-                editor.commands.setContent(template.HtmlContent, { emitUpdate: false });
+            let processedHtml = substituteVariables(rawHtml, promptValues);
+            processedHtml = applyBuiltins(processedHtml, { title: template.Name ?? '' });
+
+            // We've materialized prompt + builtin substitutions into HTML.
+            // Always use HtmlContent so the substitutions land in the editor.
+            if (processedHtml) {
+                editor.commands.setContent(processedHtml, { emitUpdate: false });
             }
-            
+
             contentRef.current = editor.getHTML();
             documentJsonRef.current = editor.getJSON();
             isDirtyRef.current = true;
@@ -925,8 +973,10 @@ export default function Editor({
                     </div>
                     <div className="flex items-center ml-4 flex-shrink-0 gap-2">
                         {wordCount > 0 && (
-                            <span className="text-[10px] text-text-muted tabular-nums select-none">
+                            <span className="text-[10px] text-text-muted tabular-nums select-none" title="Word count and approximate reading time">
                                 {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
+                                <span className="mx-1 opacity-50">·</span>
+                                {readingTimeMinutesFromWords(wordCount)} min read
                             </span>
                         )}
 
@@ -1094,31 +1144,93 @@ export default function Editor({
                             </button>
                         </span>
                     ))}
-                    <input
-                        type="text"
-                        value={tagInput}
-                        onChange={e => setTagInput(e.target.value)}
-                        onKeyDown={e => {
-                            if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
-                                e.preventDefault();
-                                const newTag = tagInput.trim().replace(/,+$/, '').toLowerCase();
-                                if (newTag && !tags.includes(newTag) && tags.length < 10) {
-                                    const next = [...tags, newTag];
+                    <div className="relative flex-1 min-w-[60px]">
+                        <input
+                            type="text"
+                            value={tagInput}
+                            onChange={e => setTagInput(e.target.value)}
+                            onKeyDown={e => {
+                                // Autocomplete navigation. ArrowDown/ArrowUp move the
+                                // highlight; Tab or Enter on a highlighted suggestion
+                                // accepts it; Enter on a free-form prefix still creates
+                                // a new tag (David RM lets users coin tags inline).
+                                if (tagSuggestions.length > 0) {
+                                    if (e.key === 'ArrowDown') {
+                                        e.preventDefault();
+                                        setTagSuggestIndex(i => (i + 1) % tagSuggestions.length);
+                                        return;
+                                    }
+                                    if (e.key === 'ArrowUp') {
+                                        e.preventDefault();
+                                        setTagSuggestIndex(i => (i - 1 + tagSuggestions.length) % tagSuggestions.length);
+                                        return;
+                                    }
+                                    if (e.key === 'Tab') {
+                                        e.preventDefault();
+                                        const pick = tagSuggestions[tagSuggestIndex]?.tag;
+                                        if (pick) setTagInput(pick);
+                                        return;
+                                    }
+                                    if (e.key === 'Escape') {
+                                        setTagSuggestions([]);
+                                        return;
+                                    }
+                                }
+                                if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
+                                    e.preventDefault();
+                                    const highlighted = tagSuggestions.length > 0
+                                        ? tagSuggestions[tagSuggestIndex]?.tag
+                                        : undefined;
+                                    const newTag = (highlighted ?? tagInput)
+                                        .trim()
+                                        .replace(/,+$/, '')
+                                        .toLowerCase();
+                                    if (newTag && !tags.includes(newTag) && tags.length < 10) {
+                                        const next = [...tags, newTag];
+                                        setTags(next);
+                                        tagsRef.current = next;
+                                        if (entryIdRef.current) saveMetadata(entryIdRef.current, { tags: next });
+                                    }
+                                    setTagInput('');
+                                    setTagSuggestions([]);
+                                } else if (e.key === 'Backspace' && !tagInput && tags.length > 0) {
+                                    const next = tags.slice(0, -1);
                                     setTags(next);
                                     tagsRef.current = next;
                                     if (entryIdRef.current) saveMetadata(entryIdRef.current, { tags: next });
                                 }
-                                setTagInput('');
-                            } else if (e.key === 'Backspace' && !tagInput && tags.length > 0) {
-                                const next = tags.slice(0, -1);
-                                setTags(next);
-                                tagsRef.current = next;
-                                if (entryIdRef.current) saveMetadata(entryIdRef.current, { tags: next });
-                            }
-                        }}
-                        placeholder={tags.length === 0 ? 'Add tag…' : ''}
-                        className="bg-transparent text-text-primary text-xs placeholder-text-muted focus:outline-none min-w-[60px] flex-1"
-                    />
+                            }}
+                            onBlur={() => { setTimeout(() => setTagSuggestions([]), 100); }}
+                            placeholder={tags.length === 0 ? 'Add tag…' : ''}
+                            className="bg-transparent text-text-primary text-xs placeholder-text-muted focus:outline-none w-full"
+                        />
+                        {tagSuggestions.length > 0 && (
+                            <div className="absolute left-0 top-full mt-1 z-50 bg-bg-card border border-border-primary rounded shadow-xl py-1 min-w-[160px] max-h-48 overflow-y-auto">
+                                {tagSuggestions.map((s, i) => (
+                                    <button
+                                        key={s.tag}
+                                        // Use onMouseDown — onClick fires after input blur, which
+                                        // would clear suggestions before we read the picked tag.
+                                        onMouseDown={ev => {
+                                            ev.preventDefault();
+                                            if (!tags.includes(s.tag) && tags.length < 10) {
+                                                const next = [...tags, s.tag];
+                                                setTags(next);
+                                                tagsRef.current = next;
+                                                if (entryIdRef.current) saveMetadata(entryIdRef.current, { tags: next });
+                                            }
+                                            setTagInput('');
+                                            setTagSuggestions([]);
+                                        }}
+                                        className={`w-full text-left px-3 py-1 text-xs hover:bg-bg-hover flex items-center justify-between ${i === tagSuggestIndex ? 'bg-bg-hover' : ''}`}
+                                    >
+                                        <span className="text-text-primary">{s.tag}</span>
+                                        <span className="text-text-muted text-[10px]">{s.count}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -1158,6 +1270,21 @@ export default function Editor({
                     }
                 }}
                 onDrop={handleEditorDrop}
+                onClick={(e) => {
+                    // Intercept clicks on internal journal:// links
+                    const target = (e.target as HTMLElement).closest('a');
+                    if (!target) return;
+                    const href = target.getAttribute('href') ?? '';
+                    const m = href.match(/^journal:\/\/entry\/(\d+)$/);
+                    if (m) {
+                        e.preventDefault();
+                        const params = new URLSearchParams(window.location.search);
+                        params.set('entry', m[1]);
+                        params.delete('folder');
+                        params.delete('section');
+                        router.push(`${pathname}?${params.toString()}`);
+                    }
+                }}
                 onContextMenu={e => {
                     e.preventDefault();
                     setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 232), y: Math.min(e.clientY, window.innerHeight - 150) });

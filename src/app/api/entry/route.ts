@@ -68,10 +68,11 @@ export async function GET(req: NextRequest) {
                 // when sorted by (CreatedDate DESC, EntryID DESC).
                 entries = await db.prepare(`
                     SELECT EntryID, Title, CreatedDate, ModifiedDate, PreviewText,
-                           IsLocked, IsFavorited, Mood, Tags, EntryType
+                           IsLocked, IsFavorited, IsPinned, PinnedDate, Mood, Tags, EntryType
                     FROM Entry
                     WHERE CategoryID = ?
                       AND EntryType = 'Page'
+                      AND IsDeleted = 0
                       AND (
                           CreatedDate < ?
                           OR (CreatedDate = ? AND EntryID < ?)
@@ -83,10 +84,11 @@ export async function GET(req: NextRequest) {
                 // First page — no cursor constraint
                 entries = await db.prepare(`
                     SELECT EntryID, Title, CreatedDate, ModifiedDate, PreviewText,
-                           IsLocked, IsFavorited, Mood, Tags, EntryType
+                           IsLocked, IsFavorited, IsPinned, PinnedDate, Mood, Tags, EntryType
                     FROM Entry
                     WHERE CategoryID = ?
                       AND EntryType = 'Page'
+                      AND IsDeleted = 0
                     ORDER BY CreatedDate DESC, EntryID DESC
                     LIMIT ?
                 `).all(categoryId, limit);
@@ -105,9 +107,9 @@ export async function GET(req: NextRequest) {
         // ── Default mode: full tree fetch for sidebar ──────────────────────────
         const entries = await db.prepare(`
             SELECT EntryID, Title, ParentEntryID, EntryType, SortOrder, Icon, IsExpanded, IsLocked,
-                   IsFavorited, Mood, Tags, PreviewText
+                   IsFavorited, IsPinned, PinnedDate, Mood, Tags, PreviewText
             FROM Entry
-            WHERE CategoryID = ?
+            WHERE CategoryID = ? AND IsDeleted = 0
             ORDER BY SortOrder ASC
         `).all(categoryId);
         return NextResponse.json(entries);

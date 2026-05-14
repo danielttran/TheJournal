@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
                        e.IsFavorited, e.Mood, e.Tags
                 FROM Entry e
                 LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
-                WHERE e.CategoryID = ? AND date(e.CreatedDate) = ?
+                WHERE e.CategoryID = ? AND date(e.CreatedDate) = ? AND e.IsDeleted = 0
             `).get(categoryId, date) as any;
 
             if (existing) return { entry: existing, isNew: false };

@@ -22,4 +22,14 @@ contextBridge.exposeInMainWorld('electron', {
     storePassword: (pwd) => ipcRenderer.invoke('store-password', pwd),
     getStoredPassword: () => ipcRenderer.invoke('get-password'),
     readFileForImport: (filePath) => ipcRenderer.invoke('read-file-for-import', filePath),
+
+    // David RM parity — File menu hooks. The renderer owns the "current
+    // entry" state; main fires these channels when the user picks the menu
+    // item, and the renderer responds by either calling window.print() or
+    // asking main to write the rendered HTML to a chosen PDF path.
+    onPrintCurrentEntry:     (cb) => subscribe('print-current-entry', cb),
+    onExportCurrentEntryPdf: (cb) => subscribe('export-current-entry-pdf', cb),
+    onOpenJournal:           (cb) => subscribe('open-journal', cb, (_event, filePath) => [filePath]),
+    saveEntryPdf:            (entryHtml, suggestedName) =>
+        ipcRenderer.invoke('save-entry-pdf', entryHtml, suggestedName),
 });

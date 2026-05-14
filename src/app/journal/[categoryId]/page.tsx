@@ -1,4 +1,4 @@
-import { db } from '@/lib/db';
+import { db, ensureUnlocked } from '@/lib/db';
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import JournalView from '@/components/journal/JournalView';
@@ -19,6 +19,9 @@ export default async function JournalPage({ params, searchParams }: {
     const userIdCookie = (await cookies()).get("userId");
     if (!userIdCookie) redirect("/login");
     const userId = userIdCookie.value;
+
+    // Lazily unlock the DB — dev-mode workers may start without inherited unlock state
+    await ensureUnlocked();
 
     const category = await getCategory(categoryId, userId);
     if (!category) redirect("/dashboard");
