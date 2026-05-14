@@ -165,7 +165,7 @@ export async function entriesByHour(
     userId: number
 ): Promise<{ hour: number; count: number }[]> {
     const rows = await dbm.prepare(`
-        SELECT CAST(strftime('%H', e.CreatedDate) AS INTEGER) AS hour,
+        SELECT CAST(strftime('%H', e.CreatedDate, 'localtime') AS INTEGER) AS hour,
                COUNT(*) AS count
         FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
@@ -190,7 +190,7 @@ export async function entriesByWeekday(
     userId: number
 ): Promise<{ weekday: number; count: number }[]> {
     const rows = await dbm.prepare(`
-        SELECT CAST(strftime('%w', e.CreatedDate) AS INTEGER) AS weekday,
+        SELECT CAST(strftime('%w', e.CreatedDate, 'localtime') AS INTEGER) AS weekday,
                COUNT(*) AS count
         FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
@@ -227,7 +227,7 @@ export async function moodByMonth(
 ): Promise<MoodMonth[]> {
     if (monthsBack < 1) monthsBack = 1;
     const rows = await dbm.prepare(`
-        SELECT strftime('%Y-%m', e.CreatedDate) AS month,
+        SELECT strftime('%Y-%m', e.CreatedDate, 'localtime') AS month,
                e.Mood AS mood,
                COUNT(*) AS count
         FROM Entry e

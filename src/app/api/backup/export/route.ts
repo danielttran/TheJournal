@@ -27,7 +27,16 @@ export async function GET() {
             return NextResponse.json({ error: "Export Aborted: The current database is empty." }, { status: 400 });
         }
 
-        // 3. Read the encrypted DB file
+        // 3. Flush WAL into the main DB file so the exported snapshot is
+        //    complete. Without this the .tjdb file can be missing the last
+        //    committed transactions that still live in the -wal sidecar.
+        try {
+            await db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').run();
+        } catch (e) {
+            console.warn('[Export API] wal_checkpoint failed:', e);
+        }
+
+        // 4. Read the encrypted DB file
         const { readFile } = await import('fs/promises');
         const fileBuffer = await readFile(sourcePath);
         const filename = `journal-backup-${new Date().toISOString().split('T')[0]}.tjdb`;

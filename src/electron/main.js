@@ -442,9 +442,21 @@ app.whenReady().then(async () => {
 
         ipcMain.handle('read-file-for-import', async (_event, filePath) => {
             const fs = require('fs');
+            const path = require('path');
             try {
-                if (!fs.existsSync(filePath)) return null;
-                const buffer = fs.readFileSync(filePath);
+                // Defense in depth: the renderer should only invoke this after
+                // a user picked a .tjdb file via the OS open-file dialog, but
+                // a compromised renderer (e.g. XSS in pasted content) could
+                // pass an arbitrary path. Restrict to the journal extension so
+                // this IPC can't be abused to exfiltrate other files.
+                if (typeof filePath !== 'string' || filePath.length === 0) return null;
+                const resolved = path.resolve(filePath);
+                if (path.extname(resolved).toLowerCase() !== '.tjdb') {
+                    console.warn('[Electron] read-file-for-import rejected non-.tjdb path');
+                    return null;
+                }
+                if (!fs.existsSync(resolved)) return null;
+                const buffer = fs.readFileSync(resolved);
                 return buffer.toString('base64');
             } catch (err) {
                 console.error('[Electron] read-file-for-import failed:', err);
