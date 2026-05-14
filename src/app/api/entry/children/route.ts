@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic';
 
 const DEFAULT_LIMIT = 1000;
-const MAX_LIMIT = 10000;
 
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
@@ -20,7 +19,7 @@ export async function GET(req: NextRequest) {
     const parsedLimit = limitRaw ? parseInt(limitRaw, 10) : DEFAULT_LIMIT;
     const parsedOffset = offsetRaw ? parseInt(offsetRaw, 10) : 0;
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
-        ? Math.min(parsedLimit, MAX_LIMIT)
+        ? parsedLimit
         : DEFAULT_LIMIT;
     const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
 

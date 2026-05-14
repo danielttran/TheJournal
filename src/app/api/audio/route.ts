@@ -5,7 +5,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = 'force-dynamic';
 
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;   // 25 MB per memo — generous but bounded
+// SQLite's default SQLITE_MAX_LENGTH is 1 GB per BLOB; we use that as the
+// effective ceiling so we surface a clear 413 instead of a cryptic SQLite
+// error if a memo ever exceeds what the storage engine itself can hold.
+const MAX_AUDIO_BYTES = 1024 * 1024 * 1024;
 
 /**
  * GET /api/audio?limit=N — voice memo list, newest first. Metadata only;

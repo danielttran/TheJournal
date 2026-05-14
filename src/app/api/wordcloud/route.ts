@@ -8,8 +8,10 @@ export const dynamic = 'force-dynamic';
 export const GET = authedHandler<[NextRequest]>('GET /api/wordcloud', async (userId, req) => {
     const { searchParams } = new URL(req.url);
     const categoryIdParam = searchParams.get('categoryId');
-    const limit = Math.min(parseInt(searchParams.get('limit') ?? '50', 10) || 50, 200);
-    const minLength = Math.max(2, Math.min(parseInt(searchParams.get('minLength') ?? '3', 10) || 3, 12));
+    const limitParam = parseInt(searchParams.get('limit') ?? '50', 10);
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 50;
+    const minLengthParam = parseInt(searchParams.get('minLength') ?? '3', 10);
+    const minLength = Math.max(2, Number.isFinite(minLengthParam) && minLengthParam > 0 ? minLengthParam : 3);
 
     const params: (string | number)[] = [userId];
     let extra = '';
@@ -21,20 +23,17 @@ export const GET = authedHandler<[NextRequest]>('GET /api/wordcloud', async (use
         }
     }
 
-    // Cap entries scanned so a huge DB doesn't OOM the server. Most-recent first.
-    const MAX_ENTRIES = 5000;
     const rows = await dbManager.prepare(`
         SELECT ec.HtmlContent FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
         LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
         WHERE c.UserID = ? AND e.IsDeleted = 0${extra}
         ORDER BY e.ModifiedDate DESC
-        LIMIT ?
-    `).all(...params, MAX_ENTRIES) as { HtmlContent: string | null }[];
+    `).all(...params) as { HtmlContent: string | null }[];
 
     const cloud = computeWordCloud(
         rows.map(r => r.HtmlContent ?? ''),
         { limit, minLength }
     );
-    return NextResponse.json({ words: cloud, scannedEntries: rows.length, capped: rows.length === MAX_ENTRIES });
+    return NextResponse.json({ words: cloud, scannedEntries: rows.length, capped: false });
 });
