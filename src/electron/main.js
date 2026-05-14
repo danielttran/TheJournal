@@ -482,7 +482,19 @@ app.whenReady().then(async () => {
             });
             if (result.canceled || !result.filePath) return { saved: false, reason: 'canceled' };
 
-            const printer = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+            // Hidden window renders user-authored HTML. Lock it down so a
+            // <script> that slipped past the editor sanitizer can't reach Node
+            // APIs or the parent window. printToPDF only needs static rendering.
+            const printer = new BrowserWindow({
+                show: false,
+                webPreferences: {
+                    offscreen: true,
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    sandbox: true,
+                    javascript: false,
+                },
+            });
             try {
                 await printer.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(entryHtml));
                 const pdf = await printer.webContents.printToPDF({

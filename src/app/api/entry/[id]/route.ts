@@ -1,7 +1,30 @@
 import { db, dbManager } from "@/lib/db";
 import { softDeleteEntry, permanentlyDeleteEntry } from "@/lib/trash";
+import { normalizeTag } from "@/lib/tags";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+
+/**
+ * Tags arrive as a JSON-encoded array of user-entered strings. Normalize each
+ * entry (lowercase, trim, drop trailing commas) and dedupe so the same tag
+ * isn't stored under two casings ("React" vs "react"). The bulk tag API
+ * already does this — keeping both paths in sync prevents drift.
+ */
+function normalizeTagsPayload(raw: string): string {
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); } catch { return '[]'; }
+    if (!Array.isArray(parsed)) return '[]';
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const t of parsed) {
+        if (typeof t !== 'string') continue;
+        const n = normalizeTag(t);
+        if (!n || seen.has(n)) continue;
+        seen.add(n);
+        out.push(n);
+    }
+    return JSON.stringify(out);
+}
 
 const UpdateSchema = z.object({
     html: z.string().optional(),
@@ -215,7 +238,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             if (isExpanded !== undefined) { updates.push("IsExpanded = ?"); values.push(isExpanded ? 1 : 0); }
             if (mood !== undefined) { updates.push("Mood = ?"); values.push(mood ?? null); }
             if (isFavorited !== undefined) { updates.push("IsFavorited = ?"); values.push(isFavorited ? 1 : 0); }
-            if (tags !== undefined) { updates.push("Tags = ?"); values.push(tags); }
+            if (tags !== undefined) { updates.push("Tags = ?"); values.push(normalizeTagsPayload(tags)); }
 
             values.push(entryId);
             const updateResult = await db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);

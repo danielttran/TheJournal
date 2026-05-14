@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  reactStrictMode: false,   // StrictMode double-invokes effects in dev — disable for cleaner logs
+  reactStrictMode: true,
   serverExternalPackages: ['@journeyapps/sqlcipher', 'argon2'],
   experimental: {
     serverActions: {
