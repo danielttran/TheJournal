@@ -5,7 +5,7 @@ import {
     Quote, Highlighter,
     Image as ImageIcon, Link as LinkIcon, RemoveFormatting,
     Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles, ChevronDown,
-    CalendarClock, Bookmark as BookmarkIcon, Paintbrush
+    CalendarClock, Bookmark as BookmarkIcon, Paintbrush, PenTool
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -215,6 +215,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         : '';
     // Only allow crop for images we uploaded (they live at /api/attachment/)
     const isAttachedImage = selectedImageSrc.startsWith('/api/attachment/');
+    // Drawings are marked with alt="tj-drawing" so they can be re-edited.
+    const isDrawing = editor.isActive('image')
+        && (editor.getAttributes('image').alt as string | undefined) === 'tj-drawing';
 
     const rawWidth = editor.isActive('image')
         ? String(editor.getAttributes('image').width ?? '100%')
@@ -521,6 +524,13 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 <Upload className="w-4 h-4" />
             </button>
             <button
+                onClick={() => window.dispatchEvent(new Event('trigger-insert-drawing'))}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                title="Insert drawing"
+            >
+                <PenTool className="w-4 h-4" />
+            </button>
+            <button
                 onClick={setLink}
                 className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive('link') ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
                 title="Link"
@@ -545,7 +555,16 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                     <span className="text-[11px] text-text-muted tabular-nums w-7 text-right select-none">
                         {imageWidthNum}%
                     </span>
-                    {isAttachedImage && (
+                    {isDrawing && (
+                        <button
+                            onClick={() => window.dispatchEvent(new Event('trigger-edit-drawing'))}
+                            className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
+                            title="Edit drawing"
+                        >
+                            Edit drawing
+                        </button>
+                    )}
+                    {isAttachedImage && !isDrawing && (
                         <button
                             onClick={() => window.dispatchEvent(new Event('trigger-crop-image'))}
                             className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"

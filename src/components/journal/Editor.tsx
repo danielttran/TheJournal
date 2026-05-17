@@ -7,6 +7,9 @@ import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import WritingPromptsPicker from './WritingPromptsPicker';
 import ImageCropModal from './ImageCropModal';
+import DrawingModal from './DrawingModal';
+import { extractDrawingPaths } from '@/lib/drawing';
+import type { CanvasPath } from 'react-sketch-canvas';
 import { type WritingPrompt } from '@/lib/prompts';
 import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
@@ -139,6 +142,11 @@ export default function Editor({
     const [tagSuggestions, setTagSuggestions] = useState<{ tag: string; count: number }[]>([]);
     const [tagSuggestIndex, setTagSuggestIndex] = useState(0);
     const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+    // Drawing modal: null = closed; mode 'create' inserts a new drawing,
+    // mode 'edit' replaces the currently-selected drawing image.
+    const [drawingState, setDrawingState] = useState<
+        { mode: 'create' | 'edit'; initialPaths: CanvasPath[] | null } | null
+    >(null);
     const moodRef = useRef<string | null>(null);
     const isFavoritedRef = useRef(false);
     const tagsRef = useRef<string[]>([]);
@@ -944,6 +952,39 @@ export default function Editor({
         return () => window.removeEventListener('trigger-crop-image', handler);
     }, [editor]);
 
+    // Insert-drawing trigger from toolbar → open a blank canvas.
+    useEffect(() => {
+        const handler = () => setDrawingState({ mode: 'create', initialPaths: null });
+        window.addEventListener('trigger-insert-drawing', handler);
+        return () => window.removeEventListener('trigger-insert-drawing', handler);
+    }, []);
+
+    // Edit-drawing trigger from toolbar → fetch the selected drawing SVG,
+    // recover its editable strokes, and reopen the canvas to edit them.
+    useEffect(() => {
+        const handler = async () => {
+            if (!editor?.isActive('image')) return;
+            const src = editor.getAttributes('image').src as string | undefined;
+            if (!src) return;
+            try {
+                const res = await fetch(src, { credentials: 'same-origin' });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const svg = await res.text();
+                const paths = extractDrawingPaths(svg);
+                if (!paths) {
+                    window.alert('This image is not an editable drawing.');
+                    return;
+                }
+                setDrawingState({ mode: 'edit', initialPaths: paths });
+            } catch (err) {
+                console.error('[Editor] failed to load drawing for edit:', err);
+                window.alert('Could not load this drawing for editing.');
+            }
+        };
+        window.addEventListener('trigger-edit-drawing', handler);
+        return () => window.removeEventListener('trigger-edit-drawing', handler);
+    }, [editor]);
+
     const applyPrompt = useCallback((prompt: WritingPrompt) => {
         if (!editor) return;
         editor.chain().focus().insertContent({
@@ -1310,6 +1351,28 @@ export default function Editor({
                         setCropImageSrc(null);
                     }}
                     onClose={() => setCropImageSrc(null)}
+                />
+            )}
+
+            {/* Drawing Modal — freehand sketch, create or edit existing */}
+            {drawingState && (
+                <DrawingModal
+                    initialPaths={drawingState.initialPaths}
+                    onConfirm={(url) => {
+                        if (drawingState.mode === 'edit') {
+                            // Cache-bust so the <img> reloads the updated SVG.
+                            const bust = `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}`;
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ResizableImage width attr isn't in TipTap's command map
+                            editor?.chain().focus().updateAttributes('image', { src: bust, alt: 'tj-drawing' } as any).run();
+                        } else {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ResizableImage width attr isn't in TipTap's command map
+                            editor?.chain().focus().setImage({ src: url, width: '100%', alt: 'tj-drawing' } as any).run();
+                        }
+                        isDirtyRef.current = true;
+                        if (entryIdRef.current) performSave(entryIdRef.current, true);
+                        setDrawingState(null);
+                    }}
+                    onClose={() => setDrawingState(null)}
                 />
             )}
 
