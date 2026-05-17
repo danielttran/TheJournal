@@ -500,8 +500,6 @@ export default function TabBar({ userId }: { userId: string }) {
                                         ))}
                                         <a
                                             href={`/api/report?categoryIds=${activeId}&format=html`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
                                             onClick={() => setIsFileMenuOpen(false)}
                                             className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center"
                                         >
