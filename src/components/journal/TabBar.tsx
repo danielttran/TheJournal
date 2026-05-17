@@ -498,6 +498,24 @@ export default function TabBar({ userId }: { userId: string }) {
                                                 Export current as {label}
                                             </a>
                                         ))}
+                                        <a
+                                            href={`/api/report?categoryIds=${activeId}&format=html`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={() => setIsFileMenuOpen(false)}
+                                            className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center"
+                                        >
+                                            <FileText size={14} className="mr-2" />
+                                            Entry report (HTML)
+                                        </a>
+                                        <a
+                                            href={`/api/report?categoryIds=${activeId}&format=rtf`}
+                                            onClick={() => setIsFileMenuOpen(false)}
+                                            className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center"
+                                        >
+                                            <FileText size={14} className="mr-2" />
+                                            Entry report (RTF)
+                                        </a>
                                     </>
                                 )}
                                 <button onClick={() => { window.dispatchEvent(new Event('trigger-settings')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
