@@ -104,6 +104,9 @@ export async function GET(req: NextRequest) {
         }
 
         // ── Default mode: full tree fetch for sidebar ──────────────────────────
+        // Notebook ordering (incl. per-category sort mode) is owned entirely by
+        // the client (Sidebar buildTree + sortRecursive). The server returns a
+        // stable SortOrder ordering; do not duplicate sort logic here.
         const entries = await db.prepare(`
             SELECT EntryID, Title, ParentEntryID, EntryType, SortOrder, Icon, IsExpanded, IsLocked,
                    IsFavorited, IsPinned, PinnedDate, Mood, Tags, PreviewText

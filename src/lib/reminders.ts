@@ -1,7 +1,34 @@
 import type { DBManager } from './db';
 import { advanceDueAt, type RecurInterval } from './recurring';
 
-export type ReminderFilter = 'all' | 'today' | 'upcoming' | 'overdue' | 'completed';
+export type ReminderFilter = 'all' | 'today' | 'upcoming' | 'overdue' | 'completed' | 'tasks';
+
+/**
+ * Pure SQL-fragment builder for {@link listReminders}. Extracted so the
+ * filter semantics can be unit-tested without a database.
+ *
+ * Active-style filters (today/upcoming/overdue) exclude reminders that have
+ * reached a terminal status (canceled/skipped/missed) so a skipped task no
+ * longer shows as "overdue".
+ */
+export function buildReminderWhere(filter: ReminderFilter): string {
+    const notTerminal = `Status NOT IN ('canceled', 'skipped', 'missed')`;
+    switch (filter) {
+        case 'today':
+            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND date(DueAt) = date('now', 'localtime')`;
+        case 'upcoming':
+            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND DueAt >= date('now', 'localtime')`;
+        case 'overdue':
+            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND DueAt < date('now', 'localtime')`;
+        case 'completed':
+            return `UserID = ? AND IsComplete = 1`;
+        case 'tasks':
+            return `UserID = ? AND ReminderType = 'Task' AND Status = 'active'`;
+        case 'all':
+        default:
+            return `UserID = ?`;
+    }
+}
 
 /** DavidRM-style reminder kinds. */
 export type ReminderType = 'Appointment' | 'Event' | 'Task' | 'SpecialDay';
@@ -152,29 +179,9 @@ export async function listReminders(
     userId: number,
     filter: ReminderFilter = 'all'
 ): Promise<Reminder[]> {
-    let where = 'UserID = ?';
-    const params: (string | number)[] = [userId];
-
-    switch (filter) {
-        case 'today':
-            where += ` AND IsComplete = 0 AND date(DueAt) = date('now', 'localtime')`;
-            break;
-        case 'upcoming':
-            where += ` AND IsComplete = 0 AND DueAt >= date('now', 'localtime')`;
-            break;
-        case 'overdue':
-            where += ` AND IsComplete = 0 AND DueAt < date('now', 'localtime')`;
-            break;
-        case 'completed':
-            where += ' AND IsComplete = 1';
-            break;
-        case 'all':
-        default:
-            break;
-    }
-
+    const where = buildReminderWhere(filter);
     const rows = await dbm.prepare(
         `SELECT * FROM Reminder WHERE ${where} ORDER BY DueAt ASC`
-    ).all(...params) as Reminder[];
+    ).all(userId) as Reminder[];
     return rows;
 }

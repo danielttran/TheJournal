@@ -131,25 +131,33 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             .setLink({ href: `#${name}` }).run();
     }, [editor]);
 
+    const applyCapturedFormat = useCallback((fmt: NonNullable<typeof capturedFormat>) => {
+        if (!editor || editor.state.selection.empty) return;
+        const chain = editor.chain().focus();
+        chain.unsetAllMarks();
+        for (const m of fmt.marks) chain.setMark(m);
+        const ts = fmt.textStyle;
+        if (ts.color) chain.setColor(ts.color as string);
+        if (ts.fontFamily) chain.setFontFamily(ts.fontFamily as string);
+        if (ts.fontSize) chain.setFontSize(ts.fontSize as string);
+        if (fmt.highlight?.color) {
+            chain.setHighlight({ color: fmt.highlight.color as string });
+        }
+        chain.run();
+    }, [editor]);
+
+    // Format painter (sticky): click to arm (captures formatting at the
+    // cursor); the next selection in the editor gets the formatting applied,
+    // then it disarms. Clicking again while armed cancels.
     const toggleFormatPainter = useCallback(() => {
         if (!editor) return;
         if (capturedFormat) {
-            // Second click: apply captured formatting to the current selection.
-            const chain = editor.chain().focus();
-            chain.unsetAllMarks();
-            for (const m of capturedFormat.marks) chain.setMark(m);
-            const ts = capturedFormat.textStyle;
-            if (ts.color) chain.setColor(ts.color as string);
-            if (ts.fontFamily) chain.setFontFamily(ts.fontFamily as string);
-            if (ts.fontSize) chain.setFontSize(ts.fontSize as string);
-            if (capturedFormat.highlight?.color) {
-                chain.setHighlight({ color: capturedFormat.highlight.color as string });
-            }
-            chain.run();
+            // Armed: if there's already a selection, paint it now; otherwise
+            // this click cancels.
+            if (!editor.state.selection.empty) applyCapturedFormat(capturedFormat);
             setCapturedFormat(null);
             return;
         }
-        // First click: capture formatting at the current selection.
         const marks: string[] = [];
         for (const m of ['bold', 'italic', 'underline', 'strike', 'code']) {
             if (editor.isActive(m)) marks.push(m);
@@ -159,7 +167,24 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             textStyle: editor.getAttributes('textStyle') ?? {},
             highlight: editor.isActive('highlight') ? editor.getAttributes('highlight') : null,
         });
-    }, [editor, capturedFormat]);
+    }, [editor, capturedFormat, applyCapturedFormat]);
+
+    // While armed, paint the next non-empty selection the user makes.
+    useEffect(() => {
+        if (!editor || !capturedFormat) return;
+        const dom = editor.view.dom as HTMLElement;
+        const onMouseUp = () => {
+            // defer so the selection has settled
+            setTimeout(() => {
+                if (!editor.state.selection.empty) {
+                    applyCapturedFormat(capturedFormat);
+                    setCapturedFormat(null);
+                }
+            }, 0);
+        };
+        dom.addEventListener('mouseup', onMouseUp);
+        return () => dom.removeEventListener('mouseup', onMouseUp);
+    }, [editor, capturedFormat, applyCapturedFormat]);
 
     useEffect(() => {
         const handleExternalUploadTrigger = () => {

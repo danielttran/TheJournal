@@ -1,5 +1,24 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+
+const SORT_MODES = [
+    'manual', 'title-asc', 'title-desc',
+    'created-newest', 'created-oldest',
+    'modified-newest', 'modified-oldest',
+] as const;
+
+const UpdateCategorySchema = z.object({
+    name: z.string().min(1).max(200).optional(),
+    icon: z.string().max(64).nullable().optional(),
+    color: z.string().regex(/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/, 'Invalid color format').optional(),
+    sortMode: z.enum(SORT_MODES).optional(),
+    autoTemplateId: z.number().int().min(0).nullable().optional(),
+    entryFrequency: z.enum(['daily', 'weekly', 'hourly']).optional(),
+    smartbookQuery: z.union([z.string().max(4000), z.record(z.string(), z.unknown())]).nullable().optional(),
+    viewSettings: z.record(z.string(), z.unknown()).optional(),
+    lastSelectedEntryId: z.number().int().nullable().optional(),
+});
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
@@ -85,45 +104,36 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         const userId = parseInt(userIdCookie.value, 10);
 
-        const body = await req.json();
-        const { name, icon, color, viewSettings, lastSelectedEntryId,
-            sortMode, autoTemplateId, entryFrequency, smartbookQuery } = body;
-
-        // Validate color if provided (must be a valid CSS hex color)
-        if (color !== undefined && !/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(color)) {
-            return NextResponse.json({ error: "Invalid color format" }, { status: 400 });
+        const rawBody = await req.json();
+        const parsed = UpdateCategorySchema.safeParse(rawBody);
+        if (!parsed.success) {
+            return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
         }
+        const { name, icon, color, viewSettings, lastSelectedEntryId,
+            sortMode, autoTemplateId, entryFrequency, smartbookQuery } = parsed.data;
 
         // Construct dynamic update
         const simpleUpdates: string[] = [];
-        const simpleValues: (string | number)[] = [];
+        const simpleValues: (string | number | null)[] = [];
 
         if (name !== undefined) { simpleUpdates.push("Name = ?"); simpleValues.push(name); }
-        if (icon !== undefined) { simpleUpdates.push("Icon = ?"); simpleValues.push(icon); }
+        if (icon !== undefined) { simpleUpdates.push("Icon = ?"); simpleValues.push(icon ?? null); }
         if (color !== undefined) { simpleUpdates.push("Color = ?"); simpleValues.push(color); }
-        if (sortMode !== undefined) {
-            if (!['manual', 'name', 'created', 'updated'].includes(sortMode)) {
-                return NextResponse.json({ error: "Invalid sortMode" }, { status: 400 });
-            }
-            simpleUpdates.push("SortMode = ?"); simpleValues.push(sortMode);
-        }
+        if (sortMode !== undefined) { simpleUpdates.push("SortMode = ?"); simpleValues.push(sortMode); }
         if (autoTemplateId !== undefined) {
-            const tplId = autoTemplateId === null ? 0 : Number(autoTemplateId);
-            if (!Number.isInteger(tplId) || tplId < 0) {
-                return NextResponse.json({ error: "Invalid autoTemplateId" }, { status: 400 });
-            }
             simpleUpdates.push("AutoTemplateID = ?");
-            simpleValues.push(tplId);
+            simpleValues.push(autoTemplateId ?? 0);
         }
         if (entryFrequency !== undefined) {
-            if (!['daily', 'weekly', 'hourly'].includes(entryFrequency)) {
-                return NextResponse.json({ error: "Invalid entryFrequency" }, { status: 400 });
-            }
             simpleUpdates.push("EntryFrequency = ?"); simpleValues.push(entryFrequency);
         }
         if (smartbookQuery !== undefined) {
             simpleUpdates.push("SmartbookQuery = ?");
-            simpleValues.push(typeof smartbookQuery === 'string' ? smartbookQuery : JSON.stringify(smartbookQuery));
+            simpleValues.push(
+                smartbookQuery === null ? null
+                    : typeof smartbookQuery === 'string' ? smartbookQuery
+                        : JSON.stringify(smartbookQuery)
+            );
         }
 
         const needsViewSettingsMerge = viewSettings !== undefined || lastSelectedEntryId !== undefined;
@@ -136,7 +146,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         // requests clobbering each other's changes (e.g. month expand + entry select).
         const updateCategory = db.transaction(async () => {
             const updates: string[] = [...simpleUpdates];
-            const values: (string | number)[] = [...simpleValues];
+            const values: (string | number | null)[] = [...simpleValues];
 
             if (needsViewSettingsMerge) {
                 // Re-read inside the transaction so concurrent writes don't clobber each other

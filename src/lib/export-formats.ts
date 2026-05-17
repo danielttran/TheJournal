@@ -109,7 +109,9 @@ export function exportEntryAsRTF(fm: FrontmatterInput, html: string): string {
         return out;
     };
 
-    const tokenRe = /<\/?([a-z0-9]+)[^>]*>|([^<]+)/gi;
+    // Tag matcher tolerates `>` inside quoted attribute values
+    // (e.g. <img alt="a>b">) by consuming "…" / '…' segments wholesale.
+    const tokenRe = /<\/?([a-z0-9]+)(?:"[^"]*"|'[^']*'|[^>])*>|([^<]+)/gi;
     let out = '';
     let m: RegExpExecArray | null;
     while ((m = tokenRe.exec(html)) !== null) {
