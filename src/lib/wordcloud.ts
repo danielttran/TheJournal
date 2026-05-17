@@ -27,11 +27,14 @@ function tokenize(text: string): string[] {
 }
 
 function stripHtml(html: string): string {
+    // Strip tags, then replace any HTML entity (numeric, hex, or named) with a
+    // single space so leftover entities like `&copy;` or `&#8217;` don't get
+    // counted as tokens. The tokenizer's [^A-Za-z0-9-]+ split filters out the
+    // single space, so we don't need to decode entities to their characters.
     return html
         .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;/gi, ' ')
         .replace(/&amp;/gi, '&')
-        .replace(/&lt;|&gt;|&quot;|&#39;/gi, ' ');
+        .replace(/&(?:[a-z][a-z0-9]*|#[0-9]+|#x[0-9a-f]+);/gi, ' ');
 }
 
 export function computeWordCloud(

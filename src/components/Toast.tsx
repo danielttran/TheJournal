@@ -92,9 +92,11 @@ function ToastItem({ toast, onClose }: { toast: Toast, onClose: () => void }) {
 
     return (
         <div
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-sm 
+            className={`flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-sm
                         bg-bg-card ${bgColors[toast.type]} animate-slide-in`}
-            role="alert"
+            role={toast.type === 'error' ? 'alert' : 'status'}
+            aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
+            aria-atomic="true"
         >
             {icons[toast.type]}
             <p className="flex-1 text-sm text-text-primary">{toast.message}</p>

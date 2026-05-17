@@ -1,6 +1,5 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +53,7 @@ export async function GET(req: NextRequest) {
         const mode = searchParams.get('mode');
         if (mode === 'journal') {
             const parsedLimit = parseInt(searchParams.get('limit') || '20', 10);
-            const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 20;
+            const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 20;
             const cursorRaw = searchParams.get('cursor') || null;
 
             let entries: object[];

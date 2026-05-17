@@ -255,7 +255,6 @@ export default function TabBar({ userId }: { userId: string }) {
     const [newTabType, setNewTabType] = useState<'Journal' | 'Notebook'>('Journal');
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isTrashOpen, setIsTrashOpen] = useState(false);
     const [isRemindersOpen, setIsRemindersOpen] = useState(false);
     const [isGoalsOpen, setIsGoalsOpen] = useState(false);
@@ -271,17 +270,6 @@ export default function TabBar({ userId }: { userId: string }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const fileMenuRef = useRef<HTMLDivElement>(null);
     const viewMenuRef = useRef<HTMLDivElement>(null);
-
-    const handleFileImport = useCallback(async (filePath: string) => {
-        if (!confirm("Overwrite data?")) return;
-        const formData = new FormData();
-        const response = await fetch(filePath);
-        const blob = await response.blob();
-        formData.append('file', blob, filePath.split(/[\\/]/).pop() || 'import.db');
-        const res = await fetch('/api/backup/import', { method: 'POST', body: formData });
-        if (res.ok) window.location.reload();
-        else alert("Import Failed");
-    }, []);
 
     const handleLogout = useCallback(async () => {
         if (window.electron) {

@@ -270,7 +270,7 @@ const JournalTreeItem = ({
 // ---------------------------
 // Main Sidebar Component
 // ---------------------------
-export default function Sidebar({ categoryId, userId, title, type, viewSettings }: SidebarProps) {
+export default function Sidebar({ categoryId, userId: _userId, title, type, viewSettings }: SidebarProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { theme } = useTheme();
@@ -353,7 +353,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
 
     // Notebook Mode
     const [pages, setPages] = useState<Entry[]>([]);
-    const [activeDragId, setActiveDragId] = useState<number | null>(null);
+    const [, setActiveDragId] = useState<number | null>(null);
     const [activeDragItem, setActiveDragItem] = useState<Entry | null>(null);
 
     // ─── Data fetchers (hoisted & stable so useEffect deps are correct) ──────
@@ -542,7 +542,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     };
 
     const handleIconChange = async (entryId: number, icon: string) => {
-        const res = await fetch(`/api/entry/${entryId}`, {
+        await fetch(`/api/entry/${entryId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ icon })
@@ -649,13 +649,8 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
         // Journal mode preserves CreatedDate grouping (year/month headers below), so we
         // only run sortEntries to float pinned items to the top — actual ordering inside
         // groups uses the grouping logic, not the user-selected sortMode.
-        return sortEntries(entries as any, 'manual') as typeof entries;
+        return sortEntries(entries, 'manual');
     }, [journalEntries, matchedEntryIds, showFavoritesOnly, activeTags, entryHasAllTags]);
-
-    const pinnedJournalEntries = useMemo(
-        () => filteredJournalEntries.filter(e => !!e.IsPinned).sort((a, b) => (b.PinnedDate ?? '').localeCompare(a.PinnedDate ?? '')),
-        [filteredJournalEntries]
-    );
 
     const groupedEntries = filteredJournalEntries.reduce((acc: Record<string, Record<string, { entries: Entry[], key: string }>>, entry: Entry) => {
         if (!entry.CreatedDate) return acc;
@@ -739,7 +734,7 @@ export default function Sidebar({ categoryId, userId, title, type, viewSettings 
     };
     const filteredPages = useMemo(() => {
         const sortRecursive = (nodes: Entry[]): Entry[] => {
-            const out = sortEntries(nodes as any, sortMode) as Entry[];
+            const out = sortEntries(nodes, sortMode);
             return out.map(n => n.children ? { ...n, children: sortRecursive(n.children) } : n);
         };
 

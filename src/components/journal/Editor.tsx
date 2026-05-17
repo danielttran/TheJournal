@@ -11,7 +11,7 @@ import { type WritingPrompt } from '@/lib/prompts';
 import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
 
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, type Editor as TipTapEditor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import ResizableImage from './extensions/ResizableImage';
 import Link from '@tiptap/extension-link';
@@ -37,12 +37,31 @@ import { applyBuiltins, parseTemplateVariables, substituteVariables } from '@/li
 // hand-rolled an `countWords` that drifted from the test-covered version.
 import { wordCount as countWords, readingTimeMinutesFromWords } from '@/lib/readingTime';
 
+// Strip HTML tags and decode common entities without touching the DOM —
+// avoids the layout thrashing of `div.innerHTML = ...; div.textContent` in
+// the autosave hot path.
+function htmlToPlainText(html: string): string {
+    if (!html) return '';
+    return html
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+}
+
 // ─── Entry content cache ──────────────────────────────────────────────────────
-const entryContentCache = new Map<string, { html: string; documentJson: any; timestamp: number }>();
+const entryContentCache = new Map<string, { html: string; documentJson: JSONContent | null; timestamp: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;        // 10 minutes
 const CACHE_MAX_ENTRIES = 200;               // hard cap
 
-function cacheEntry(key: string, html: string, documentJson: any) {
+function cacheEntry(key: string, html: string, documentJson: JSONContent | null) {
     entryContentCache.delete(key);
     entryContentCache.set(key, { html, documentJson, timestamp: Date.now() });
 
@@ -99,11 +118,11 @@ export default function Editor({
     const [entryId, setEntryId] = useState<number | null>(null);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
-    const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
+    const [, setLoadingProgress] = useState<number | null>(null);
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
     const [isNewEntry, setIsNewEntry] = useState(false);
     const [isDistractionFree, setIsDistractionFree] = useState(false);
-    const [showDfToolbar, setShowDfToolbar] = useState(false);
+    const [, setShowDfToolbar] = useState(false);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
     const [isFloatingToolbar, setIsFloatingToolbar] = useState(false);
@@ -130,7 +149,7 @@ export default function Editor({
     }, [setLoading, clearLoading]);
 
     const contentRef = useRef('');
-    const documentJsonRef = useRef<any>(null);
+    const documentJsonRef = useRef<JSONContent | null>(null);
     const entryIdRef = useRef<number | null>(null);
     const isDirtyRef = useRef(false);
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -167,10 +186,10 @@ export default function Editor({
 
     // Refs to editors — needed so onUpdate callbacks can reference the OTHER editor
     // without stale closures (useEditor hooks fire before refs are set)
-    const editor1Ref = useRef<any>(null);
-    const editor2Ref = useRef<any>(null);
+    const editor1Ref = useRef<TipTapEditor | null>(null);
+    const editor2Ref = useRef<TipTapEditor | null>(null);
 
-    const handleChange = useCallback((html: string, json: any, source: string) => {
+    const handleChange = useCallback((html: string, json: JSONContent, source: string) => {
         contentRef.current = html;
         documentJsonRef.current = json;
         setWordCount(countWords(html));
@@ -261,7 +280,7 @@ export default function Editor({
     const [defaultFontSize, setDefaultFontSize] = useState(14);
     useEffect(() => {
         const loadSettings = async () => {
-            let saved: any = {};
+            let saved: Record<string, unknown> = {};
             if (window.electron) saved = await window.electron.getSettings();
             else {
                 try {
@@ -269,11 +288,14 @@ export default function Editor({
                     saved = savedStr ? JSON.parse(savedStr) : {};
                 } catch (e) { }
             }
-            if (saved.defaultFontSize !== undefined) setDefaultFontSize(saved.defaultFontSize);
+            if (typeof saved.defaultFontSize === 'number') setDefaultFontSize(saved.defaultFontSize);
         };
         loadSettings();
 
-        const handleSizeChange = (e: any) => { if (e.detail) setDefaultFontSize(e.detail); };
+        const handleSizeChange = (e: Event) => {
+            const detail = (e as CustomEvent<number>).detail;
+            if (detail) setDefaultFontSize(detail);
+        };
         window.addEventListener('font-size-changed', handleSizeChange);
         return () => window.removeEventListener('font-size-changed', handleSizeChange);
     }, []);
@@ -360,7 +382,7 @@ export default function Editor({
 
     const performSave = useCallback(async (
         id: number, isAutoSave = false, retryCount = 0,
-        snapshot?: { html: string; documentJson: any; version: number | null }
+        snapshot?: { html: string; documentJson: JSONContent | null; version: number | null }
     ): Promise<boolean> => {
         if (!isFullyLoadedRef.current) return false;
 
@@ -383,11 +405,13 @@ export default function Editor({
 
         const { html, documentJson, version } = snapshot;
 
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html || '';
-        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+        const plainText = editor ? editor.getText() : htmlToPlainText(html || '');
         const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
         const derivedPreview = plainText.substring(0, 200);
+
+        // Snapshot the cache key here so an in-flight save for entry A can't
+        // write A's content into B's cache slot if the user navigates mid-save.
+        const cacheKeyAtSave = cacheKeyRef.current;
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -413,15 +437,18 @@ export default function Editor({
                 isDirtyRef.current = false;
                 localStorage.removeItem('editor_backup');
                 cacheEntry(`entry-${id}`, html, documentJson);
-                if (cacheKeyRef.current && cacheKeyRef.current !== `entry-${id}`) {
-                    cacheEntry(cacheKeyRef.current, html, documentJson);
+                if (cacheKeyAtSave && cacheKeyAtSave !== `entry-${id}` && cacheKeyAtSave === cacheKeyRef.current) {
+                    cacheEntry(cacheKeyAtSave, html, documentJson);
                 }
                 return true;
             }
             if (res.status === 409) {
                 setSaveError(true);
                 entryContentCache.delete(`entry-${id}`);
-                if (cacheKeyRef.current) entryContentCache.delete(cacheKeyRef.current);
+                if (cacheKeyAtSave) entryContentCache.delete(cacheKeyAtSave);
+                // Surface stale-version state by clearing the in-memory version
+                // so the next save round-trips and refreshes before retrying.
+                versionRef.current = null;
                 return false;
             }
             throw new Error(`HTTP ${res.status}`);
@@ -466,10 +493,8 @@ export default function Editor({
         return () => clearInterval(backupTimer);
     }, []);
 
-    const buildSavePayload = (id: number, html: string, documentJson: any, version: number | null) => {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html || '';
-        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+    const buildSavePayload = (id: number, html: string, documentJson: JSONContent | null, version: number | null) => {
+        const plainText = htmlToPlainText(html || '');
         const derivedTitle = plainText.split('\n')[0].substring(0, 100) || 'Untitled';
         const derivedPreview = plainText.substring(0, 200);
 
@@ -580,15 +605,13 @@ export default function Editor({
                 timestamp: Date.now()
             }));
 
+            // sendBeacon issues a POST (route aliases POST → PUT) and is the
+            // only reliable way to ship data during unload. Modern browsers
+            // block sync XHR in beforeunload and Chrome warns/freezes the tab —
+            // so if the beacon is rejected (e.g. > 64KB payload limit) we rely
+            // on the localStorage backup written above and recover on reopen.
             const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
-            if (!navigator.sendBeacon(url, blob)) {
-                try {
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('PUT', url, false);
-                    xhr.setRequestHeader('Content-Type', 'application/json');
-                    xhr.send(JSON.stringify(body));
-                } catch (e) { }
-            }
+            navigator.sendBeacon(url, blob);
 
             isDirtyRef.current = false;
             e.preventDefault();
@@ -628,10 +651,10 @@ export default function Editor({
         if (editor) editor.commands.setContent('', { emitUpdate: false });
         if (editor2) editor2.commands.setContent('', { emitUpdate: false });
 
-        const setContentSafely = (json: any, html: string) => {
+        const setContentSafely = (json: JSONContent | null, html: string) => {
             if (!isMounted || renderAbort.signal.aborted) return;
 
-            const applyContent = (ed: any) => {
+            const applyContent = (ed: TipTapEditor | null) => {
                 if (!ed) return;
                 if (json) {
                     try {
@@ -664,7 +687,8 @@ export default function Editor({
                 if (cached) {
                     if (!isMounted || renderAbort.signal.aborted) return;
 
-                    const applyMeta = (d: any) => {
+                    type EntryMeta = { Mood?: string | null; IsFavorited?: number | boolean; Tags?: string | null };
+                    const applyMeta = (d: EntryMeta | null | undefined) => {
                         if (!d) return;
                         const m = d.Mood ?? null;
                         const f = !!d.IsFavorited;
@@ -704,7 +728,26 @@ export default function Editor({
                     return;
                 }
 
-                let data: any = null;
+                // The two endpoints used below — GET /api/entry/:id and POST
+                // /api/entry/by-date — return slightly different shapes (DB
+                // column casing vs. lowercase camel for the by-date "new"
+                // response). Union both forms so the access patterns below
+                // type-check without per-field guards.
+                type EntryPayload = {
+                    EntryID?: number;
+                    id?: number;
+                    Title?: string;
+                    HtmlContent?: string;
+                    html?: string;
+                    DocumentJson?: string | JSONContent | null;
+                    documentJson?: string | JSONContent | null;
+                    Version?: number;
+                    Mood?: string | null;
+                    IsFavorited?: number | boolean;
+                    Tags?: string | null;
+                    isNew?: boolean;
+                };
+                let data: EntryPayload | null = null;
                 if (urlEntryId) {
                     const res = await fetch(`/api/entry/${urlEntryId}`);
                     if (res.ok) data = await res.json();
@@ -718,9 +761,17 @@ export default function Editor({
                 }
 
                 if (data) {
-                    const loadedId = data.EntryID || data.id;
+                    const loadedId = (data.EntryID ?? data.id) as number;
                     let loadedHtml = data.HtmlContent || data.html || '';
-                    let loadedDocumentJson = data.DocumentJson || data.documentJson || null;
+                    const rawDocJson = data.DocumentJson ?? data.documentJson ?? null;
+                    // DB-stored docs come back as TEXT (string); the by-date "new"
+                    // response returns an already-parsed object. Normalize.
+                    let loadedDocumentJson: JSONContent | null = null;
+                    if (typeof rawDocJson === 'string') {
+                        try { loadedDocumentJson = JSON.parse(rawDocJson) as JSONContent; } catch { loadedDocumentJson = null; }
+                    } else if (rawDocJson && typeof rawDocJson === 'object') {
+                        loadedDocumentJson = rawDocJson as JSONContent;
+                    }
 
                     // Recovery payload
                     try {
@@ -798,7 +849,7 @@ export default function Editor({
     }, [categoryId, userId, selectedDate, urlEntryId, flushPendingSave, editor, editor2, onEntryChange, updateLoadingProgress]);
 
     const saveMetadata = useCallback(async (id: number, patch: { mood?: string | null; isFavorited?: boolean; tags?: string[] }) => {
-        const body: Record<string, any> = {};
+        const body: Record<string, unknown> = {};
         if ('mood' in patch) body.mood = patch.mood ?? null;
         if ('isFavorited' in patch) body.isFavorited = patch.isFavorited;
         if ('tags' in patch) body.tags = JSON.stringify(patch.tags);
@@ -834,6 +885,7 @@ export default function Editor({
 
     /** Insert an uploaded image at the cursor. */
     const insertImage = useCallback((url: string) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ResizableImage extension adds width but its type isn't picked up by TipTap's command map
         editor?.chain().focus().setImage({ src: url, width: '100%' } as any).run();
         isDirtyRef.current = true;
         if (entryIdRef.current) performSave(entryIdRef.current, true);

@@ -29,4 +29,9 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: "TheJournal"
 
-npmRebuild: false
+# Required so electron-builder rebuilds @journeyapps/sqlcipher (native C++
+# module) against the Electron runtime's V8 ABI before packaging. Without this
+# the installer ships a binding compiled for Node's ABI and the app crashes on
+# first DB access. scripts/install-sqlite.js runs an explicit rebuild first as
+# a belt-and-braces measure.
+npmRebuild: true

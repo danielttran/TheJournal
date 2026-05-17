@@ -16,6 +16,7 @@ type Params = { params: Promise<{ id: string }> };
 export const GET = authedHandler<[NextRequest, Params]>('GET /api/habit/[id]', async (userId, req, { params }) => {
     const { id } = await params;
     const habitId = parseInt(id, 10);
+    if (!Number.isFinite(habitId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
     const { searchParams } = new URL(req.url);
     const start = searchParams.get('start');
     const end = searchParams.get('end');
@@ -35,6 +36,7 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/habit/[id]', a
 export const POST = authedHandler<[NextRequest, Params]>('POST /api/habit/[id]', async (userId, req, { params }) => {
     const { id } = await params;
     const habitId = parseInt(id, 10);
+    if (!Number.isFinite(habitId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
     const body = await req.json();
     const parsed = LogSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
@@ -49,6 +51,8 @@ export const POST = authedHandler<[NextRequest, Params]>('POST /api/habit/[id]',
 
 export const DELETE = authedHandler<[NextRequest, Params]>('DELETE /api/habit/[id]', async (userId, _req, { params }) => {
     const { id } = await params;
-    await deleteHabit(dbManager, userId, parseInt(id, 10));
+    const habitId = parseInt(id, 10);
+    if (!Number.isFinite(habitId)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+    await deleteHabit(dbManager, userId, habitId);
     return NextResponse.json({ success: true });
 });

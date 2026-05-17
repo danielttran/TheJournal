@@ -12,6 +12,8 @@ const dir = path.join(__dirname, '../../'); // Adjust based on where main.js is 
 // settingsManager is initialized inside app.whenReady() because SettingsManager's
 // constructor calls app.getPath('userData'), which requires the app to be ready.
 let settingsManager;
+// Track scheduled background backup so we can stop it cleanly at shutdown.
+let backupIntervalHandle = null;
 
 function getDatabasePath() {
     const currentSettings = settingsManager.getSettings();
@@ -440,9 +442,21 @@ app.whenReady().then(async () => {
 
         ipcMain.handle('read-file-for-import', async (_event, filePath) => {
             const fs = require('fs');
+            const path = require('path');
             try {
-                if (!fs.existsSync(filePath)) return null;
-                const buffer = fs.readFileSync(filePath);
+                // Defense in depth: the renderer should only invoke this after
+                // a user picked a .tjdb file via the OS open-file dialog, but
+                // a compromised renderer (e.g. XSS in pasted content) could
+                // pass an arbitrary path. Restrict to the journal extension so
+                // this IPC can't be abused to exfiltrate other files.
+                if (typeof filePath !== 'string' || filePath.length === 0) return null;
+                const resolved = path.resolve(filePath);
+                if (path.extname(resolved).toLowerCase() !== '.tjdb') {
+                    console.warn('[Electron] read-file-for-import rejected non-.tjdb path');
+                    return null;
+                }
+                if (!fs.existsSync(resolved)) return null;
+                const buffer = fs.readFileSync(resolved);
                 return buffer.toString('base64');
             } catch (err) {
                 console.error('[Electron] read-file-for-import failed:', err);
@@ -468,7 +482,19 @@ app.whenReady().then(async () => {
             });
             if (result.canceled || !result.filePath) return { saved: false, reason: 'canceled' };
 
-            const printer = new BrowserWindow({ show: false, webPreferences: { offscreen: true } });
+            // Hidden window renders user-authored HTML. Lock it down so a
+            // <script> that slipped past the editor sanitizer can't reach Node
+            // APIs or the parent window. printToPDF only needs static rendering.
+            const printer = new BrowserWindow({
+                show: false,
+                webPreferences: {
+                    offscreen: true,
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    sandbox: true,
+                    javascript: false,
+                },
+            });
             try {
                 await printer.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(entryHtml));
                 const pdf = await printer.webContents.printToPDF({
@@ -510,11 +536,12 @@ app.whenReady().then(async () => {
         // ── Scheduled background backup ────────────────────────────────────────
         // If auto-backup is enabled, run performAutoBackup every 6 hours so that
         // long-running sessions are covered even if the machine never restarts.
+        // Handle is tracked in module scope so it can be cleared on quit.
         const SIX_HOURS_MS = 6 * 60 * 60 * 1000; // 21_600_000 ms
         const initialSettings = settingsManager.getSettings();
         if (initialSettings.autoBackupOnClose) {
             console.log('[Electron] Scheduling background backup every 6 hours.');
-            setInterval(() => {
+            backupIntervalHandle = setInterval(() => {
                 performAutoBackup().catch(err =>
                     console.error('[Electron] Background backup error:', err)
                 );
@@ -533,6 +560,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+    if (backupIntervalHandle) {
+        clearInterval(backupIntervalHandle);
+        backupIntervalHandle = null;
+    }
     if (serverInstance) {
         serverInstance.close();
     }

@@ -43,7 +43,7 @@ export default function RemindersPanel({ onClose }: RemindersPanelProps) {
             if (signal?.aborted) return;
             setItems(data.items ?? []);
         } catch (err) {
-            if ((err as any)?.name !== 'AbortError') throw err;
+            if ((err as { name?: string })?.name !== 'AbortError') throw err;
         }
     }, [filter]);
 
@@ -150,7 +150,7 @@ export default function RemindersPanel({ onClose }: RemindersPanelProps) {
                             <Repeat className="w-3.5 h-3.5 text-text-muted" />
                             <select
                                 value={newRecurInterval}
-                                onChange={e => setNewRecurInterval(e.target.value as any)}
+                                onChange={e => setNewRecurInterval(e.target.value as '' | 'daily' | 'weekly' | 'monthly' | 'yearly')}
                                 className="bg-bg-card border border-border-primary rounded px-2 py-1.5 text-sm text-text-primary"
                             >
                                 <option value="">Does not repeat</option>

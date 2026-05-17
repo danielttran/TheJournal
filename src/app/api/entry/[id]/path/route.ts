@@ -41,7 +41,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
                 JOIN Path p ON e.EntryID = p.ParentEntryID
             )
             SELECT EntryID, Title, EntryType, CategoryID FROM Path ORDER BY Depth DESC;
-        `).all(entryId) as any[];
+        `).all(entryId) as { EntryID: number; Title: string; EntryType: string; CategoryID: number; CreatedDate?: string }[];
 
         if (path.length === 0) {
             return NextResponse.json({ error: "Entry not found" }, { status: 404 });
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         // Get Category name
         const categoryId = path[0].CategoryID;
-        const category = await db.prepare('SELECT CategoryID, Name, Type FROM Category WHERE CategoryID = ?').get(categoryId) as any;
+        const category = await db.prepare('SELECT CategoryID, Name, Type FROM Category WHERE CategoryID = ?').get(categoryId) as { CategoryID: number; Name: string; Type: string } | undefined;
 
         const breadcrumbs = [];
         if (category) {

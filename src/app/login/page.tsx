@@ -84,7 +84,7 @@ function LoginFormContent() {
             if (!isMounted || !settings?.rememberMe) return;
 
             setRememberMe(true);
-            const savedUser = settings.userName || "";
+            const savedUser = typeof settings.userName === 'string' ? settings.userName : "";
             const savedPass = await window.electron.getStoredPassword();
 
             if (!isMounted || !savedUser || !savedPass) return;

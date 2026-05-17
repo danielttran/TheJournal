@@ -41,8 +41,8 @@ declare global {
     interface Window {
         electron: {
             // ── Invoke (renderer → main) ──────────────────────────────────────
-            getSettings: () => Promise<Record<string, any>>;
-            saveSetting: (key: string, value: any) => Promise<Record<string, any> | false>;
+            getSettings: () => Promise<Record<string, unknown>>;
+            saveSetting: (key: string, value: unknown) => Promise<Record<string, unknown> | false>;
             logout: () => Promise<boolean>;
             selectFolder: () => Promise<string | null>;
             exportDatabase: () => Promise<boolean>;

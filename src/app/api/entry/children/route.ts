@@ -3,13 +3,25 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = 'force-dynamic';
 
+const DEFAULT_LIMIT = 1000;
+
 export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
-    const parentId = searchParams.get('parentId');
+    const parentIdRaw = searchParams.get('parentId');
+    const parentId = parentIdRaw ? parseInt(parentIdRaw, 10) : NaN;
 
-    if (!parentId) {
+    if (!parentIdRaw || Number.isNaN(parentId)) {
         return NextResponse.json({ error: "Missing parentId" }, { status: 400 });
     }
+
+    const limitRaw = searchParams.get('limit');
+    const offsetRaw = searchParams.get('offset');
+    const parsedLimit = limitRaw ? parseInt(limitRaw, 10) : DEFAULT_LIMIT;
+    const parsedOffset = offsetRaw ? parseInt(offsetRaw, 10) : 0;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
+        ? parsedLimit
+        : DEFAULT_LIMIT;
+    const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
 
     try {
         const { cookies } = await import("next/headers");
@@ -30,7 +42,8 @@ export async function GET(req: NextRequest) {
             FROM Entry
             WHERE ParentEntryID = ?
             ORDER BY SortOrder ASC, CreatedDate DESC
-        `).all(parentId);
+            LIMIT ? OFFSET ?
+        `).all(parentId, limit, offset);
 
         return NextResponse.json(entries);
     } catch (error) {

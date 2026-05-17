@@ -51,7 +51,7 @@ function HighlightedText({ text, term }: { text: string; term: string }) {
 
 export default function SearchPanel({
     currentCategoryId,
-    currentCategoryType,
+    currentCategoryType: _currentCategoryType,
     onClose,
     onNavigate,
 }: SearchPanelProps) {
@@ -120,8 +120,8 @@ export default function SearchPanel({
             setTotal(data.total ?? 0);
             setHasMore(data.hasMore ?? false);
             setSearched(true);
-        } catch (e: any) {
-            if (e?.name === 'AbortError') return;
+        } catch (e) {
+            if ((e as { name?: string })?.name === 'AbortError') return;
             setError(true);
         } finally {
             setLoading(false);
@@ -243,7 +243,7 @@ export default function SearchPanel({
                                                     if (q.scopeCategory) setScopeCategory(q.scopeCategory);
                                                     if (typeof q.dateFrom === 'string') setDateFrom(q.dateFrom);
                                                     if (typeof q.dateTo === 'string') setDateTo(q.dateTo);
-                                                    if (typeof q.entryType === 'string') setEntryType(q.entryType as any);
+                                                    if (typeof q.entryType === 'string') setEntryType(q.entryType as '' | 'Page' | 'Folder');
                                                     if (typeof q.matchCase === 'boolean') setMatchCase(q.matchCase);
                                                     if (typeof q.wholeWord === 'boolean') setWholeWord(q.wholeWord);
                                                 } catch {}
@@ -362,7 +362,7 @@ export default function SearchPanel({
                                 <span className="text-text-muted text-xs">Type</span>
                                 <select
                                     value={entryType}
-                                    onChange={e => setEntryType(e.target.value as any)}
+                                    onChange={e => setEntryType(e.target.value as '' | 'Page' | 'Folder')}
                                     className="text-xs bg-bg-active border border-border-primary rounded px-2 py-1 text-text-primary focus:outline-none focus:border-accent-primary"
                                 >
                                     <option value="">All</option>
@@ -489,7 +489,7 @@ export default function SearchPanel({
 
                     {searched && !loading && results.length === 0 && !error && (
                         <div className="px-4 py-10 text-center text-sm text-text-muted">
-                            No entries match <span className="text-text-primary">"{query}"</span>
+                            No entries match <span className="text-text-primary">&ldquo;{query}&rdquo;</span>
                         </div>
                     )}
                 </div>

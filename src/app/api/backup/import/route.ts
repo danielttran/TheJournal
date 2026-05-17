@@ -1,5 +1,6 @@
-import { join } from 'path';
+import { join, extname, resolve } from 'path';
 import { writeFile, unlink } from 'fs/promises';
+import { tmpdir } from 'os';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cookies } from 'next/headers';
@@ -19,10 +20,17 @@ export async function POST(req: NextRequest) {
             // We read the file directly in the Next.js process (same machine).
             // No base64 encoding / HTTP body size limits to worry about.
             const body = await req.json();
-            if (!body?.filePath) {
+            if (!body?.filePath || typeof body.filePath !== 'string') {
                 return NextResponse.json({ error: 'filePath required' }, { status: 400 });
             }
-            tempPath = body.filePath;
+            // Defense in depth: same constraint as the read-file-for-import
+            // IPC. A compromised renderer can't redirect this endpoint at an
+            // unrelated file expecting it to be a SQLCipher database.
+            const resolved = resolve(body.filePath);
+            if (extname(resolved).toLowerCase() !== '.tjdb') {
+                return NextResponse.json({ error: 'filePath must be a .tjdb file' }, { status: 400 });
+            }
+            tempPath = resolved;
             ownsTempFile = false; // don't delete the user's original file
         } else {
             // Web browser: standard FormData file upload
@@ -32,7 +40,10 @@ export async function POST(req: NextRequest) {
                 return NextResponse.json({ error: "No file provided" }, { status: 400 });
             }
             const buffer = Buffer.from(await file.arrayBuffer());
-            tempPath = join(process.cwd(), `import-${Date.now()}.db`);
+            // tmpdir() is always writable; process.cwd() is the app install
+            // directory in packaged Electron, which is read-only on
+            // macOS/Windows. Writing there would crash the import.
+            tempPath = join(tmpdir(), `thejournal-import-${Date.now()}-${process.pid}.tjdb`);
             await writeFile(tempPath, buffer);
             ownsTempFile = true;
         }
@@ -48,13 +59,52 @@ export async function POST(req: NextRequest) {
         try {
             const key = db.currentKey;
             if (key) {
+                // Defensive: key must be lowercase hex; reject anything else before embedding.
+                // (Key is internal — sourced from OS keychain — but interpolation deserves a guard.)
+                if (!/^[0-9a-f]+$/i.test(key)) {
+                    throw new Error('Invalid database key format');
+                }
                 await db.prepare(`ATTACH DATABASE ? AS imported KEY "x'${key}'"`).run(tempPath);
             } else {
                 await db.prepare(`ATTACH DATABASE ? AS imported`).run(tempPath);
             }
-        } catch (e: any) {
+        } catch (e: unknown) {
             console.error("Import: Failed to attach", e);
-            throw new Error(`Could not read the database file: ${e.message}`);
+            throw new Error('Could not read the database file');
+        }
+
+        // Row shapes from the attached imported DB. These mirror the table
+        // schemas in src/lib/db.ts — keep in sync if a column is added.
+        interface ImportedCategoryRow {
+            CategoryID: number; Name: string; Color: string | null; IsPrivate: number;
+            Type: string | null; Icon: string | null; ViewSettings: string | null;
+            SortOrder: number | null;
+        }
+        interface ImportedEntryRow {
+            EntryID: number; CategoryID: number; Title: string; PreviewText: string | null;
+            IsLocked: number; CreatedDate: string; ModifiedDate: string;
+            EntryType: string | null; SortOrder: number | null; Icon: string | null;
+            IsExpanded: number; Mood: string | null; IsFavorited: number;
+            Tags: string | null; IsDeleted: number; DeletedDate: string | null;
+            IsPinned: number; PinnedDate: string | null; ParentEntryID: number | null;
+        }
+        interface ImportedAttachmentRow {
+            AttachmentID: number; Filename: string; MimeType: string; Size: number; Data: Buffer;
+        }
+        interface ImportedContentRow {
+            EntryID: number; HtmlContent: string | null; DocumentJson: string | null;
+        }
+        interface ImportedReminderRow {
+            Title: string; Notes: string | null; DueAt: string; IsComplete: number;
+            CompletedAt: string | null; EntryID: number | null; CreatedAt: string | null;
+            RecurInterval: string | null; RecurEvery: number | null;
+        }
+        interface ImportedGoalRow {
+            Type: string; Target: number; StartDate: string; EndDate: string | null;
+            CategoryID: number | null; CreatedAt: string | null;
+        }
+        interface ImportedSavedSearchRow {
+            Name: string; QueryJson: string; CreatedAt: string | null;
         }
 
         // 2. Perform Restore Transaction
@@ -64,7 +114,7 @@ export async function POST(req: NextRequest) {
             await db.prepare('DELETE FROM Category WHERE UserID = ?').run(userId);
 
             // B. Remap Categories
-            const importedCats = await db.prepare("SELECT * FROM imported.Category").all() as any[];
+            const importedCats = await db.prepare("SELECT * FROM imported.Category").all() as ImportedCategoryRow[];
             const catIdMap = new Map<number, number>();
             for (const cat of importedCats) {
                 const r = await db.prepare(`
@@ -75,7 +125,7 @@ export async function POST(req: NextRequest) {
             }
 
             // C. Remap Entries
-            const importedEntries = await db.prepare("SELECT * FROM imported.Entry").all() as any[];
+            const importedEntries = await db.prepare("SELECT * FROM imported.Entry").all() as ImportedEntryRow[];
             const entryIdMap = new Map<number, number>();
             for (const entry of importedEntries) {
                 const newCatId = catIdMap.get(entry.CategoryID);
@@ -96,7 +146,7 @@ export async function POST(req: NextRequest) {
 
             // D. Remap Attachments (images stored as blobs)
             const attIdMap = new Map<number, number>();
-            const importedAtts = await db.prepare("SELECT * FROM imported.Attachment").all() as any[];
+            const importedAtts = await db.prepare("SELECT * FROM imported.Attachment").all() as ImportedAttachmentRow[];
             console.log(`[Import] Copying ${importedAtts.length} attachment(s)...`);
             for (const att of importedAtts) {
                 const r = await db.prepare(`
@@ -107,7 +157,7 @@ export async function POST(req: NextRequest) {
             }
 
             // E. Copy EntryContent — rewriting /api/attachment/{oldId} → {newId}
-            const importedContent = await db.prepare("SELECT * FROM imported.EntryContent").all() as any[];
+            const importedContent = await db.prepare("SELECT * FROM imported.EntryContent").all() as ImportedContentRow[];
             for (const content of importedContent) {
                 const newEntryId = entryIdMap.get(content.EntryID);
                 if (!newEntryId) continue;
@@ -140,11 +190,11 @@ export async function POST(req: NextRequest) {
             }
 
             // G. Import Reminders / WordGoals / SavedSearches (tables added post-launch — safe to skip if absent)
-            const safeAll = async (sql: string): Promise<any[]> => {
-                try { return await db.prepare(sql).all() as any[]; }
+            const safeAll = async <T>(sql: string): Promise<T[]> => {
+                try { return await db.prepare(sql).all() as T[]; }
                 catch { return []; }
             };
-            const importedReminders = await safeAll("SELECT * FROM imported.Reminder");
+            const importedReminders = await safeAll<ImportedReminderRow>("SELECT * FROM imported.Reminder");
             for (const rem of importedReminders) {
                 const newEntryId = rem.EntryID ? entryIdMap.get(rem.EntryID) ?? null : null;
                 await db.prepare(`
@@ -156,7 +206,7 @@ export async function POST(req: NextRequest) {
                     rem.RecurInterval ?? null, rem.RecurEvery ?? null
                 );
             }
-            const importedGoals = await safeAll("SELECT * FROM imported.WordGoal");
+            const importedGoals = await safeAll<ImportedGoalRow>("SELECT * FROM imported.WordGoal");
             for (const g of importedGoals) {
                 const newCatId = g.CategoryID ? catIdMap.get(g.CategoryID) ?? null : null;
                 await db.prepare(`
@@ -164,7 +214,7 @@ export async function POST(req: NextRequest) {
                     VALUES(?, ?, ?, ?, ?, ?, ?)
                 `).run(userId, g.Type, g.Target, g.StartDate, g.EndDate ?? null, newCatId, g.CreatedAt ?? null);
             }
-            const importedSearches = await safeAll("SELECT * FROM imported.SavedSearch");
+            const importedSearches = await safeAll<ImportedSavedSearchRow>("SELECT * FROM imported.SavedSearch");
             for (const s of importedSearches) {
                 await db.prepare(`
                     INSERT INTO main.SavedSearch(UserID, Name, QueryJson, CreatedAt)
@@ -185,10 +235,14 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ success: true });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Import failed:", error);
         try { await db.prepare("DETACH imported").run(); } catch { }
         try { if (ownsTempFile && tempPath) await unlink(tempPath); } catch { }
-        return NextResponse.json({ error: "Failed to import", details: error.message }, { status: 500 });
+        const body: { error: string; details?: string } = { error: "Failed to import" };
+        if (process.env.NODE_ENV !== 'production') {
+            body.details = error instanceof Error ? error.message : String(error);
+        }
+        return NextResponse.json(body, { status: 500 });
     }
 }

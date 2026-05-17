@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic';
 
 export const GET = authedHandler<[NextRequest]>('GET /api/trash', async (userId, req) => {
     const { searchParams } = new URL(req.url);
-    const limitParam = parseInt(searchParams.get('limit') ?? '500', 10);
-    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 2000) : 500;
+    const limitParam = parseInt(searchParams.get('limit') ?? '1000', 10);
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 1000;
     const items = await listTrash(dbManager, userId, limit);
     return NextResponse.json({ items });
 });

@@ -54,7 +54,7 @@ export async function PUT(req: NextRequest) {
                     WHERE a.id IS NOT NULL
                 )
                 SELECT 1 FROM ancestors WHERE id = ? LIMIT 1
-            `).get(parentId, entryId) as any;
+            `).get(parentId, entryId) as { 1: number } | undefined;
 
             if (cycle) {
                 return NextResponse.json({ error: "Cannot move an entry under one of its own descendants" }, { status: 400 });

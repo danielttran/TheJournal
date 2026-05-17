@@ -58,12 +58,18 @@ export const POST = authedHandler<[NextRequest, { params: Promise<{ id: string }
         }
 
         const blob = encryptEntry(row.HtmlContent ?? '', password);
-        await dbManager.prepare(
-            `UPDATE EntryContent SET HtmlContent = ?, DocumentJson = NULL WHERE EntryID = ?`
-        ).run(JSON.stringify(blob), entryId);
-        await dbManager.prepare(`UPDATE Entry SET IsLocked = 1 WHERE EntryID = ?`).run(entryId);
-        // Drop the plaintext copy in the FTS index so searches stop hitting it.
-        await dbManager.prepare(`DELETE FROM EntrySearch WHERE rowid = ?`).run(entryId);
+        // Wrap in a transaction so the EntryContent UPDATE (which fires the
+        // FTS sync trigger and indexes the encrypted blob) and the manual
+        // FTS DELETE land atomically. Otherwise concurrent search requests
+        // can briefly hit the encrypted ciphertext as an FTS row.
+        const lockTx = dbManager.transaction(async () => {
+            await dbManager.prepare(
+                `UPDATE EntryContent SET HtmlContent = ?, DocumentJson = NULL WHERE EntryID = ?`
+            ).run(JSON.stringify(blob), entryId);
+            await dbManager.prepare(`UPDATE Entry SET IsLocked = 1 WHERE EntryID = ?`).run(entryId);
+            await dbManager.prepare(`DELETE FROM EntrySearch WHERE rowid = ?`).run(entryId);
+        });
+        await lockTx();
         return NextResponse.json({ locked: true });
     },
 );
@@ -121,16 +127,21 @@ export const DELETE = authedHandler<[NextRequest, { params: Promise<{ id: string
         try { plaintext = decryptEntry(blob, password); }
         catch { return NextResponse.json({ error: 'Wrong password' }, { status: 401 }); }
 
-        await dbManager.prepare(
-            `UPDATE EntryContent SET HtmlContent = ? WHERE EntryID = ?`
-        ).run(plaintext, entryId);
-        await dbManager.prepare(`UPDATE Entry SET IsLocked = 0 WHERE EntryID = ?`).run(entryId);
-        // Re-index for search.
-        await dbManager.prepare(
-            `INSERT OR REPLACE INTO EntrySearch (rowid, Title, HtmlContent)
-             SELECT e.EntryID, e.Title, ?
-             FROM Entry e WHERE e.EntryID = ?`
-        ).run(plaintext, entryId);
+        // Same atomicity concern as POST: the UPDATE on EntryContent triggers
+        // the FTS sync, and the manual INSERT OR REPLACE re-indexes — keep
+        // them in one transaction so readers never observe a partial state.
+        const unlockTx = dbManager.transaction(async () => {
+            await dbManager.prepare(
+                `UPDATE EntryContent SET HtmlContent = ? WHERE EntryID = ?`
+            ).run(plaintext, entryId);
+            await dbManager.prepare(`UPDATE Entry SET IsLocked = 0 WHERE EntryID = ?`).run(entryId);
+            await dbManager.prepare(
+                `INSERT OR REPLACE INTO EntrySearch (rowid, Title, HtmlContent)
+                 SELECT e.EntryID, e.Title, ?
+                 FROM Entry e WHERE e.EntryID = ?`
+            ).run(plaintext, entryId);
+        });
+        await unlockTx();
         return NextResponse.json({ locked: false });
     },
 );

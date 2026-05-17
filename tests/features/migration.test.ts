@@ -4,7 +4,7 @@
  *  - All new columns appear after first unlock
  *  - All new tables appear after first unlock
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { join } from 'path';
 import { unlink } from 'fs/promises';
 import { DBManager } from '../../src/lib/db';

@@ -29,7 +29,7 @@ export default function TrashPanel({ onClose, onChanged }: TrashPanelProps) {
             if (signal?.aborted) return;
             setItems(data.items ?? []);
         } catch (err) {
-            if ((err as any)?.name === 'AbortError') return;
+            if ((err as { name?: string })?.name === 'AbortError') return;
         } finally {
             if (!signal?.aborted) setLoading(false);
         }

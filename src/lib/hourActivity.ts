@@ -14,7 +14,7 @@ export interface HourBucket {
  * naive timestamps (matches how the app writes CreatedDate today).
  */
 export async function hourActivity(dbm: DBManager, userId: number, days: number): Promise<HourBucket[]> {
-    const safeDays = Number.isFinite(days) && days > 0 ? Math.min(Math.floor(days), 3650) : 30;
+    const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30;
 
     const rows = await dbm.prepare(`
         SELECT strftime('%H', e.CreatedDate) AS h, ec.HtmlContent

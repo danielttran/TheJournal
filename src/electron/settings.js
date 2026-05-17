@@ -40,7 +40,13 @@ class SettingsManager {
     saveSettings(newSettings) {
         try {
             this.settings = { ...this.settings, ...newSettings };
-            fs.writeFileSync(this.settingsPath, JSON.stringify(this.settings, null, 4));
+            // Atomic write: serialize to a sibling temp file then rename. A
+            // crash or power loss mid-write leaves the original settings
+            // intact instead of producing a truncated JSON file that fails to
+            // parse on next startup.
+            const tmp = this.settingsPath + '.tmp';
+            fs.writeFileSync(tmp, JSON.stringify(this.settings, null, 4));
+            fs.renameSync(tmp, this.settingsPath);
             return true;
         } catch (error) {
             console.error('Error saving settings:', error);

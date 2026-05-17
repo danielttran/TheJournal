@@ -38,7 +38,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     useEffect(() => {
         // Detect Electron environment safely on mount
         const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
-        const isEl = userAgent.includes(' electron/') || !!(window as any).electron;
+        const isEl = userAgent.includes(' electron/') || !!window.electron;
         setIsElectron(isEl);
     }, []); // Keep dependency array stable []
 

@@ -8,10 +8,12 @@ export default function ThemeManager() {
 
     useEffect(() => {
         const applyTheme = async () => {
-            let settings: any = {};
+            type ThemePref = { accentPrimary?: string; bgApp?: string; bgSidebar?: string };
+            type Settings = { themePreferences?: { light?: ThemePref; dark?: ThemePref } };
+            let settings: Settings = {};
 
             if (window.electron) {
-                settings = await window.electron.getSettings();
+                settings = (await window.electron.getSettings()) as Settings;
             } else {
                 try {
                     const saved = localStorage.getItem('app-settings');

@@ -32,7 +32,7 @@ export default function EntryGrid({
     entries: initialEntries,
     title,
     dataUrl,
-    categoryId,
+    categoryId: _categoryId,
     gridMode = 'section',
     onEntryClick,
 }: EntryGridProps) {
@@ -80,7 +80,7 @@ export default function EntryGrid({
             return;
         }
 
-        const anyEntry = entry as any;
+        const anyEntry = entry as Entry & { _monthKey?: string };
 
         if (gridMode === 'journal-year') {
             const monthKey = anyEntry._monthKey ?? entry.CreatedDate?.substring(0, 7);
