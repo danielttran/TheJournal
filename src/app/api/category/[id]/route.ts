@@ -86,7 +86,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const userId = parseInt(userIdCookie.value, 10);
 
         const body = await req.json();
-        const { name, icon, color, viewSettings, lastSelectedEntryId } = body;
+        const { name, icon, color, viewSettings, lastSelectedEntryId,
+            sortMode, autoTemplateId, entryFrequency, smartbookQuery } = body;
 
         // Validate color if provided (must be a valid CSS hex color)
         if (color !== undefined && !/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(color)) {
@@ -100,6 +101,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         if (name !== undefined) { simpleUpdates.push("Name = ?"); simpleValues.push(name); }
         if (icon !== undefined) { simpleUpdates.push("Icon = ?"); simpleValues.push(icon); }
         if (color !== undefined) { simpleUpdates.push("Color = ?"); simpleValues.push(color); }
+        if (sortMode !== undefined) {
+            if (!['manual', 'name', 'created', 'updated'].includes(sortMode)) {
+                return NextResponse.json({ error: "Invalid sortMode" }, { status: 400 });
+            }
+            simpleUpdates.push("SortMode = ?"); simpleValues.push(sortMode);
+        }
+        if (autoTemplateId !== undefined) {
+            simpleUpdates.push("AutoTemplateID = ?");
+            simpleValues.push(autoTemplateId === null ? 0 : Number(autoTemplateId));
+        }
+        if (entryFrequency !== undefined) {
+            if (!['daily', 'weekly', 'hourly'].includes(entryFrequency)) {
+                return NextResponse.json({ error: "Invalid entryFrequency" }, { status: 400 });
+            }
+            simpleUpdates.push("EntryFrequency = ?"); simpleValues.push(entryFrequency);
+        }
+        if (smartbookQuery !== undefined) {
+            simpleUpdates.push("SmartbookQuery = ?");
+            simpleValues.push(typeof smartbookQuery === 'string' ? smartbookQuery : JSON.stringify(smartbookQuery));
+        }
 
         const needsViewSettingsMerge = viewSettings !== undefined || lastSelectedEntryId !== undefined;
 

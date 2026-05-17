@@ -6,7 +6,10 @@ const CreateCategorySchema = z.object({
     name: z.string().min(1),
     type: z.enum(['Journal', 'Notebook']),
     color: z.string().optional(),
-    isPrivate: z.boolean().optional().default(true)
+    isPrivate: z.boolean().optional().default(true),
+    isSmartbook: z.boolean().optional().default(false),
+    smartbookQuery: z.string().max(4000).optional(),
+    entryFrequency: z.enum(['daily', 'weekly', 'hourly']).optional(),
 });
 
 // GET: List all categories for user
@@ -42,12 +45,16 @@ export async function POST(req: NextRequest) {
         if (isNaN(userId)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const body = await req.json();
-        const { name, type, color, isPrivate } = CreateCategorySchema.parse(body);
+        const { name, type, color, isPrivate, isSmartbook, smartbookQuery, entryFrequency } =
+            CreateCategorySchema.parse(body);
 
         const result = await db.prepare(`
-            INSERT INTO Category (UserID, Name, Type, Color, IsPrivate)
-            VALUES (?, ?, ?, ?, ?)
-        `).run(userId, name, type, color || '#FFFFFF', isPrivate ? 1 : 0);
+            INSERT INTO Category (UserID, Name, Type, Color, IsPrivate, IsSmartbook, SmartbookQuery, EntryFrequency)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            userId, name, type, color || '#FFFFFF', isPrivate ? 1 : 0,
+            isSmartbook ? 1 : 0, smartbookQuery ?? null, entryFrequency ?? 'daily'
+        );
 
         return NextResponse.json({ id: result.lastInsertRowid, name, type });
     } catch (error) {

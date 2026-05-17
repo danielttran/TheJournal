@@ -481,14 +481,23 @@ export default function TabBar({ userId }: { userId: string }) {
                                             <Replace size={14} className="mr-2" />
                                             Find &amp; Replace...
                                         </button>
-                                        <a
-                                            href={`/api/category/${activeId}/export`}
-                                            onClick={() => setIsFileMenuOpen(false)}
-                                            className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center"
-                                        >
-                                            <FileText size={14} className="mr-2" />
-                                            Export current as Markdown
-                                        </a>
+                                        {([
+                                            ['md', 'Markdown'],
+                                            ['rtf', 'RTF (Word)'],
+                                            ['html', 'HTML'],
+                                            ['txt', 'Plain text'],
+                                            ['atom', 'ATOM'],
+                                        ] as const).map(([fmt, label]) => (
+                                            <a
+                                                key={fmt}
+                                                href={`/api/category/${activeId}/export?format=${fmt}`}
+                                                onClick={() => setIsFileMenuOpen(false)}
+                                                className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center"
+                                            >
+                                                <FileText size={14} className="mr-2" />
+                                                Export current as {label}
+                                            </a>
+                                        ))}
                                     </>
                                 )}
                                 <button onClick={() => { window.dispatchEvent(new Event('trigger-settings')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">

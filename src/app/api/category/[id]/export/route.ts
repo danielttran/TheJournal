@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { exportCategory, type FrontmatterInput } from "@/lib/markdown";
-import { exportEntriesAsATOM, htmlToPlainText, exportEntryAsHTML } from "@/lib/export-formats";
+import { exportEntriesAsATOM, htmlToPlainText, exportEntryAsHTML, exportEntryAsRTF } from "@/lib/export-formats";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -42,6 +42,24 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/category/[id]/
             headers: {
                 'Content-Type': 'application/atom+xml; charset=utf-8',
                 'Content-Disposition': `attachment; filename="${safeName}.atom"`,
+            },
+        });
+    }
+
+    if (format === 'rtf') {
+        const docs = rows.map(r => {
+            let tags: string[] = [];
+            try { tags = r.Tags ? JSON.parse(r.Tags) : []; } catch {}
+            const fm = { title: r.Title || 'Untitled', createdDate: r.CreatedDate, modifiedDate: r.ModifiedDate, tags, mood: r.Mood ?? null };
+            // Strip the per-entry RTF wrapper so the bundle is one valid document.
+            return exportEntryAsRTF(fm, r.HtmlContent ?? '')
+                .replace(/^\{\\rtf1[^\n]*\n/, '').replace(/\n\}$/, '');
+        }).join('\\par\\par ');
+        const body = `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Calibri;}}\\fs22\n${docs}\n}`;
+        return new NextResponse(body, {
+            headers: {
+                'Content-Type': 'application/rtf; charset=utf-8',
+                'Content-Disposition': `attachment; filename="${safeName}.rtf"`,
             },
         });
     }

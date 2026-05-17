@@ -3,6 +3,14 @@ import { advanceDueAt, type RecurInterval } from './recurring';
 
 export type ReminderFilter = 'all' | 'today' | 'upcoming' | 'overdue' | 'completed';
 
+/** DavidRM-style reminder kinds. */
+export type ReminderType = 'Appointment' | 'Event' | 'Task' | 'SpecialDay';
+/** Task lifecycle status (DavidRM tasks: active/done/skipped/canceled/missed). */
+export type ReminderStatus = 'active' | 'done' | 'skipped' | 'canceled' | 'missed';
+
+export const REMINDER_TYPES: ReminderType[] = ['Appointment', 'Event', 'Task', 'SpecialDay'];
+export const REMINDER_STATUSES: ReminderStatus[] = ['active', 'done', 'skipped', 'canceled', 'missed'];
+
 export interface Reminder {
     ReminderID: number;
     UserID: number;
@@ -15,6 +23,9 @@ export interface Reminder {
     CreatedAt: string;
     RecurInterval: RecurInterval | null;
     RecurEvery: number | null;
+    ReminderType: ReminderType;
+    Status: ReminderStatus;
+    LeadMinutes: number;
 }
 
 export interface CreateReminderInput {
@@ -24,6 +35,8 @@ export interface CreateReminderInput {
     entryId?: number | null;
     recurInterval?: RecurInterval | null;
     recurEvery?: number | null;
+    reminderType?: ReminderType;
+    leadMinutes?: number;
 }
 
 export interface UpdateReminderInput {
@@ -33,6 +46,9 @@ export interface UpdateReminderInput {
     entryId?: number | null;
     recurInterval?: RecurInterval | null;
     recurEvery?: number | null;
+    reminderType?: ReminderType;
+    status?: ReminderStatus;
+    leadMinutes?: number;
 }
 
 export async function createReminder(
@@ -41,11 +57,12 @@ export async function createReminder(
     input: CreateReminderInput
 ): Promise<number> {
     const r = await dbm.prepare(
-        `INSERT INTO Reminder (UserID, Title, Notes, DueAt, EntryID, RecurInterval, RecurEvery)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO Reminder (UserID, Title, Notes, DueAt, EntryID, RecurInterval, RecurEvery, ReminderType, Status, LeadMinutes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
     ).run(
         userId, input.title, input.notes ?? null, input.dueAt, input.entryId ?? null,
-        input.recurInterval ?? null, input.recurEvery ?? null
+        input.recurInterval ?? null, input.recurEvery ?? null,
+        input.reminderType ?? 'Appointment', input.leadMinutes ?? 0
     );
     return r.lastInsertRowid;
 }
@@ -72,6 +89,12 @@ export async function updateReminder(
     if (input.entryId !== undefined) { updates.push('EntryID = ?'); values.push(input.entryId); }
     if (input.recurInterval !== undefined) { updates.push('RecurInterval = ?'); values.push(input.recurInterval); }
     if (input.recurEvery !== undefined) { updates.push('RecurEvery = ?'); values.push(input.recurEvery); }
+    if (input.reminderType !== undefined) { updates.push('ReminderType = ?'); values.push(input.reminderType); }
+    if (input.status !== undefined) {
+        updates.push('Status = ?'); values.push(input.status);
+        updates.push('IsComplete = ?'); values.push(input.status === 'done' ? 1 : 0);
+    }
+    if (input.leadMinutes !== undefined) { updates.push('LeadMinutes = ?'); values.push(input.leadMinutes); }
     if (!updates.length) return;
     values.push(reminderId);
     await dbm.prepare(`UPDATE Reminder SET ${updates.join(', ')} WHERE ReminderID = ?`).run(...values);

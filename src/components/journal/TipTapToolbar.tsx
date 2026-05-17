@@ -4,7 +4,8 @@ import {
     List, ListOrdered, CheckSquare,
     Quote, Highlighter,
     Image as ImageIcon, Link as LinkIcon, RemoveFormatting,
-    Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles, ChevronDown
+    Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles, ChevronDown,
+    CalendarClock, Bookmark as BookmarkIcon, Paintbrush
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -13,6 +14,11 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const [isUploading, setIsUploading] = useState(false);
     const [lastTextColor, setLastTextColor] = useState('#ffffff');
     const [lastHighlightColor, setLastHighlightColor] = useState('#ffff00');
+    const [capturedFormat, setCapturedFormat] = useState<{
+        marks: string[];
+        textStyle: Record<string, unknown>;
+        highlight: Record<string, unknown> | null;
+    } | null>(null);
     const [showTableMenu, setShowTableMenu] = useState(false);
     const [tableHover, setTableHover] = useState({ r: 0, c: 0 });
     const [gridSize, setGridSize] = useState({ r: 10, c: 10 });
@@ -100,6 +106,60 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
 
         editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run();
     }, [editor]);
+
+    const insertDateTime = useCallback(() => {
+        if (!editor) return;
+        const now = new Date();
+        const stamp = `${now.toLocaleDateString(undefined, {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        })} ${now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+        editor.chain().focus().insertContent(stamp).run();
+    }, [editor]);
+
+    const addBookmark = useCallback(() => {
+        if (!editor) return;
+        const name = (window.prompt('Bookmark name (used as link target):') || '').trim();
+        if (!name) return;
+        editor.chain().focus().setBookmark(name).run();
+    }, [editor]);
+
+    const linkToBookmark = useCallback(() => {
+        if (!editor) return;
+        const name = (window.prompt('Link to bookmark name:') || '').trim();
+        if (!name) return;
+        editor.chain().focus().extendMarkRange('link')
+            .setLink({ href: `#${name}` }).run();
+    }, [editor]);
+
+    const toggleFormatPainter = useCallback(() => {
+        if (!editor) return;
+        if (capturedFormat) {
+            // Second click: apply captured formatting to the current selection.
+            const chain = editor.chain().focus();
+            chain.unsetAllMarks();
+            for (const m of capturedFormat.marks) chain.setMark(m);
+            const ts = capturedFormat.textStyle;
+            if (ts.color) chain.setColor(ts.color as string);
+            if (ts.fontFamily) chain.setFontFamily(ts.fontFamily as string);
+            if (ts.fontSize) chain.setFontSize(ts.fontSize as string);
+            if (capturedFormat.highlight?.color) {
+                chain.setHighlight({ color: capturedFormat.highlight.color as string });
+            }
+            chain.run();
+            setCapturedFormat(null);
+            return;
+        }
+        // First click: capture formatting at the current selection.
+        const marks: string[] = [];
+        for (const m of ['bold', 'italic', 'underline', 'strike', 'code']) {
+            if (editor.isActive(m)) marks.push(m);
+        }
+        setCapturedFormat({
+            marks,
+            textStyle: editor.getAttributes('textStyle') ?? {},
+            highlight: editor.isActive('highlight') ? editor.getAttributes('highlight') : null,
+        });
+    }, [editor, capturedFormat]);
 
     useEffect(() => {
         const handleExternalUploadTrigger = () => {
@@ -478,6 +538,37 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                     </button>
                 </>
             )}
+
+            <div className="w-px h-4 bg-border-primary mx-1" />
+
+            <button
+                onClick={insertDateTime}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                title="Insert date & time"
+            >
+                <CalendarClock className="w-4 h-4" />
+            </button>
+            <button
+                onClick={addBookmark}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                title="Insert bookmark anchor"
+            >
+                <BookmarkIcon className="w-4 h-4" />
+            </button>
+            <button
+                onClick={linkToBookmark}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted text-xs font-semibold"
+                title="Link to a bookmark"
+            >
+                #
+            </button>
+            <button
+                onClick={toggleFormatPainter}
+                className={`p-1.5 rounded hover:bg-bg-hover ${capturedFormat ? 'bg-bg-active text-text-primary ring-1 ring-[color:var(--color-accent-primary)]' : 'text-text-muted'}`}
+                title={capturedFormat ? 'Apply copied formatting to selection' : 'Format painter — copy formatting'}
+            >
+                <Paintbrush className="w-4 h-4" />
+            </button>
 
             <div className="flex-1" />
 

@@ -40,6 +40,98 @@
     --accent-secondary: #0d9488;
     --accent-glow: rgba(20, 184, 166, 0.4);
   }
+
+  /* ── Selectable visual themes (DavidRM parity) ──────────────────────────
+     Applied via data-theme on <html>; layered over light/dark base so each
+     theme works in both modes. */
+  [data-theme="sepia"] {
+    --bg-app: #f4ecd8;
+    --bg-sidebar: #efe5cc;
+    --bg-card: #faf3e0;
+    --bg-hover: #ece0c4;
+    --bg-active: #e4d5b0;
+    --text-primary: #4b3a26;
+    --text-secondary: #6f5a3e;
+    --text-muted: #91795a;
+    --border-primary: #ddcba6;
+    --border-secondary: #e7d9bb;
+    --accent-primary: #a9743b;
+    --accent-secondary: #d8b483;
+  }
+  [data-theme="ocean"] {
+    --bg-app: #eef5fb;
+    --bg-sidebar: #e1edf7;
+    --bg-card: #f6fafe;
+    --bg-hover: #dce9f5;
+    --bg-active: #cadef0;
+    --text-primary: #0f2f43;
+    --text-secondary: #355a72;
+    --text-muted: #6189a3;
+    --border-primary: #c4dbed;
+    --border-secondary: #d6e6f3;
+    --accent-primary: #1a73a8;
+    --accent-secondary: #7bb8da;
+  }
+  [data-theme="forest"] {
+    --bg-app: #eef4ee;
+    --bg-sidebar: #e3ede3;
+    --bg-card: #f5faf5;
+    --bg-hover: #dbe8db;
+    --bg-active: #c9dcc9;
+    --text-primary: #1c3322;
+    --text-secondary: #3c5c43;
+    --text-muted: #6a8a72;
+    --border-primary: #cadfca;
+    --border-secondary: #d8e8d8;
+    --accent-primary: #2f7d4f;
+    --accent-secondary: #86c39b;
+  }
+  .dark[data-theme="midnight"] {
+    --bg-app: #0a0e1a;
+    --bg-sidebar: #0d1322;
+    --bg-card: #111a2e;
+    --bg-hover: #16213a;
+    --bg-active: #1c2a47;
+    --text-primary: #e6ecff;
+    --text-secondary: #9fb0d4;
+    --text-muted: #6678a0;
+    --border-primary: #1e2a45;
+    --border-secondary: #27365a;
+    --accent-primary: #5b8def;
+    --accent-secondary: #2f4f8f;
+  }
+  .dark[data-theme="dracula"] {
+    --bg-app: #282a36;
+    --bg-sidebar: #21222c;
+    --bg-card: #2d2f3d;
+    --bg-hover: #343746;
+    --bg-active: #3c3f51;
+    --text-primary: #f8f8f2;
+    --text-secondary: #c3c5d4;
+    --text-muted: #8b8ea3;
+    --border-primary: #3a3d4d;
+    --border-secondary: #44475a;
+    --accent-primary: #bd93f9;
+    --accent-secondary: #6272a4;
+  }
+}
+
+/* In-entry bookmark anchor (DavidRM-style named link target) */
+.tj-bookmark {
+  color: var(--accent-primary);
+  opacity: 0.5;
+  font-size: 0.8em;
+  cursor: default;
+  text-decoration: none;
+  user-select: none;
+}
+.tj-bookmark:hover { opacity: 1; }
+
+/* Per-entry background image */
+.ProseMirror.tj-has-bg {
+  background-size: cover;
+  background-position: center;
+  background-attachment: local;
 }
 
 /* Base Styles */

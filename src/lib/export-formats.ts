@@ -84,6 +84,61 @@ ${html}
 `;
 }
 
+/**
+ * Convert an entry's HTML to RTF so it opens with formatting intact in
+ * Word / WordPerfect / LibreOffice (DavidRM's primary export format).
+ * Handles the common subset TipTap emits: headings, bold/italic/underline,
+ * lists, blockquotes, paragraphs and line breaks. Tokenizes tags vs. text so
+ * escaping only ever touches text content.
+ */
+export function exportEntryAsRTF(fm: FrontmatterInput, html: string): string {
+    const escText = (s: string): string => {
+        let out = '';
+        for (const ch of decodeEntities(s)) {
+            const code = ch.codePointAt(0)!;
+            if (ch === '\\') out += '\\\\';
+            else if (ch === '{') out += '\\{';
+            else if (ch === '}') out += '\\}';
+            else if (code > 127) out += `\\u${code > 32767 ? code - 65536 : code}?`;
+            else out += ch;
+        }
+        return out;
+    };
+
+    const tokenRe = /<\/?([a-z0-9]+)[^>]*>|([^<]+)/gi;
+    let out = '';
+    let m: RegExpExecArray | null;
+    while ((m = tokenRe.exec(html)) !== null) {
+        const tag = m[1]?.toLowerCase();
+        const text = m[2];
+        if (text !== undefined) { out += escText(text); continue; }
+        const closing = m[0].startsWith('</');
+        switch (tag) {
+            case 'br': out += '\\line '; break;
+            case 'hr': out += '\\par\\par '; break;
+            case 'p': case 'div': out += closing ? '\\par\n' : ''; break;
+            case 'h1': out += closing ? '}\\par\n' : '{\\b\\fs36 '; break;
+            case 'h2': out += closing ? '}\\par\n' : '{\\b\\fs30 '; break;
+            case 'h3': case 'h4': case 'h5': case 'h6':
+                out += closing ? '}\\par\n' : '{\\b\\fs26 '; break;
+            case 'b': case 'strong': out += closing ? '}' : '{\\b '; break;
+            case 'i': case 'em': out += closing ? '}' : '{\\i '; break;
+            case 'u': out += closing ? '}' : '{\\ul '; break;
+            case 's': case 'strike': out += closing ? '}' : '{\\strike '; break;
+            case 'li': out += closing ? '\\par\n' : '\\bullet  '; break;
+            case 'blockquote': out += closing ? '}\\par\n' : '{\\i '; break;
+            default: break;
+        }
+    }
+
+    const header =
+        `{\\b\\fs36 ${escText(fm.title || 'Untitled')}}\\par\n` +
+        (fm.createdDate ? `{\\i ${escText(fm.createdDate)}}\\par\n` : '') +
+        '\\par\n';
+
+    return `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Calibri;}}\\fs22\n${header}${out}\n}`;
+}
+
 export interface AtomEntry {
     id: number;
     title: string;
