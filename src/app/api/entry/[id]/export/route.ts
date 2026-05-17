@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { exportEntry } from "@/lib/markdown";
-import { exportEntryAsHTML, htmlToPlainText, exportEntriesAsATOM } from "@/lib/export-formats";
+import { exportEntryAsHTML, exportEntryAsRTF, htmlToPlainText, exportEntriesAsATOM } from "@/lib/export-formats";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -46,6 +46,15 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/entry/[id]/exp
             headers: {
                 'Content-Type': 'text/html; charset=utf-8',
                 'Content-Disposition': `attachment; filename="${safeTitle}.html"`,
+            },
+        });
+    }
+    if (format === 'rtf') {
+        const body = exportEntryAsRTF(fm, html);
+        return new NextResponse(body, {
+            headers: {
+                'Content-Type': 'application/rtf; charset=utf-8',
+                'Content-Disposition': `attachment; filename="${safeTitle}.rtf"`,
             },
         });
     }

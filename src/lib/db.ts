@@ -360,6 +360,22 @@ export class DBManager {
                 FOREIGN KEY (UserID) REFERENCES User(UserID) ON DELETE CASCADE
             )`,
             `CREATE INDEX IF NOT EXISTS "Idx_BackupSchedule_User" ON "BackupSchedule" ("UserID")`,
+            // DavidRM parity: typed reminders (Appointment/Event/Task/SpecialDay),
+            // task status lifecycle, and pre-alert lead time (minutes before DueAt).
+            `ALTER TABLE Reminder ADD COLUMN ReminderType TEXT DEFAULT 'Appointment'`,
+            `ALTER TABLE Reminder ADD COLUMN Status TEXT DEFAULT 'active'`,
+            `ALTER TABLE Reminder ADD COLUMN LeadMinutes INTEGER DEFAULT 0`,
+            // DavidRM parity: per-category sort mode for loose-leaf notebooks,
+            // auto-insert template, per-category password lock, and journal
+            // entry frequency (daily/weekly/hourly).
+            `ALTER TABLE Category ADD COLUMN SortMode TEXT DEFAULT 'manual'`,
+            `ALTER TABLE Category ADD COLUMN AutoTemplateID INTEGER`,
+            `ALTER TABLE Category ADD COLUMN PasswordHash TEXT`,
+            `ALTER TABLE Category ADD COLUMN EntryFrequency TEXT DEFAULT 'daily'`,
+            // DavidRM parity: Smartbook — a dynamic category that auto-collects
+            // entries matching a saved query instead of holding its own entries.
+            `ALTER TABLE Category ADD COLUMN IsSmartbook BOOLEAN DEFAULT 0`,
+            `ALTER TABLE Category ADD COLUMN SmartbookQuery TEXT`,
         ];
 
         for (const migration of migrations) {

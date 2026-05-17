@@ -9,7 +9,7 @@ export default function ThemeManager() {
     useEffect(() => {
         const applyTheme = async () => {
             type ThemePref = { accentPrimary?: string; bgApp?: string; bgSidebar?: string };
-            type Settings = { themePreferences?: { light?: ThemePref; dark?: ThemePref } };
+            type Settings = { themePreferences?: { light?: ThemePref; dark?: ThemePref }; themePalette?: string };
             let settings: Settings = {};
 
             if (window.electron) {
@@ -19,6 +19,13 @@ export default function ThemeManager() {
                     const saved = localStorage.getItem('app-settings');
                     settings = saved ? JSON.parse(saved) : {};
                 } catch (e) { }
+            }
+
+            const palette = settings?.themePalette;
+            if (palette && palette !== 'default') {
+                document.documentElement.setAttribute('data-theme', palette);
+            } else {
+                document.documentElement.removeAttribute('data-theme');
             }
 
             if (settings?.themePreferences) {

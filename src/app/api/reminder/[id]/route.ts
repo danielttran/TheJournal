@@ -13,6 +13,9 @@ const UpdateSchema = z.object({
     entryId: z.number().int().positive().nullable().optional(),
     recurInterval: z.enum(['daily', 'weekly', 'monthly', 'yearly']).nullable().optional(),
     recurEvery: z.number().int().min(1).max(366).nullable().optional(),
+    reminderType: z.enum(['Appointment', 'Event', 'Task', 'SpecialDay']).optional(),
+    status: z.enum(['active', 'done', 'skipped', 'canceled', 'missed']).optional(),
+    leadMinutes: z.number().int().min(0).max(10080).optional(),
     toggle: z.boolean().optional(),
 });
 

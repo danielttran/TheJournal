@@ -4,7 +4,8 @@ import {
     List, ListOrdered, CheckSquare,
     Quote, Highlighter,
     Image as ImageIcon, Link as LinkIcon, RemoveFormatting,
-    Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles, ChevronDown
+    Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles, ChevronDown,
+    CalendarClock, Bookmark as BookmarkIcon, Paintbrush, PenTool
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -13,6 +14,11 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const [isUploading, setIsUploading] = useState(false);
     const [lastTextColor, setLastTextColor] = useState('#ffffff');
     const [lastHighlightColor, setLastHighlightColor] = useState('#ffff00');
+    const [capturedFormat, setCapturedFormat] = useState<{
+        marks: string[];
+        textStyle: Record<string, unknown>;
+        highlight: Record<string, unknown> | null;
+    } | null>(null);
     const [showTableMenu, setShowTableMenu] = useState(false);
     const [tableHover, setTableHover] = useState({ r: 0, c: 0 });
     const [gridSize, setGridSize] = useState({ r: 10, c: 10 });
@@ -101,6 +107,85 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run();
     }, [editor]);
 
+    const insertDateTime = useCallback(() => {
+        if (!editor) return;
+        const now = new Date();
+        const stamp = `${now.toLocaleDateString(undefined, {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        })} ${now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+        editor.chain().focus().insertContent(stamp).run();
+    }, [editor]);
+
+    const addBookmark = useCallback(() => {
+        if (!editor) return;
+        const name = (window.prompt('Bookmark name (used as link target):') || '').trim();
+        if (!name) return;
+        editor.chain().focus().setBookmark(name).run();
+    }, [editor]);
+
+    const linkToBookmark = useCallback(() => {
+        if (!editor) return;
+        const name = (window.prompt('Link to bookmark name:') || '').trim();
+        if (!name) return;
+        editor.chain().focus().extendMarkRange('link')
+            .setLink({ href: `#${name}` }).run();
+    }, [editor]);
+
+    const applyCapturedFormat = useCallback((fmt: NonNullable<typeof capturedFormat>) => {
+        if (!editor || editor.state.selection.empty) return;
+        const chain = editor.chain().focus();
+        chain.unsetAllMarks();
+        for (const m of fmt.marks) chain.setMark(m);
+        const ts = fmt.textStyle;
+        if (ts.color) chain.setColor(ts.color as string);
+        if (ts.fontFamily) chain.setFontFamily(ts.fontFamily as string);
+        if (ts.fontSize) chain.setFontSize(ts.fontSize as string);
+        if (fmt.highlight?.color) {
+            chain.setHighlight({ color: fmt.highlight.color as string });
+        }
+        chain.run();
+    }, [editor]);
+
+    // Format painter (sticky): click to arm (captures formatting at the
+    // cursor); the next selection in the editor gets the formatting applied,
+    // then it disarms. Clicking again while armed cancels.
+    const toggleFormatPainter = useCallback(() => {
+        if (!editor) return;
+        if (capturedFormat) {
+            // Armed: if there's already a selection, paint it now; otherwise
+            // this click cancels.
+            if (!editor.state.selection.empty) applyCapturedFormat(capturedFormat);
+            setCapturedFormat(null);
+            return;
+        }
+        const marks: string[] = [];
+        for (const m of ['bold', 'italic', 'underline', 'strike', 'code']) {
+            if (editor.isActive(m)) marks.push(m);
+        }
+        setCapturedFormat({
+            marks,
+            textStyle: editor.getAttributes('textStyle') ?? {},
+            highlight: editor.isActive('highlight') ? editor.getAttributes('highlight') : null,
+        });
+    }, [editor, capturedFormat, applyCapturedFormat]);
+
+    // While armed, paint the next non-empty selection the user makes.
+    useEffect(() => {
+        if (!editor || !capturedFormat) return;
+        const dom = editor.view.dom as HTMLElement;
+        const onMouseUp = () => {
+            // defer so the selection has settled
+            setTimeout(() => {
+                if (!editor.state.selection.empty) {
+                    applyCapturedFormat(capturedFormat);
+                    setCapturedFormat(null);
+                }
+            }, 0);
+        };
+        dom.addEventListener('mouseup', onMouseUp);
+        return () => dom.removeEventListener('mouseup', onMouseUp);
+    }, [editor, capturedFormat, applyCapturedFormat]);
+
     useEffect(() => {
         const handleExternalUploadTrigger = () => {
             fileInputRef.current?.click();
@@ -130,6 +215,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         : '';
     // Only allow crop for images we uploaded (they live at /api/attachment/)
     const isAttachedImage = selectedImageSrc.startsWith('/api/attachment/');
+    // Drawings are marked with alt="tj-drawing" so they can be re-edited.
+    const isDrawing = editor.isActive('image')
+        && (editor.getAttributes('image').alt as string | undefined) === 'tj-drawing';
 
     const rawWidth = editor.isActive('image')
         ? String(editor.getAttributes('image').width ?? '100%')
@@ -436,6 +524,13 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 <Upload className="w-4 h-4" />
             </button>
             <button
+                onClick={() => window.dispatchEvent(new Event('trigger-insert-drawing'))}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                title="Insert drawing"
+            >
+                <PenTool className="w-4 h-4" />
+            </button>
+            <button
                 onClick={setLink}
                 className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive('link') ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
                 title="Link"
@@ -460,7 +555,16 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                     <span className="text-[11px] text-text-muted tabular-nums w-7 text-right select-none">
                         {imageWidthNum}%
                     </span>
-                    {isAttachedImage && (
+                    {isDrawing && (
+                        <button
+                            onClick={() => window.dispatchEvent(new Event('trigger-edit-drawing'))}
+                            className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
+                            title="Edit drawing"
+                        >
+                            Edit drawing
+                        </button>
+                    )}
+                    {isAttachedImage && !isDrawing && (
                         <button
                             onClick={() => window.dispatchEvent(new Event('trigger-crop-image'))}
                             className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
@@ -478,6 +582,37 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                     </button>
                 </>
             )}
+
+            <div className="w-px h-4 bg-border-primary mx-1" />
+
+            <button
+                onClick={insertDateTime}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                title="Insert date & time"
+            >
+                <CalendarClock className="w-4 h-4" />
+            </button>
+            <button
+                onClick={addBookmark}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                title="Insert bookmark anchor"
+            >
+                <BookmarkIcon className="w-4 h-4" />
+            </button>
+            <button
+                onClick={linkToBookmark}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted text-xs font-semibold"
+                title="Link to a bookmark"
+            >
+                #
+            </button>
+            <button
+                onClick={toggleFormatPainter}
+                className={`p-1.5 rounded hover:bg-bg-hover ${capturedFormat ? 'bg-bg-active text-text-primary ring-1 ring-[color:var(--color-accent-primary)]' : 'text-text-muted'}`}
+                title={capturedFormat ? 'Apply copied formatting to selection' : 'Format painter — copy formatting'}
+            >
+                <Paintbrush className="w-4 h-4" />
+            </button>
 
             <div className="flex-1" />
 

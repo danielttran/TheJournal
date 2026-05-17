@@ -1,7 +1,42 @@
 import type { DBManager } from './db';
 import { advanceDueAt, type RecurInterval } from './recurring';
 
-export type ReminderFilter = 'all' | 'today' | 'upcoming' | 'overdue' | 'completed';
+export type ReminderFilter = 'all' | 'today' | 'upcoming' | 'overdue' | 'completed' | 'tasks';
+
+/**
+ * Pure SQL-fragment builder for {@link listReminders}. Extracted so the
+ * filter semantics can be unit-tested without a database.
+ *
+ * Active-style filters (today/upcoming/overdue) exclude reminders that have
+ * reached a terminal status (canceled/skipped/missed) so a skipped task no
+ * longer shows as "overdue".
+ */
+export function buildReminderWhere(filter: ReminderFilter): string {
+    const notTerminal = `Status NOT IN ('canceled', 'skipped', 'missed')`;
+    switch (filter) {
+        case 'today':
+            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND date(DueAt) = date('now', 'localtime')`;
+        case 'upcoming':
+            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND DueAt >= date('now', 'localtime')`;
+        case 'overdue':
+            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND DueAt < date('now', 'localtime')`;
+        case 'completed':
+            return `UserID = ? AND IsComplete = 1`;
+        case 'tasks':
+            return `UserID = ? AND ReminderType = 'Task' AND Status = 'active'`;
+        case 'all':
+        default:
+            return `UserID = ?`;
+    }
+}
+
+/** DavidRM-style reminder kinds. */
+export type ReminderType = 'Appointment' | 'Event' | 'Task' | 'SpecialDay';
+/** Task lifecycle status (DavidRM tasks: active/done/skipped/canceled/missed). */
+export type ReminderStatus = 'active' | 'done' | 'skipped' | 'canceled' | 'missed';
+
+export const REMINDER_TYPES: ReminderType[] = ['Appointment', 'Event', 'Task', 'SpecialDay'];
+export const REMINDER_STATUSES: ReminderStatus[] = ['active', 'done', 'skipped', 'canceled', 'missed'];
 
 export interface Reminder {
     ReminderID: number;
@@ -15,6 +50,9 @@ export interface Reminder {
     CreatedAt: string;
     RecurInterval: RecurInterval | null;
     RecurEvery: number | null;
+    ReminderType: ReminderType;
+    Status: ReminderStatus;
+    LeadMinutes: number;
 }
 
 export interface CreateReminderInput {
@@ -24,6 +62,8 @@ export interface CreateReminderInput {
     entryId?: number | null;
     recurInterval?: RecurInterval | null;
     recurEvery?: number | null;
+    reminderType?: ReminderType;
+    leadMinutes?: number;
 }
 
 export interface UpdateReminderInput {
@@ -33,6 +73,9 @@ export interface UpdateReminderInput {
     entryId?: number | null;
     recurInterval?: RecurInterval | null;
     recurEvery?: number | null;
+    reminderType?: ReminderType;
+    status?: ReminderStatus;
+    leadMinutes?: number;
 }
 
 export async function createReminder(
@@ -41,11 +84,12 @@ export async function createReminder(
     input: CreateReminderInput
 ): Promise<number> {
     const r = await dbm.prepare(
-        `INSERT INTO Reminder (UserID, Title, Notes, DueAt, EntryID, RecurInterval, RecurEvery)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO Reminder (UserID, Title, Notes, DueAt, EntryID, RecurInterval, RecurEvery, ReminderType, Status, LeadMinutes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
     ).run(
         userId, input.title, input.notes ?? null, input.dueAt, input.entryId ?? null,
-        input.recurInterval ?? null, input.recurEvery ?? null
+        input.recurInterval ?? null, input.recurEvery ?? null,
+        input.reminderType ?? 'Appointment', input.leadMinutes ?? 0
     );
     return r.lastInsertRowid;
 }
@@ -72,6 +116,12 @@ export async function updateReminder(
     if (input.entryId !== undefined) { updates.push('EntryID = ?'); values.push(input.entryId); }
     if (input.recurInterval !== undefined) { updates.push('RecurInterval = ?'); values.push(input.recurInterval); }
     if (input.recurEvery !== undefined) { updates.push('RecurEvery = ?'); values.push(input.recurEvery); }
+    if (input.reminderType !== undefined) { updates.push('ReminderType = ?'); values.push(input.reminderType); }
+    if (input.status !== undefined) {
+        updates.push('Status = ?'); values.push(input.status);
+        updates.push('IsComplete = ?'); values.push(input.status === 'done' ? 1 : 0);
+    }
+    if (input.leadMinutes !== undefined) { updates.push('LeadMinutes = ?'); values.push(input.leadMinutes); }
     if (!updates.length) return;
     values.push(reminderId);
     await dbm.prepare(`UPDATE Reminder SET ${updates.join(', ')} WHERE ReminderID = ?`).run(...values);
@@ -90,30 +140,35 @@ export async function toggleComplete(dbm: DBManager, userId: number, reminderId:
     // serializes transactions, making this a true compare-and-swap).
     const tx = dbm.transaction(async () => {
         const row = await dbm.prepare(
-            'SELECT IsComplete, DueAt, Title, Notes, EntryID, RecurInterval, RecurEvery FROM Reminder WHERE ReminderID = ?'
+            'SELECT IsComplete, DueAt, Title, Notes, EntryID, RecurInterval, RecurEvery, ReminderType, LeadMinutes FROM Reminder WHERE ReminderID = ?'
         ).get(reminderId) as {
             IsComplete: number; DueAt: string; Title: string; Notes: string | null;
             EntryID: number | null; RecurInterval: RecurInterval | null; RecurEvery: number | null;
+            ReminderType: string | null; LeadMinutes: number | null;
         } | undefined;
         if (!row) return;
 
         if (row.IsComplete) {
             await dbm.prepare(
-                `UPDATE Reminder SET IsComplete = 0, CompletedAt = NULL WHERE ReminderID = ?`
+                `UPDATE Reminder SET IsComplete = 0, CompletedAt = NULL, Status = 'active' WHERE ReminderID = ?`
             ).run(reminderId);
             return;
         }
 
         await dbm.prepare(
-            `UPDATE Reminder SET IsComplete = 1, CompletedAt = CURRENT_TIMESTAMP, RecurInterval = NULL, RecurEvery = NULL WHERE ReminderID = ?`
+            `UPDATE Reminder SET IsComplete = 1, CompletedAt = CURRENT_TIMESTAMP, Status = 'done', RecurInterval = NULL, RecurEvery = NULL WHERE ReminderID = ?`
         ).run(reminderId);
 
         if (row.RecurInterval && row.RecurEvery && row.RecurEvery >= 1) {
             const nextDue = advanceDueAt(row.DueAt, row.RecurInterval, row.RecurEvery);
             await dbm.prepare(
-                `INSERT INTO Reminder (UserID, Title, Notes, DueAt, EntryID, RecurInterval, RecurEvery)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`
-            ).run(userId, row.Title, row.Notes, nextDue, row.EntryID, row.RecurInterval, row.RecurEvery);
+                `INSERT INTO Reminder (UserID, Title, Notes, DueAt, EntryID, RecurInterval, RecurEvery, ReminderType, Status, LeadMinutes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
+            ).run(
+                userId, row.Title, row.Notes, nextDue, row.EntryID,
+                row.RecurInterval, row.RecurEvery,
+                row.ReminderType ?? 'Appointment', row.LeadMinutes ?? 0
+            );
         }
     });
     await tx();
@@ -124,29 +179,9 @@ export async function listReminders(
     userId: number,
     filter: ReminderFilter = 'all'
 ): Promise<Reminder[]> {
-    let where = 'UserID = ?';
-    const params: (string | number)[] = [userId];
-
-    switch (filter) {
-        case 'today':
-            where += ` AND IsComplete = 0 AND date(DueAt) = date('now', 'localtime')`;
-            break;
-        case 'upcoming':
-            where += ` AND IsComplete = 0 AND DueAt >= date('now', 'localtime')`;
-            break;
-        case 'overdue':
-            where += ` AND IsComplete = 0 AND DueAt < date('now', 'localtime')`;
-            break;
-        case 'completed':
-            where += ' AND IsComplete = 1';
-            break;
-        case 'all':
-        default:
-            break;
-    }
-
+    const where = buildReminderWhere(filter);
     const rows = await dbm.prepare(
         `SELECT * FROM Reminder WHERE ${where} ORDER BY DueAt ASC`
-    ).all(...params) as Reminder[];
+    ).all(userId) as Reminder[];
     return rows;
 }

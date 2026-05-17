@@ -28,21 +28,28 @@ export async function POST(req: NextRequest) {
         const { categoryId, title, parentEntryId, entryType, templateId } = CreateEntrySchema.parse(body);
 
         // Security check: Ensure category belongs to user
-        const category = await db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
+        const category = await db.prepare(
+            'SELECT AutoTemplateID FROM Category WHERE CategoryID = ? AND UserID = ?'
+        ).get(categoryId, userId) as { AutoTemplateID: number | null } | undefined;
 
         if (!category) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 403 });
         }
+
+        // DavidRM parity: auto-insert the category's default template when the
+        // caller didn't pick one explicitly.
+        const effectiveTemplateId = templateId
+            || (category.AutoTemplateID && category.AutoTemplateID > 0 ? category.AutoTemplateID : null);
 
         // Optionally load template content
         let initialDocumentJson = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] });
         let initialHtml = '';
         let initialPreview = 'Start writing...';
 
-        if (templateId) {
+        if (effectiveTemplateId) {
             const tmpl = await db.prepare(
                 'SELECT HtmlContent, DocumentJson FROM Template WHERE TemplateID = ? AND UserID = ?'
-            ).get(templateId, userId) as { HtmlContent: string; DocumentJson: string | null } | undefined;
+            ).get(effectiveTemplateId, userId) as { HtmlContent: string; DocumentJson: string | null } | undefined;
 
             if (tmpl) {
                 if (tmpl.DocumentJson) initialDocumentJson = tmpl.DocumentJson;

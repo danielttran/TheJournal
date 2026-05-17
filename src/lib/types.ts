@@ -7,6 +7,11 @@ export interface Category {
     Icon?: string;
     ViewSettings?: string; // JSON string
     UserID?: number;
+    SortMode?: 'manual' | 'name' | 'created' | 'updated';
+    AutoTemplateID?: number | null;
+    EntryFrequency?: 'daily' | 'weekly' | 'hourly';
+    IsSmartbook?: boolean;
+    SmartbookQuery?: string | null;
 }
 
 export interface Entry {

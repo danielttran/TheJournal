@@ -16,8 +16,18 @@ interface Settings {
     backupFrequency: number;
     retentionCount: number;
     themePreferences?: ThemePreferences;
+    themePalette?: string;
     defaultFontSize: number;
 }
+
+export const THEME_PALETTES = [
+    { id: 'default', label: 'Default' },
+    { id: 'sepia', label: 'Sepia (light)' },
+    { id: 'ocean', label: 'Ocean (light)' },
+    { id: 'forest', label: 'Forest (light)' },
+    { id: 'midnight', label: 'Midnight (dark)' },
+    { id: 'dracula', label: 'Dracula (dark)' },
+];
 
 type ThemeMode = 'light' | 'dark';
 type ThemePreferences = Partial<Record<ThemeMode, Record<string, string>>>;
@@ -65,6 +75,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         backupFrequency: saved.backupFrequency || 3,
                         retentionCount: saved.retentionCount || 3,
                         themePreferences: saved.themePreferences || {},
+                        themePalette: saved.themePalette || 'default',
                         defaultFontSize: saved.defaultFontSize || 14,
                     });
                 }
@@ -103,6 +114,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         }
         if (key === 'defaultFontSize') {
             window.dispatchEvent(new CustomEvent('font-size-changed', { detail: value }));
+        }
+        if (key === 'themePalette') {
+            window.dispatchEvent(new Event('theme-settings-changed'));
         }
     };
 
@@ -161,6 +175,19 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         />
                                         <span className="text-xs text-text-muted ml-2">px</span>
                                     </div>
+                                </div>
+                                <div className="space-y-2 mt-4">
+                                    <label className="text-sm font-medium text-text-primary">Theme Palette</label>
+                                    <select
+                                        className="w-full bg-bg-app border border-border-secondary rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none"
+                                        value={settings.themePalette || 'default'}
+                                        onChange={(e) => handleSave('themePalette', e.target.value)}
+                                    >
+                                        {THEME_PALETTES.map(p => (
+                                            <option key={p.id} value={p.id}>{p.label}</option>
+                                        ))}
+                                    </select>
+                                    <p className="text-xs text-text-muted">Layered over light/dark mode. Some palettes are tuned for a specific mode.</p>
                                 </div>
                             </section>
 
