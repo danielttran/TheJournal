@@ -113,30 +113,35 @@ export async function toggleComplete(dbm: DBManager, userId: number, reminderId:
     // serializes transactions, making this a true compare-and-swap).
     const tx = dbm.transaction(async () => {
         const row = await dbm.prepare(
-            'SELECT IsComplete, DueAt, Title, Notes, EntryID, RecurInterval, RecurEvery FROM Reminder WHERE ReminderID = ?'
+            'SELECT IsComplete, DueAt, Title, Notes, EntryID, RecurInterval, RecurEvery, ReminderType, LeadMinutes FROM Reminder WHERE ReminderID = ?'
         ).get(reminderId) as {
             IsComplete: number; DueAt: string; Title: string; Notes: string | null;
             EntryID: number | null; RecurInterval: RecurInterval | null; RecurEvery: number | null;
+            ReminderType: string | null; LeadMinutes: number | null;
         } | undefined;
         if (!row) return;
 
         if (row.IsComplete) {
             await dbm.prepare(
-                `UPDATE Reminder SET IsComplete = 0, CompletedAt = NULL WHERE ReminderID = ?`
+                `UPDATE Reminder SET IsComplete = 0, CompletedAt = NULL, Status = 'active' WHERE ReminderID = ?`
             ).run(reminderId);
             return;
         }
 
         await dbm.prepare(
-            `UPDATE Reminder SET IsComplete = 1, CompletedAt = CURRENT_TIMESTAMP, RecurInterval = NULL, RecurEvery = NULL WHERE ReminderID = ?`
+            `UPDATE Reminder SET IsComplete = 1, CompletedAt = CURRENT_TIMESTAMP, Status = 'done', RecurInterval = NULL, RecurEvery = NULL WHERE ReminderID = ?`
         ).run(reminderId);
 
         if (row.RecurInterval && row.RecurEvery && row.RecurEvery >= 1) {
             const nextDue = advanceDueAt(row.DueAt, row.RecurInterval, row.RecurEvery);
             await dbm.prepare(
-                `INSERT INTO Reminder (UserID, Title, Notes, DueAt, EntryID, RecurInterval, RecurEvery)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`
-            ).run(userId, row.Title, row.Notes, nextDue, row.EntryID, row.RecurInterval, row.RecurEvery);
+                `INSERT INTO Reminder (UserID, Title, Notes, DueAt, EntryID, RecurInterval, RecurEvery, ReminderType, Status, LeadMinutes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
+            ).run(
+                userId, row.Title, row.Notes, nextDue, row.EntryID,
+                row.RecurInterval, row.RecurEvery,
+                row.ReminderType ?? 'Appointment', row.LeadMinutes ?? 0
+            );
         }
     });
     await tx();

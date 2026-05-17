@@ -94,8 +94,12 @@ ${html}
 export function exportEntryAsRTF(fm: FrontmatterInput, html: string): string {
     const escText = (s: string): string => {
         let out = '';
-        for (const ch of decodeEntities(s)) {
-            const code = ch.codePointAt(0)!;
+        const decoded = decodeEntities(s);
+        // Iterate by UTF-16 code units so astral chars (emoji) become valid
+        // surrogate-pair \u words; RTF \uN must be a signed 16-bit integer.
+        for (let i = 0; i < decoded.length; i++) {
+            const ch = decoded[i];
+            const code = decoded.charCodeAt(i);
             if (ch === '\\') out += '\\\\';
             else if (ch === '{') out += '\\{';
             else if (ch === '}') out += '\\}';

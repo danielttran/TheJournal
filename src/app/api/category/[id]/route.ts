@@ -108,8 +108,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             simpleUpdates.push("SortMode = ?"); simpleValues.push(sortMode);
         }
         if (autoTemplateId !== undefined) {
+            const tplId = autoTemplateId === null ? 0 : Number(autoTemplateId);
+            if (!Number.isInteger(tplId) || tplId < 0) {
+                return NextResponse.json({ error: "Invalid autoTemplateId" }, { status: 400 });
+            }
             simpleUpdates.push("AutoTemplateID = ?");
-            simpleValues.push(autoTemplateId === null ? 0 : Number(autoTemplateId));
+            simpleValues.push(tplId);
         }
         if (entryFrequency !== undefined) {
             if (!['daily', 'weekly', 'hourly'].includes(entryFrequency)) {
