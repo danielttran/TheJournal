@@ -90,7 +90,7 @@ Plugins execute before the TipTap editor mounts and can register extensions with
 window.TheJournalAPI.registerTiptapExtension(extension);
 ```
 
-See [docs/plugins.md](docs/plugins.md) for the full authoring guide and a Draw.io embed example.
+See [docs/plugins.md](docs/plugins.md) for the full authoring guide and example plugins, including the sentence diagrammer in `plugins/sentence-diagrammer`.
 
 ## Testing
 

@@ -5,12 +5,14 @@ import {
     Quote, Highlighter,
     Image as ImageIcon, Link as LinkIcon, RemoveFormatting,
     Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles, ChevronDown,
-    CalendarClock, Bookmark as BookmarkIcon, Paintbrush, PenTool
+    CalendarClock, Bookmark as BookmarkIcon, Paintbrush, PenTool, Network, GitMerge
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { TheJournalAPI } from '@/lib/pluginApi';
 
 export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [pluginToolbarButtons, setPluginToolbarButtons] = useState(() => [...TheJournalAPI.registeredToolbarButtons]);
     const [isUploading, setIsUploading] = useState(false);
     const [lastTextColor, setLastTextColor] = useState('#ffffff');
     const [lastHighlightColor, setLastHighlightColor] = useState('#ffff00');
@@ -34,6 +36,8 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, [showTableMenu]);
+
+    useEffect(() => TheJournalAPI.subscribeToolbarButtons(setPluginToolbarButtons), []);
 
     const isSafeUrl = (url: string): boolean => {
         try {
@@ -613,6 +617,25 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <Paintbrush className="w-4 h-4" />
             </button>
+
+            {pluginToolbarButtons.length > 0 && (
+                <>
+                    <div className="w-px h-4 bg-border-primary mx-1" />
+                    {pluginToolbarButtons.map(button => {
+                        const Icon = button.icon === 'git-merge' ? GitMerge : Network;
+                        return (
+                            <button
+                                key={button.id}
+                                onClick={() => button.onClick(editor)}
+                                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                                title={button.title || button.label}
+                            >
+                                <Icon className="w-4 h-4" />
+                            </button>
+                        );
+                    })}
+                </>
+            )}
 
             <div className="flex-1" />
 

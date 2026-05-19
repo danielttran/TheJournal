@@ -105,3 +105,22 @@ window.TheJournalAPI.registerTiptapExtension(extension);
 
 Registers a Tiptap extension for the editor. Registered extensions are appended after TheJournal's built-in editor extensions.
 
+```js
+window.TheJournalAPI.registerToolbarButton({
+  id: 'my-plugin-button',
+  label: 'My Tool',
+  title: 'Insert my custom block',
+  icon: 'network',
+  onClick(editor) {
+    editor.chain().focus().insertContent({ type: 'myCustomNode' }).run();
+  },
+});
+```
+
+Adds a toolbar button after the built-in editor tools. Supported icon keys are `network` and `git-merge`.
+
+## Included Example Plugins
+
+The repository includes installable example plugins under `plugins/`:
+
+- `plugins/sentence-diagrammer` - interactive Reed-Kellogg sentence diagrams with draggable word tokens and relationship-based AST storage.

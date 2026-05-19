@@ -157,15 +157,18 @@ export async function topMoods(dbm: DBManager, userId: number, limit: number): P
 
 /**
  * Hour-of-day distribution of journal writing — answers David RM's
- * "When do you write?" view. Returns 24 buckets indexed 0..23 (local time
- * inferred from CreatedDate). Soft-deleted entries excluded; scoped per user.
+ * "When do you write?" view. Returns 24 buckets indexed 0..23.
+ *
+ * CreatedDate values in this app are stored as local naive timestamps in the
+ * form YYYY-MM-DD HH:MM:SS, so do not apply SQLite's 'localtime' modifier here:
+ * that treats the stored value as UTC and shifts it a second time.
  */
 export async function entriesByHour(
     dbm: DBManager,
     userId: number
 ): Promise<{ hour: number; count: number }[]> {
     const rows = await dbm.prepare(`
-        SELECT CAST(strftime('%H', e.CreatedDate, 'localtime') AS INTEGER) AS hour,
+        SELECT CAST(strftime('%H', e.CreatedDate) AS INTEGER) AS hour,
                COUNT(*) AS count
         FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
@@ -183,14 +186,15 @@ export async function entriesByHour(
 
 /**
  * Day-of-week distribution. Returns 7 buckets indexed by SQLite's strftime('%w'):
- * 0=Sunday, 1=Monday, …, 6=Saturday.
+ * 0=Sunday, 1=Monday, …, 6=Saturday. Uses the stored local naive CreatedDate
+ * directly for the same reason as entriesByHour.
  */
 export async function entriesByWeekday(
     dbm: DBManager,
     userId: number
 ): Promise<{ weekday: number; count: number }[]> {
     const rows = await dbm.prepare(`
-        SELECT CAST(strftime('%w', e.CreatedDate, 'localtime') AS INTEGER) AS weekday,
+        SELECT CAST(strftime('%w', e.CreatedDate) AS INTEGER) AS weekday,
                COUNT(*) AS count
         FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
