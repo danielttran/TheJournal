@@ -1,4 +1,5 @@
 const { app, BrowserWindow, screen, ipcMain, Menu, safeStorage } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { createServer } = require('http');
 const { parse } = require('url');
@@ -131,6 +132,129 @@ async function startServer() {
 let mainWindow;
 let serverInstance;
 
+function getPluginDir() {
+    return path.join(app.getPath('userData'), 'plugins');
+}
+
+function ensurePluginDir() {
+    const pluginDir = getPluginDir();
+    fs.mkdirSync(pluginDir, { recursive: true });
+    return pluginDir;
+}
+
+function readInstalledPlugins() {
+    const pluginDir = ensurePluginDir();
+    const plugins = [];
+    const entries = fs.readdirSync(pluginDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const manifestPath = path.join(pluginDir, entry.name, 'manifest.json');
+        const scriptPath = path.join(pluginDir, entry.name, 'main.js');
+
+        if (!fs.existsSync(manifestPath) || !fs.existsSync(scriptPath)) continue;
+
+        try {
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            const scriptContent = fs.readFileSync(scriptPath, 'utf8');
+
+            plugins.push({
+                id: entry.name,
+                manifest,
+                scriptContent,
+            });
+        } catch (err) {
+            console.error(`[Electron] Failed to load plugin "${entry.name}":`, err);
+        }
+    }
+
+    return plugins;
+}
+
+async function installPluginFromFolder(sourcePath, dialog) {
+    if (!sourcePath) return false;
+
+    const resolvedSourcePath = path.resolve(sourcePath);
+
+    const manifestPath = path.join(resolvedSourcePath, 'manifest.json');
+    const scriptPath = path.join(resolvedSourcePath, 'main.js');
+
+    if (!fs.existsSync(manifestPath) || !fs.existsSync(scriptPath)) {
+        await dialog.showMessageBox(mainWindow ?? undefined, {
+            type: 'error',
+            title: 'Invalid Plugin',
+            message: 'That folder is not a valid plugin.',
+            detail: 'A plugin folder must contain both manifest.json and main.js.',
+        });
+        return false;
+    }
+
+    let manifest;
+    try {
+        manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    } catch (err) {
+        await dialog.showMessageBox(mainWindow ?? undefined, {
+            type: 'error',
+            title: 'Invalid Plugin Manifest',
+            message: 'The plugin manifest could not be parsed.',
+            detail: err && err.message ? err.message : String(err),
+        });
+        return false;
+    }
+
+    const sanitizedId = String(manifest.id || path.basename(resolvedSourcePath)).replace(/[^A-Za-z0-9._-]/g, '-');
+    const pluginId = sanitizedId || path.basename(resolvedSourcePath) || 'plugin';
+    const destinationPath = path.resolve(ensurePluginDir(), pluginId);
+    const isAlreadyInstalled = resolvedSourcePath.toLowerCase() === destinationPath.toLowerCase();
+
+    if (!isAlreadyInstalled && fs.existsSync(destinationPath)) {
+        const overwrite = await dialog.showMessageBox(mainWindow ?? undefined, {
+            type: 'question',
+            buttons: ['Replace', 'Cancel'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'Replace Plugin?',
+            message: `A plugin named "${pluginId}" is already installed.`,
+            detail: 'Replacing it will overwrite the existing plugin files.',
+        });
+
+        if (overwrite.response !== 0) return false;
+    }
+
+    try {
+        if (!isAlreadyInstalled) {
+            fs.rmSync(destinationPath, { recursive: true, force: true });
+            fs.cpSync(resolvedSourcePath, destinationPath, { recursive: true, force: true });
+        }
+
+        const reload = await dialog.showMessageBox(mainWindow ?? undefined, {
+            type: 'info',
+            buttons: ['Reload Now', 'Later'],
+            defaultId: 0,
+            cancelId: 1,
+            title: isAlreadyInstalled ? 'Plugin Ready' : 'Plugin Installed',
+            message: `"${manifest.name || pluginId}" ${isAlreadyInstalled ? 'is already in the plugins folder.' : 'has been installed.'}`,
+            detail: 'Reload the app to make newly installed plugins available to the editor.',
+        });
+
+        if (reload.response === 0 && mainWindow) {
+            mainWindow.webContents.reload();
+        }
+
+        return true;
+    } catch (err) {
+        console.error(`[Electron] Failed to install plugin "${pluginId}":`, err);
+        await dialog.showMessageBox(mainWindow ?? undefined, {
+            type: 'error',
+            title: 'Plugin Install Failed',
+            message: 'The plugin could not be installed.',
+            detail: err && err.message ? err.message : String(err),
+        });
+        return false;
+    }
+}
+
 function createWindow(url) {
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
@@ -254,6 +378,36 @@ function createMenu() {
             ]
         },
         {
+            label: 'Plugins',
+            submenu: [
+                {
+                    label: 'Install Plugin...',
+                    click: async () => {
+                        if (!mainWindow) return;
+
+                        const result = await dialog.showOpenDialog(mainWindow, {
+                            title: 'Install Plugin',
+                            properties: ['openDirectory'],
+                        });
+
+                        if (!result.canceled && result.filePaths.length > 0) {
+                            await installPluginFromFolder(result.filePaths[0], dialog);
+                        }
+                    }
+                },
+                {
+                    label: 'Open Plugins Folder',
+                    click: async () => {
+                        try {
+                            await shell.openPath(ensurePluginDir());
+                        } catch (err) {
+                            console.error('[Electron] Failed to open plugins folder:', err);
+                        }
+                    }
+                }
+            ]
+        },
+        {
             label: 'View',
             submenu: [
                 { role: 'reload' },
@@ -358,6 +512,15 @@ app.whenReady().then(async () => {
                 savedPassword: '',
             });
             return true;
+        });
+
+        ipcMain.handle('get-plugins', async () => {
+            try {
+                return readInstalledPlugins();
+            } catch (err) {
+                console.error('[Electron] Failed to scan plugins:', err);
+                return [];
+            }
         });
 
         ipcMain.handle('select-folder', async () => {

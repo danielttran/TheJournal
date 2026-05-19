@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electron', {
     getSettings: () => ipcRenderer.invoke('get-settings'),
     saveSetting: (key, value) => ipcRenderer.invoke('save-setting', key, value),
     logout: () => ipcRenderer.invoke('logout'),
+    getPlugins: () => ipcRenderer.invoke('get-plugins'),
     onToggleTheme: (callback) => subscribe('toggle-theme', callback),
     onImportDB: (callback) => subscribe('import-db', callback, (_event, filePath) => [filePath]),
     onExportDB: (callback) => subscribe('export-db', callback),

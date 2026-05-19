@@ -15,6 +15,7 @@ import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
 
 import { useEditor, EditorContent, type Editor as TipTapEditor, type JSONContent } from '@tiptap/react';
+import type { AnyExtension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import ResizableImage from './extensions/ResizableImage';
 import Link from '@tiptap/extension-link';
@@ -37,6 +38,7 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import { Markdown } from 'tiptap-markdown';
 import { isSafeImageUrl } from '@/lib/hotlinkImages';
 import { applyBuiltins, parseTemplateVariables, substituteVariables } from '@/lib/smartTemplates';
+import { TheJournalAPI } from '@/lib/pluginApi';
 // Shared HTML-stripping count + reading-time helpers — the editor previously
 // hand-rolled an `countWords` that drifted from the test-covered version.
 import { wordCount as countWords, readingTimeMinutesFromWords } from '@/lib/readingTime';
@@ -88,16 +90,7 @@ function getCachedEntry(key: string) {
     return cached;
 }
 
-export default function Editor({
-    categoryId,
-    categoryName,
-    categoryType,
-    userId,
-    onEnterSplitMode: onToggleSplitMode,
-    isSplitMode = false,
-    onOpenSearch,
-    onEntryChange,
-}: {
+type EditorProps = {
     categoryId: string;
     categoryName: string;
     categoryType: string;
@@ -109,7 +102,75 @@ export default function Editor({
     onOpenSearch?: () => void;
     /** Notifies parent of the currently loaded entry ID (null while loading). */
     onEntryChange?: (id: number | null) => void;
-}) {
+};
+
+export default function Editor(props: EditorProps) {
+    const [pluginsLoaded, setPluginsLoaded] = useState(false);
+    const [dynamicExtensions, setDynamicExtensions] = useState<AnyExtension[]>([]);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadPlugins = async () => {
+            TheJournalAPI.reset();
+
+            if (typeof window === 'undefined' || !window.electron?.getPlugins) {
+                if (isMounted) setPluginsLoaded(true);
+                return;
+            }
+
+            try {
+                const plugins = await window.electron.getPlugins();
+                if (!isMounted) return;
+
+                for (const plugin of plugins) {
+                    if (!isMounted) return;
+                    try {
+                        new Function(plugin.scriptContent)();
+                    } catch (err) {
+                        console.error(`[Editor] Failed to execute plugin "${plugin.id}":`, err);
+                    }
+                }
+
+                if (isMounted) {
+                    setDynamicExtensions([...TheJournalAPI.registeredExtensions]);
+                    setPluginsLoaded(true);
+                }
+            } catch (err) {
+                console.error('[Editor] Failed to load plugins:', err);
+                if (isMounted) setPluginsLoaded(true);
+            }
+        };
+
+        loadPlugins();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    if (!pluginsLoaded) {
+        return (
+            <div className="flex h-full items-center justify-center bg-bg-app text-sm text-text-muted">
+                Loading editor...
+            </div>
+        );
+    }
+
+    return <PluginLoadedEditor {...props} dynamicExtensions={dynamicExtensions} />;
+}
+
+function PluginLoadedEditor({
+    categoryId,
+    categoryName,
+    categoryType,
+    userId,
+    onEnterSplitMode: onToggleSplitMode,
+    isSplitMode = false,
+    onOpenSearch,
+    onEntryChange,
+    dynamicExtensions,
+}: EditorProps & { dynamicExtensions: AnyExtension[] }) {
     const searchParams = useSearchParams();
     const router = useRouter();
     const pathname = usePathname();
@@ -191,8 +252,9 @@ export default function Editor({
         TableCell,
         TableHeader,
         Markdown,
-        Placeholder.configure({ placeholder: 'Start writing...' })
-    ], []);
+        Placeholder.configure({ placeholder: 'Start writing...' }),
+        ...dynamicExtensions,
+    ], [dynamicExtensions]);
 
     // Refs to editors — needed so onUpdate callbacks can reference the OTHER editor
     // without stale closures (useEditor hooks fire before refs are set)

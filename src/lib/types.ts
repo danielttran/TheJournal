@@ -42,9 +42,15 @@ export type ElectronViewAction =
     | 'undo' | 'redo' | 'inline-code' | 'checklist'
     | 'highlight' | 'hr' | 'image-upload';
 
+export interface PluginPayload {
+    id: string;
+    manifest: Record<string, unknown>;
+    scriptContent: string;
+}
+
 declare global {
     interface Window {
-        electron: {
+        electron?: {
             // ── Invoke (renderer → main) ──────────────────────────────────────
             getSettings: () => Promise<Record<string, unknown>>;
             saveSetting: (key: string, value: unknown) => Promise<Record<string, unknown> | false>;
@@ -54,6 +60,7 @@ declare global {
             importDatabase: () => Promise<string | null>;
             storePassword: (pwd: string) => Promise<boolean>;
             getStoredPassword: () => Promise<string | null>;
+            getPlugins?: () => Promise<PluginPayload[]>;
             // ── Subscribe (main → renderer, returns unsubscribe fn) ───────────
             onToggleTheme: (callback: () => void) => () => void;
             onImportDB: (callback: (filePath: string) => void) => () => void;

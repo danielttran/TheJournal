@@ -22,6 +22,7 @@ A cross-platform journaling and note-taking application built with Next.js and E
 - 📦 **Import/Export** - Encrypted backups of your entire journal
 - 🔍 **Search** - Full-text search across titles and content with advanced filters
 - 🪟 **Split View** - Side-by-side editor panes for multi-entry editing
+- **Local Plugins** - Trusted local plugins can register custom TipTap extensions and editor NodeViews
 
 ## Getting Started
 
@@ -70,6 +71,26 @@ Click **Advanced** in the search panel to reveal additional filters:
 | Whole word | Word-boundary matching |
 
 Results show a snippet centred on the first match with the matching text highlighted. Pagination loads 30 results at a time.
+
+## Local Plugins
+
+The Electron app can load trusted local plugins from the user plugins folder. Use **Plugins -> Install Plugin...** to select a plugin folder, or **Plugins -> Open Plugins Folder** to manage installed plugins manually.
+
+A plugin folder must contain:
+
+```text
+my-plugin/
+  manifest.json
+  main.js
+```
+
+Plugins execute before the TipTap editor mounts and can register extensions with:
+
+```js
+window.TheJournalAPI.registerTiptapExtension(extension);
+```
+
+See [docs/plugins.md](docs/plugins.md) for the full authoring guide and a Draw.io embed example.
 
 ## Testing
 

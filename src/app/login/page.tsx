@@ -76,16 +76,17 @@ function LoginFormContent() {
         if (didAutoLoginRef.current) return;
         if (typeof window === "undefined" || !window.electron) return;
 
+        const electron = window.electron;
         didAutoLoginRef.current = true;
         let isMounted = true;
 
         const loadSavedCredentials = async () => {
-            const settings = await window.electron.getSettings();
+            const settings = await electron.getSettings();
             if (!isMounted || !settings?.rememberMe) return;
 
             setRememberMe(true);
             const savedUser = typeof settings.userName === 'string' ? settings.userName : "";
-            const savedPass = await window.electron.getStoredPassword();
+            const savedPass = await electron.getStoredPassword();
 
             if (!isMounted || !savedUser || !savedPass) return;
 
