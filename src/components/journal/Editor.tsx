@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Minimize2, Star, Hash, X } from 'lucide-react';
+import { Minimize2, Star, Hash, X, Lock } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import WritingPromptsPicker from './WritingPromptsPicker';
@@ -181,6 +181,7 @@ function PluginLoadedEditor({
     const { setLoading, clearLoading } = useLoading();
 
     const [entryId, setEntryId] = useState<number | null>(null);
+    const [isLocked, setIsLocked] = useState(false);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
     const [, setLoadingProgress] = useState<number | null>(null);
@@ -323,6 +324,30 @@ function PluginLoadedEditor({
     // Keep refs in sync with the actual editor instances
     useEffect(() => { editor1Ref.current = editor; }, [editor]);
     useEffect(() => { editor2Ref.current = editor2; }, [editor2]);
+
+    // Lock UX: when the entry is read-only, disable TipTap input on both
+    // panes. Drag/select/copy still work because TipTap's contentEditable
+    // is only toggled, not removed.
+    useEffect(() => {
+        editor?.setEditable(!isLocked);
+        editor2?.setEditable(!isLocked);
+    }, [isLocked, editor, editor2]);
+
+    const handleUnlock = useCallback(async () => {
+        const id = entryIdRef.current;
+        if (!id) return;
+        try {
+            const res = await fetch(`/api/entry/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ isLocked: false }),
+            });
+            if (res.ok) {
+                setIsLocked(false);
+                window.dispatchEvent(new CustomEvent('journal-entry-updated'));
+            }
+        } catch { /* silence */ }
+    }, []);
 
     // Tag autocomplete — fetches /api/tags/suggest 150 ms after the user
     // stops typing. Filters out tags already on the entry so the dropdown
@@ -708,6 +733,7 @@ function PluginLoadedEditor({
         setIsFavorited(false);
         setTags([]);
         setTagInput('');
+        setIsLocked(false);
 
         if (renderAbortRef.current) renderAbortRef.current.abort();
         const renderAbort = new AbortController();
@@ -759,7 +785,7 @@ function PluginLoadedEditor({
                 if (cached) {
                     if (!isMounted || renderAbort.signal.aborted) return;
 
-                    type EntryMeta = { Mood?: string | null; IsFavorited?: number | boolean; Tags?: string | null };
+                    type EntryMeta = { Mood?: string | null; IsFavorited?: number | boolean; Tags?: string | null; IsLocked?: number | boolean };
                     const applyMeta = (d: EntryMeta | null | undefined) => {
                         if (!d) return;
                         const m = d.Mood ?? null;
@@ -768,6 +794,7 @@ function PluginLoadedEditor({
                         try { t = d.Tags ? JSON.parse(d.Tags) : []; } catch { t = []; }
                         setMood(m); setIsFavorited(f); setTags(t);
                         moodRef.current = m; isFavoritedRef.current = f; tagsRef.current = t;
+                        setIsLocked(!!d.IsLocked);
                     };
 
                     if (urlEntryId) {
@@ -816,6 +843,7 @@ function PluginLoadedEditor({
                     Version?: number;
                     Mood?: string | null;
                     IsFavorited?: number | boolean;
+                    IsLocked?: number | boolean;
                     Tags?: string | null;
                     isNew?: boolean;
                 };
@@ -883,6 +911,7 @@ function PluginLoadedEditor({
                     setMood(loadedMood);
                     setIsFavorited(loadedFavorited);
                     setTags(loadedTags);
+                    setIsLocked(!!data.IsLocked);
                     moodRef.current = loadedMood;
                     isFavoritedRef.current = loadedFavorited;
                     tagsRef.current = loadedTags;
@@ -1213,6 +1242,21 @@ function PluginLoadedEditor({
                         className="ml-4 px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 font-bold"
                     >
                         Retry Save
+                    </button>
+                </div>
+            )}
+
+            {isLocked && !isDistractionFree && (
+                <div className="bg-yellow-500/10 border border-yellow-500/40 text-yellow-300 px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
+                    <span className="flex items-center gap-2 font-semibold">
+                        <Lock className="w-3.5 h-3.5" />
+                        This entry is read-only.
+                    </span>
+                    <button
+                        onClick={handleUnlock}
+                        className="ml-4 px-3 py-1 bg-yellow-500/80 text-black rounded text-xs hover:bg-yellow-500 font-bold"
+                    >
+                        Unlock
                     </button>
                 </div>
             )}

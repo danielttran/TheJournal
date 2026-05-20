@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { X, Plus, Book, FileText, LogOut, Settings, Trash, Bell, Target, BarChart3, Replace, Calendar, Cloud } from 'lucide-react';
+import { X, Plus, Book, FileText, LogOut, Settings, Trash, Bell, Target, BarChart3, Replace, Calendar, Cloud, Wand2 } from 'lucide-react';
 import TrashPanel from './TrashPanel';
 import RemindersPanel from './RemindersPanel';
 import GoalsPanel from './GoalsPanel';
@@ -13,6 +13,7 @@ import ReplacePanel from './ReplacePanel';
 import OnThisDayPanel from './OnThisDayPanel';
 import WordCloudPanel from './WordCloudPanel';
 import SnippetsPanel from './SnippetsPanel';
+import CategorySettingsModal from './CategorySettingsModal';
 import { Scissors } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Theme as EmojiTheme } from 'emoji-picker-react';
@@ -59,6 +60,7 @@ interface SortableTabProps {
     onRename: (id: number, name: string) => void;
     onIconChange: (id: number, icon: string) => void;
     onColorChange: (id: number, color: string) => void;
+    onOpenSettings: (id: number) => void;
 }
 
 const PRESET_COLORS = [
@@ -67,7 +69,7 @@ const PRESET_COLORS = [
     '#0ea5e9', '#64748b', '#a855f7', '#06b6d4',
 ];
 
-function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconChange, onColorChange }: SortableTabProps) {
+function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconChange, onColorChange, onOpenSettings }: SortableTabProps) {
     const {
         attributes,
         listeners,
@@ -206,6 +208,22 @@ function SortableTab({ category, isActive, onClick, onDelete, onRename, onIconCh
                 </div>
             )}
 
+            {isActive && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onOpenSettings(category.CategoryID); }}
+                    className="p-0.5 rounded hover:bg-bg-active text-text-muted hover:text-text-primary opacity-70 hover:opacity-100 transition-opacity ml-1"
+                    title="Category settings"
+                >
+                    <Settings size={12} />
+                </button>
+            )}
+
+            {category.IsSmartbook && (
+                <span title="Smartbook (auto-collected)" className="ml-1 text-accent-primary opacity-80">
+                    <Wand2 size={12} />
+                </span>
+            )}
+
             <button
                 onClick={(e) => { e.stopPropagation(); onDelete(category.CategoryID); }}
                 className={`p-0.5 rounded hover:bg-red-500/20 text-text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity ml-1`}
@@ -253,6 +271,7 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
     const [newTabName, setNewTabName] = useState('');
     const [newTabType, setNewTabType] = useState<'Journal' | 'Notebook'>('Journal');
+    const [newTabIsSmartbook, setNewTabIsSmartbook] = useState(false);
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
     const [isTrashOpen, setIsTrashOpen] = useState(false);
@@ -263,6 +282,7 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isOnThisDayOpen, setIsOnThisDayOpen] = useState(false);
     const [isWordCloudOpen, setIsWordCloudOpen] = useState(false);
     const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
+    const [settingsCategoryId, setSettingsCategoryId] = useState<number | null>(null);
     const [isClient, setIsClient] = useState(false);
     useEffect(() => setIsClient(true), []);
 
@@ -375,17 +395,35 @@ export default function TabBar({ userId }: { userId: string }) {
     const handleCreateTab = async () => {
         try {
             const randomColor = PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)];
+            const body: Record<string, unknown> = {
+                name: newTabName, type: newTabType, userId, color: randomColor,
+            };
+            if (newTabIsSmartbook) {
+                body.isSmartbook = true;
+                body.smartbookQuery = JSON.stringify({});
+            }
             const res = await fetch('/api/category', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newTabName, type: newTabType, userId, color: randomColor })
+                body: JSON.stringify(body),
             });
             const newCat = await res.json();
             if (newCat.id) {
-                setTabs([...tabs, { CategoryID: newCat.id, Name: newTabName, Type: newTabType, Color: randomColor, SortOrder: tabs.length }]);
+                setTabs([...tabs, {
+                    CategoryID: newCat.id, Name: newTabName, Type: newTabType,
+                    Color: randomColor, SortOrder: tabs.length,
+                    IsSmartbook: newTabIsSmartbook || false,
+                }]);
                 setIsAddMenuOpen(false);
                 setNewTabName('');
+                setNewTabIsSmartbook(false);
                 router.push(`/journal/${newCat.id}`);
+                // If user created a Smartbook, open the settings modal so they
+                // can configure the query immediately — an empty smartbook is
+                // useless and the editor presents poorly without one.
+                if (newTabIsSmartbook) {
+                    setSettingsCategoryId(newCat.id);
+                }
             }
         } catch { /* silence */ }
     };
@@ -608,6 +646,7 @@ export default function TabBar({ userId }: { userId: string }) {
                                 onRename={handleRename}
                                 onIconChange={handleIconChange}
                                 onColorChange={handleColorChange}
+                                onOpenSettings={(id) => setSettingsCategoryId(id)}
                             />
                         ))}
                     </SortableContext>
@@ -629,6 +668,16 @@ export default function TabBar({ userId }: { userId: string }) {
                             <button onClick={() => setNewTabType('Journal')} className={`flex-1 p-2 border rounded ${newTabType === 'Journal' ? 'bg-accent-primary text-white border-accent-primary' : 'border-border-primary text-text-secondary'}`}>Journal</button>
                             <button onClick={() => setNewTabType('Notebook')} className={`flex-1 p-2 border rounded ${newTabType === 'Notebook' ? 'bg-accent-primary text-white border-accent-primary' : 'border-border-primary text-text-secondary'}`}>Notebook</button>
                         </div>
+                        <label className="flex items-center gap-2 mb-4 text-sm text-text-secondary cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={newTabIsSmartbook}
+                                onChange={e => setNewTabIsSmartbook(e.target.checked)}
+                            />
+                            <span>
+                                Smartbook — auto-collect entries matching a saved query
+                            </span>
+                        </label>
                         <div className="flex justify-end gap-2">
                             <button onClick={() => setIsAddMenuOpen(false)} className="px-3 py-1 text-text-muted hover:text-text-primary">Cancel</button>
                             <button onClick={handleCreateTab} disabled={!newTabName} className="px-3 py-1 bg-accent-primary text-white rounded hover:bg-opacity-90">Create</button>
@@ -673,6 +722,16 @@ export default function TabBar({ userId }: { userId: string }) {
 
             {isSnippetsOpen && (
                 <SnippetsPanel onClose={() => setIsSnippetsOpen(false)} />
+            )}
+
+            {settingsCategoryId !== null && (
+                <CategorySettingsModal
+                    categoryId={settingsCategoryId}
+                    onClose={() => setSettingsCategoryId(null)}
+                    onSaved={(updated) => {
+                        setTabs(prev => prev.map(c => c.CategoryID === settingsCategoryId ? { ...c, ...updated } : c));
+                    }}
+                />
             )}
 
         </div>

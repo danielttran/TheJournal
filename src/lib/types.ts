@@ -7,7 +7,7 @@ export interface Category {
     Icon?: string;
     ViewSettings?: string; // JSON string
     UserID?: number;
-    SortMode?: 'manual' | 'name' | 'created' | 'updated';
+    SortMode?: 'manual' | 'title-asc' | 'title-desc' | 'created-newest' | 'created-oldest' | 'modified-newest' | 'modified-oldest';
     AutoTemplateID?: number | null;
     EntryFrequency?: 'daily' | 'weekly' | 'hourly';
     IsSmartbook?: boolean;

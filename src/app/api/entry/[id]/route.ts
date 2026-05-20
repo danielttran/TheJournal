@@ -1,6 +1,7 @@
 import { db, dbManager } from "@/lib/db";
 import { softDeleteEntry, permanentlyDeleteEntry } from "@/lib/trash";
 import { normalizeTag } from "@/lib/tags";
+import { isWriteToLockedEntryBlocked } from "@/lib/entryLock";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -96,7 +97,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         const entry = await db.prepare(`
             SELECT e.EntryID, e.Title, ec.HtmlContent, ec.DocumentJson, e.Icon, e.Version,
-                   e.IsFavorited, e.Mood, e.Tags
+                   e.IsFavorited, e.Mood, e.Tags, e.IsLocked
             FROM Entry e
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
             JOIN Category c ON e.CategoryID = c.CategoryID
@@ -146,6 +147,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         if (!ownerCheck) {
             return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
+        }
+
+        // 2a. Read-only-lock enforcement: a locked entry refuses content writes
+        // (html/documentJson/title/preview) but still allows isLocked toggles and
+        // metadata edits (mood/favorite/tags). Without this, a stale TipTap save
+        // from another tab could overwrite a locked entry's content.
+        if (await isWriteToLockedEntryBlocked(dbManager, entryId, result.data as Record<string, unknown>)) {
+            return NextResponse.json(
+                { error: "Entry is locked. Unlock from the sidebar menu to edit." },
+                { status: 423 },
+            );
         }
 
         // 2b. If parentEntryId is being set, validate it to prevent cycles and cross-category moves

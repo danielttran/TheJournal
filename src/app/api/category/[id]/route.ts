@@ -15,6 +15,7 @@ const UpdateCategorySchema = z.object({
     sortMode: z.enum(SORT_MODES).optional(),
     autoTemplateId: z.number().int().min(0).nullable().optional(),
     entryFrequency: z.enum(['daily', 'weekly', 'hourly']).optional(),
+    isSmartbook: z.boolean().optional(),
     smartbookQuery: z.union([z.string().max(4000), z.record(z.string(), z.unknown())]).nullable().optional(),
     viewSettings: z.record(z.string(), z.unknown()).optional(),
     lastSelectedEntryId: z.number().int().nullable().optional(),
@@ -110,7 +111,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
         }
         const { name, icon, color, viewSettings, lastSelectedEntryId,
-            sortMode, autoTemplateId, entryFrequency, smartbookQuery } = parsed.data;
+            sortMode, autoTemplateId, entryFrequency, isSmartbook, smartbookQuery } = parsed.data;
 
         // Construct dynamic update
         const simpleUpdates: string[] = [];
@@ -126,6 +127,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         }
         if (entryFrequency !== undefined) {
             simpleUpdates.push("EntryFrequency = ?"); simpleValues.push(entryFrequency);
+        }
+        if (isSmartbook !== undefined) {
+            simpleUpdates.push("IsSmartbook = ?"); simpleValues.push(isSmartbook ? 1 : 0);
         }
         if (smartbookQuery !== undefined) {
             simpleUpdates.push("SmartbookQuery = ?");

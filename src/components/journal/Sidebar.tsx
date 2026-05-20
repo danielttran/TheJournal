@@ -611,17 +611,41 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
     const [showTagFilter, setShowTagFilter] = useState(false);
     const [activeTags, setActiveTags] = useState<string[]>([]);
     const [availableTags, setAvailableTags] = useState<{ tag: string; count: number }[]>([]);
+    // SortMode is persisted on the Category row (Category.SortMode) so the
+    // setting follows the user across browsers and Electron sessions. We
+    // still fall back to legacy localStorage for one read so existing users
+    // don't lose their selection at the migration boundary.
     const sortKey = `sort-${categoryId}`;
     const [sortMode, setSortMode] = useState<SortMode>(() => {
         if (typeof window === 'undefined') return 'manual';
         return (localStorage.getItem(sortKey) as SortMode) ?? 'manual';
     });
     const [showSortMenu, setShowSortMenu] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch(`/api/category/${categoryId}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (cancelled || !data) return;
+                if (data.SortMode) {
+                    setSortMode(data.SortMode as SortMode);
+                }
+            })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, [categoryId]);
+
     const applySortMode = useCallback((m: SortMode) => {
         setSortMode(m);
-        try { localStorage.setItem(sortKey, m); } catch {}
         setShowSortMenu(false);
-    }, [sortKey]);
+        try { localStorage.setItem(sortKey, m); } catch {}
+        fetch(`/api/category/${categoryId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sortMode: m }),
+        }).catch(() => {});
+    }, [sortKey, categoryId]);
 
     useEffect(() => {
         let cancelled = false;
