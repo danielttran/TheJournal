@@ -722,6 +722,57 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         }
     };
 
+    // M5: Drag a media file onto the sidebar to create an entry pre-populated
+    // with the embedded image / video. The upload endpoint enforces the MIME
+    // allowlist; we silently skip files of any other type rather than
+    // surfacing an error popup on every stray drop.
+    const handleSidebarMediaDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+        const files = Array.from(e.dataTransfer?.files ?? []).filter(
+            f => f.type.startsWith('image/') || f.type.startsWith('video/'),
+        );
+        if (files.length === 0) return;
+        e.preventDefault();
+
+        for (const file of files) {
+            try {
+                const form = new FormData();
+                form.append('file', file);
+                const uploadRes = await fetch('/api/upload', { method: 'POST', body: form });
+                const upload = await uploadRes.json();
+                if (!uploadRes.ok || !upload.url) continue;
+
+                const title = file.name.replace(/\.[^.]+$/, '').substring(0, 100) || 'Attachment';
+                const html = upload.kind === 'video'
+                    ? `<p><video data-tj-video="1" data-src="${upload.url}" data-mime="${upload.mimeType}" data-width="100%" controls style="width:100%;max-width:100%;height:auto;" src="${upload.url}" type="${upload.mimeType}"></video></p>`
+                    : `<p><img src="${upload.url}" alt="${title.replace(/"/g, '&quot;')}" data-width="100%" style="width:100%;max-width:100%;height:auto;" /></p>`;
+
+                const createRes = await fetch('/api/entry/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        categoryId,
+                        title,
+                        entryType: 'Page',
+                    }),
+                });
+                const newEntry = await createRes.json();
+                if (!createRes.ok || !newEntry.id) continue;
+
+                // Push the media block into the freshly-created entry.
+                await fetch(`/api/entry/${newEntry.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ html, title }),
+                }).catch(() => {});
+
+                fetchPages();
+                router.push(`?entry=${newEntry.id}`);
+            } catch (err) {
+                console.error('[Sidebar] drop-upload failed:', err);
+            }
+        }
+    }, [categoryId, router, fetchPages]);
+
     // ... (DnD Logic same as before, simplified for brevity in reasoning but included in full code)
     const findItem = (id: number, items: Entry[]): Entry | null => {
         for (const item of items) {
@@ -793,7 +844,16 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
     const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
 
     return (
-        <div className="w-80 bg-bg-sidebar border-r border-border-primary flex flex-col h-full flex-shrink-0 relative transition-colors duration-200">
+        <div
+            className="w-80 bg-bg-sidebar border-r border-border-primary flex flex-col h-full flex-shrink-0 relative transition-colors duration-200"
+            onDragOver={e => {
+                if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && (i.type.startsWith('image/') || i.type.startsWith('video/')))) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'copy';
+                }
+            }}
+            onDrop={handleSidebarMediaDrop}
+        >
             {/* Header */}
             <div className="flex-shrink-0 p-4 flex items-center justify-between border-b border-border-primary">
                 <div className="flex items-center space-x-2">

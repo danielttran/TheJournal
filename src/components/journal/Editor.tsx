@@ -31,6 +31,7 @@ import { TextStyle } from '@tiptap/extension-text-style';
 import FontFamily from '@tiptap/extension-font-family';
 import { FontSize } from './extensions/FontSize';
 import { Bookmark } from './extensions/Bookmark';
+import { VideoBlock } from './extensions/VideoBlock';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
@@ -248,6 +249,7 @@ function PluginLoadedEditor({
         FontFamily,
         FontSize,
         Bookmark,
+        VideoBlock,
         Table.configure({ resizable: false }),
         TableRow,
         TableCell,
@@ -969,17 +971,17 @@ function PluginLoadedEditor({
 
     // ── Image helpers ────────────────────────────────────────────────────────────
 
-    /** Upload a File and return the attachment URL, or null on failure. */
-    const uploadImageFile = useCallback(async (file: File): Promise<string | null> => {
+    /** Upload a media File and return the attachment URL + media kind, or null on failure. */
+    const uploadMediaFile = useCallback(async (file: File): Promise<{ url: string; kind: 'image' | 'video'; mimeType: string } | null> => {
         const formData = new FormData();
         formData.append('file', file);
         try {
             const res = await fetch('/api/upload', { method: 'POST', body: formData });
             const data = await res.json();
             if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
-            return data.url as string;
+            return { url: data.url as string, kind: (data.kind as 'image' | 'video') ?? 'image', mimeType: (data.mimeType as string) ?? file.type };
         } catch (err) {
-            console.error('[Editor] image upload failed:', err);
+            console.error('[Editor] media upload failed:', err);
             return null;
         }
     }, []);
@@ -992,16 +994,30 @@ function PluginLoadedEditor({
         if (entryIdRef.current) performSave(entryIdRef.current, true);
     }, [editor, performSave]);
 
-    // Drag-and-drop images onto the editor area
+    /** Insert an uploaded video at the cursor. */
+    const insertVideo = useCallback((url: string, mimeType: string) => {
+        editor?.chain().focus().insertContent({
+            type: 'videoBlock',
+            attrs: { src: url, mimeType, width: '100%' },
+        }).run();
+        isDirtyRef.current = true;
+        if (entryIdRef.current) performSave(entryIdRef.current, true);
+    }, [editor, performSave]);
+
+    // Drag-and-drop images / videos onto the editor area
     const handleEditorDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
-        const imageFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-        if (imageFiles.length === 0) return; // not image files — let default DnD handle it
+        const mediaFiles = Array.from(e.dataTransfer.files).filter(
+            f => f.type.startsWith('image/') || f.type.startsWith('video/'),
+        );
+        if (mediaFiles.length === 0) return; // not media files — let default DnD handle it
         e.preventDefault();
-        for (const file of imageFiles) {
-            const url = await uploadImageFile(file);
-            if (url) insertImage(url);
+        for (const file of mediaFiles) {
+            const res = await uploadMediaFile(file);
+            if (!res) continue;
+            if (res.kind === 'video') insertVideo(res.url, res.mimeType);
+            else insertImage(res.url);
         }
-    }, [uploadImageFile, insertImage]);
+    }, [uploadMediaFile, insertImage, insertVideo]);
 
     // Paste images from clipboard (e.g. screenshots) OR hot-link an image URL
     useEffect(() => {
@@ -1025,12 +1041,13 @@ function PluginLoadedEditor({
             e.preventDefault();
             const file = imageItem.getAsFile();
             if (!file) return;
-            const url = await uploadImageFile(file);
+            const res = await uploadMediaFile(file);
+            const url = res?.url ?? null;
             if (url) insertImage(url);
         };
         window.addEventListener('paste', handlePaste);
         return () => window.removeEventListener('paste', handlePaste);
-    }, [editor, uploadImageFile, insertImage]);
+    }, [editor, uploadMediaFile, insertImage]);
 
     // Crop trigger from toolbar
     useEffect(() => {
