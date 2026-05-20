@@ -185,6 +185,63 @@ export async function isCategoryLocked(
 }
 
 /**
+ * Walk every EntryContent row belonging to `categoryId` (scoped to `userId`)
+ * and rewrite HtmlContent + DocumentJson using the supplied transform. The
+ * transform receives the current value and returns either:
+ *   - the new value (string) to persist,
+ *   - the same reference unchanged (no UPDATE issued for this row's field),
+ *   - or null to leave the column untouched.
+ *
+ * Used by:
+ *   - initial lock: transform plaintext → ENC1:base64 with new EEK.
+ *   - clear lock: transform ENC1:base64 → plaintext with old EEK.
+ *   - rotate: transform ENC1:base64 (old EEK) → ENC1:base64 (new EEK).
+ *
+ * Done outside a single big transaction so memory stays bounded for large
+ * categories. The lock route is responsible for serialising concurrent
+ * password changes; concurrent writes to individual entries are handled
+ * by the entry route's own version check.
+ */
+export type EntryContentTransform = (current: string) => string | null;
+
+export async function transformCategoryEntries(
+    dbm: DBManager,
+    userId: number,
+    categoryId: number,
+    transform: EntryContentTransform,
+): Promise<number> {
+    const rows = await dbm.prepare(`
+        SELECT ec.EntryID, ec.HtmlContent, ec.DocumentJson
+        FROM EntryContent ec
+        JOIN Entry e ON ec.EntryID = e.EntryID
+        JOIN Category c ON e.CategoryID = c.CategoryID
+        WHERE e.CategoryID = ? AND c.UserID = ?
+    `).all(categoryId, userId) as {
+        EntryID: number;
+        HtmlContent: string | null;
+        DocumentJson: string | null;
+    }[];
+
+    let touched = 0;
+    for (const row of rows) {
+        const newHtml = row.HtmlContent != null ? transform(row.HtmlContent) : null;
+        const newJson = row.DocumentJson != null ? transform(row.DocumentJson) : null;
+        const htmlChanged = newHtml !== null && newHtml !== row.HtmlContent;
+        const jsonChanged = newJson !== null && newJson !== row.DocumentJson;
+        if (!htmlChanged && !jsonChanged) continue;
+        await dbm.prepare(
+            'UPDATE EntryContent SET HtmlContent = ?, DocumentJson = ? WHERE EntryID = ?'
+        ).run(
+            htmlChanged ? newHtml : row.HtmlContent,
+            jsonChanged ? newJson : row.DocumentJson,
+            row.EntryID,
+        );
+        touched += 1;
+    }
+    return touched;
+}
+
+/**
  * Clear the password (verifying the old one first). Returns true on
  * success. NOTE: this does NOT re-encrypt the category's entries — any
  * existing ciphertext stays ciphertext. The caller is expected to

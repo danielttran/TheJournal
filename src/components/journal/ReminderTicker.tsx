@@ -15,6 +15,11 @@ interface DueItem {
 }
 
 const POLL_INTERVAL_MS = 60_000;
+// seenLocally is a soft de-dup that lets the renderer avoid double-firing a
+// notification while the POST-to-mark-notified is still in flight. The server
+// is the source of truth (NotifiedAt column). Cap the local set so a session
+// that runs for days doesn't accumulate stale IDs forever.
+const SEEN_CAP = 2000;
 
 /**
  * Mounts once per session inside the journal layout. Every minute it asks
@@ -62,6 +67,12 @@ export default function ReminderTicker() {
 
                 const canNotify = 'Notification' in window && Notification.permission === 'granted';
                 for (const item of fresh) {
+                    // Trim oldest entries (Set iteration order is insertion order)
+                    // if we're over the cap, so long sessions don't leak memory.
+                    if (seenLocally.current.size >= SEEN_CAP) {
+                        const oldest = seenLocally.current.values().next().value;
+                        if (oldest !== undefined) seenLocally.current.delete(oldest);
+                    }
                     seenLocally.current.add(item.ReminderID);
                     if (canNotify) {
                         try {

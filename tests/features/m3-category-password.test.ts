@@ -28,6 +28,7 @@ import {
     isCategoryLocked,
     encryptWithKey,
     decryptWithKey,
+    transformCategoryEntries,
     ENC_PREFIX,
 } from '../../src/lib/categoryCrypto';
 
@@ -197,5 +198,108 @@ describe('encryptWithKey / decryptWithKey', () => {
         ).run(USER_ID);
         const eek2 = await setCategoryPassword(dbm, USER_ID, Number(c.lastInsertRowid), 'other');
         expect(() => decryptWithKey(enc, eek2)).toThrow();
+    });
+});
+
+describe('transformCategoryEntries', () => {
+    let eek: Uint8Array;
+    let CAT_ENTRIES: number[];
+
+    beforeEach(async () => {
+        await dbm.prepare('DELETE FROM Entry').run();
+        eek = await setCategoryPassword(dbm, USER_ID, CAT_ID, 'pw');
+        // Three entries — one plaintext, one encrypted, one empty.
+        CAT_ENTRIES = [];
+        const a = await dbm.prepare(`INSERT INTO Entry (CategoryID, Title) VALUES (?, 'a')`).run(CAT_ID);
+        const aId = Number(a.lastInsertRowid);
+        CAT_ENTRIES.push(aId);
+        await dbm.prepare(`INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson) VALUES (?, ?, ?)`)
+            .run(aId, '<p>plain a</p>', '{"a":1}');
+
+        const b = await dbm.prepare(`INSERT INTO Entry (CategoryID, Title) VALUES (?, 'b')`).run(CAT_ID);
+        const bId = Number(b.lastInsertRowid);
+        CAT_ENTRIES.push(bId);
+        await dbm.prepare(`INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson) VALUES (?, ?, ?)`)
+            .run(bId, encryptWithKey('<p>secret b</p>', eek), encryptWithKey('{"b":2}', eek));
+
+        const c = await dbm.prepare(`INSERT INTO Entry (CategoryID, Title) VALUES (?, 'c')`).run(CAT_ID);
+        const cId = Number(c.lastInsertRowid);
+        CAT_ENTRIES.push(cId);
+        await dbm.prepare(`INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson) VALUES (?, ?, ?)`)
+            .run(cId, '', '');
+    });
+
+    it('walks every EntryContent row and applies the transform', async () => {
+        const seen: string[] = [];
+        const touched = await transformCategoryEntries(dbm, USER_ID, CAT_ID, (current) => {
+            seen.push(current);
+            return current;  // no-op transform — should not UPDATE
+        });
+        // 3 entries × 2 fields = 6 reads. Empty strings still come through.
+        expect(seen.length).toBe(6);
+        // No-op transform skips the UPDATE, so touched count is 0.
+        expect(touched).toBe(0);
+    });
+
+    it('skips UPDATEs when the transform returns the input unchanged', async () => {
+        const touched = await transformCategoryEntries(dbm, USER_ID, CAT_ID, (current) => current);
+        expect(touched).toBe(0);
+    });
+
+    it('encrypts only plaintext rows when given an encryptIfPlaintext transform', async () => {
+        const touched = await transformCategoryEntries(dbm, USER_ID, CAT_ID, (current) =>
+            current && !current.startsWith(ENC_PREFIX) ? encryptWithKey(current, eek) : current,
+        );
+        // Only entry "a" had real plaintext to encrypt; entry "b" was already
+        // encrypted; entry "c" was empty (transform returns '' unchanged).
+        expect(touched).toBe(1);
+        const a = await dbm.prepare('SELECT HtmlContent FROM EntryContent WHERE EntryID = ?')
+            .get(CAT_ENTRIES[0]) as { HtmlContent: string };
+        expect(a.HtmlContent.startsWith(ENC_PREFIX)).toBe(true);
+    });
+
+    it('decrypts only ciphertext rows when given a decrypt transform', async () => {
+        const touched = await transformCategoryEntries(dbm, USER_ID, CAT_ID, (current) =>
+            current.startsWith(ENC_PREFIX) ? decryptWithKey(current, eek) : current,
+        );
+        expect(touched).toBe(1);  // only entry "b" had ciphertext
+        const b = await dbm.prepare('SELECT HtmlContent, DocumentJson FROM EntryContent WHERE EntryID = ?')
+            .get(CAT_ENTRIES[1]) as { HtmlContent: string; DocumentJson: string };
+        expect(b.HtmlContent).toBe('<p>secret b</p>');
+        expect(b.DocumentJson).toBe('{"b":2}');
+    });
+
+    it('scopes by category — entries in another category are untouched', async () => {
+        const other = await dbm.prepare(
+            `INSERT INTO Category (UserID, Name, Type) VALUES (?, 'Other', 'Notebook')`
+        ).run(USER_ID);
+        const otherCat = Number(other.lastInsertRowid);
+        const e = await dbm.prepare(`INSERT INTO Entry (CategoryID, Title) VALUES (?, 'x')`).run(otherCat);
+        const eId = Number(e.lastInsertRowid);
+        await dbm.prepare(`INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson) VALUES (?, ?, ?)`)
+            .run(eId, '<p>untouched</p>', '{}');
+
+        await transformCategoryEntries(dbm, USER_ID, CAT_ID, () => 'OVERWRITE');
+        const stillUntouched = await dbm.prepare('SELECT HtmlContent FROM EntryContent WHERE EntryID = ?')
+            .get(eId) as { HtmlContent: string };
+        expect(stillUntouched.HtmlContent).toBe('<p>untouched</p>');
+    });
+
+    it('scopes by user — another user\'s category in the same row count is untouched', async () => {
+        await dbm.prepare('INSERT OR IGNORE INTO User (UserID, Username) VALUES (99, ?)').run('foreigner');
+        const other = await dbm.prepare(
+            `INSERT INTO Category (UserID, Name, Type) VALUES (99, 'Foreign', 'Notebook')`
+        ).run();
+        const foreignCat = Number(other.lastInsertRowid);
+        const e = await dbm.prepare(`INSERT INTO Entry (CategoryID, Title) VALUES (?, 'fx')`).run(foreignCat);
+        const eId = Number(e.lastInsertRowid);
+        await dbm.prepare(`INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson) VALUES (?, ?, ?)`)
+            .run(eId, '<p>foreign</p>', '{}');
+
+        // Calling with the wrong user should not touch the foreign category.
+        await transformCategoryEntries(dbm, USER_ID, foreignCat, () => 'OVERWRITE');
+        const row = await dbm.prepare('SELECT HtmlContent FROM EntryContent WHERE EntryID = ?')
+            .get(eId) as { HtmlContent: string };
+        expect(row.HtmlContent).toBe('<p>foreign</p>');
     });
 });
