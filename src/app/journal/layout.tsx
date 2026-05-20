@@ -2,6 +2,7 @@ import TabBar from '@/components/journal/TabBar';
 import ReminderTicker from '@/components/journal/ReminderTicker';
 import LockGate from '@/components/journal/LockGate';
 import CommandDispatcher from '@/components/journal/CommandDispatcher';
+import EntryPrintBridge from '@/components/journal/EntryPrintBridge';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
@@ -23,6 +24,7 @@ export default async function JournalLayout({
             <ReminderTicker />
             <LockGate />
             <CommandDispatcher />
+            <EntryPrintBridge />
         </div>
     );
 }

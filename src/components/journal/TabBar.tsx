@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { X, Plus, Book, FileText, LogOut, Settings, Trash, Bell, Target, BarChart3, Replace, Calendar, Cloud, Wand2 } from 'lucide-react';
+import { X, Plus, Book, FileText, LogOut, Settings, Trash, Bell, Target, BarChart3, Replace, Calendar, Cloud, Wand2, HelpCircle, Keyboard, FileQuestion, Bug } from 'lucide-react';
 import TrashPanel from './TrashPanel';
 import RemindersPanel from './RemindersPanel';
 import GoalsPanel from './GoalsPanel';
@@ -485,6 +485,14 @@ export default function TabBar({ userId }: { userId: string }) {
                             <div className="absolute top-full left-0 mt-1 w-48 bg-bg-card border border-border-primary rounded shadow-xl z-50 flex flex-col py-1">
                                 <button onClick={handleImportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Import DB...</button>
                                 <button onClick={handleExportClick} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Export DB</button>
+                                <button onClick={() => { window.dispatchEvent(new Event('trigger-print-entry')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <FileText size={14} className="mr-2" />
+                                    Print Entry...
+                                </button>
+                                <button onClick={() => { window.dispatchEvent(new Event('trigger-export-pdf')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <FileText size={14} className="mr-2" />
+                                    Export Entry to PDF...
+                                </button>
                                 <button onClick={() => { setIsTrashOpen(true); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
                                     <Trash size={14} className="mr-2" />
                                     Trash...
@@ -558,6 +566,32 @@ export default function TabBar({ userId }: { userId: string }) {
                                     <Settings size={14} className="mr-2" />
                                     Settings...
                                 </button>
+                                <div className="border-t border-border-primary my-1"></div>
+                                {/* Help — mirrors the Electron Help submenu so the web build has parity. */}
+                                <a href="https://github.com/danielttran/TheJournal#readme" target="_blank" rel="noreferrer"
+                                    onClick={() => setIsFileMenuOpen(false)}
+                                    className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <HelpCircle size={14} className="mr-2" />
+                                    Documentation
+                                </a>
+                                <button
+                                    onClick={() => { window.dispatchEvent(new Event('trigger-settings')); setIsFileMenuOpen(false); }}
+                                    className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Keyboard size={14} className="mr-2" />
+                                    Keyboard Shortcuts
+                                </button>
+                                <a href="https://github.com/danielttran/TheJournal/blob/main/docs/plugins.md" target="_blank" rel="noreferrer"
+                                    onClick={() => setIsFileMenuOpen(false)}
+                                    className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <FileQuestion size={14} className="mr-2" />
+                                    Plugin API Reference
+                                </a>
+                                <a href="https://github.com/danielttran/TheJournal/issues/new" target="_blank" rel="noreferrer"
+                                    onClick={() => setIsFileMenuOpen(false)}
+                                    className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Bug size={14} className="mr-2" />
+                                    Report an Issue
+                                </a>
                                 <div className="border-t border-border-primary my-1"></div>
                                 <button onClick={handleLogout} className="text-left px-4 py-2 hover:bg-red-500 hover:text-white transition-colors flex items-center">
                                     <LogOut size={14} className="mr-2" />

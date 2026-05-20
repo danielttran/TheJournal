@@ -61,6 +61,7 @@ declare global {
             storePassword: (pwd: string) => Promise<boolean>;
             getStoredPassword: () => Promise<string | null>;
             getPlugins?: () => Promise<PluginPayload[]>;
+            saveEntryPdf?: (entryHtml: string, suggestedName: string) => Promise<{ saved: boolean; reason?: string; path?: string }>;
             // ── Subscribe (main → renderer, returns unsubscribe fn) ───────────
             onToggleTheme: (callback: () => void) => () => void;
             onImportDB: (callback: (filePath: string) => void) => () => void;
@@ -69,6 +70,9 @@ declare global {
             onOpenSettings: (callback: () => void) => () => void;
             onViewAction: (callback: (action: ElectronViewAction) => void) => () => void;
             onLockApp?: (callback: (payload: { reason?: string }) => void) => () => void;
+            onPrintCurrentEntry?: (callback: () => void) => () => void;
+            onExportCurrentEntryPdf?: (callback: () => void) => () => void;
+            onOpenJournal?: (callback: (filePath: string) => void) => () => void;
         };
     }
 }

@@ -57,6 +57,18 @@ function LoginFormContent() {
                 await window.electron.saveSetting("rememberMe", false);
                 await window.electron.saveSetting("savedPassword", "");
             }
+        } else if (typeof window !== 'undefined') {
+            // Web: remember the USERNAME only — browsers have no secure
+            // place to persist plaintext passwords, so the checkbox just
+            // pre-fills the username on next visit and the user types
+            // the password.
+            try {
+                if (rememberMeRef.current) {
+                    localStorage.setItem('tj-remember-user', username);
+                } else {
+                    localStorage.removeItem('tj-remember-user');
+                }
+            } catch { /* private mode / quota — ignore */ }
         }
         startTransition(() => {
             action(formData);
@@ -74,32 +86,46 @@ function LoginFormContent() {
 
     useEffect(() => {
         if (didAutoLoginRef.current) return;
-        if (typeof window === "undefined" || !window.electron) return;
+        if (typeof window === "undefined") return;
 
-        const electron = window.electron;
         didAutoLoginRef.current = true;
         let isMounted = true;
 
         const loadSavedCredentials = async () => {
-            const settings = await electron.getSettings();
-            if (!isMounted || !settings?.rememberMe) return;
+            // Electron: full auto-login when rememberMe + safeStorage-encrypted password exist.
+            if (window.electron) {
+                const electron = window.electron;
+                const settings = await electron.getSettings();
+                if (!isMounted || !settings?.rememberMe) return;
 
-            setRememberMe(true);
-            const savedUser = typeof settings.userName === 'string' ? settings.userName : "";
-            const savedPass = await electron.getStoredPassword();
+                setRememberMe(true);
+                const savedUser = typeof settings.userName === 'string' ? settings.userName : "";
+                const savedPass = await electron.getStoredPassword();
+                if (!isMounted || !savedUser || !savedPass) return;
 
-            if (!isMounted || !savedUser || !savedPass) return;
+                const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement | null;
+                const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement | null;
+                if (usernameInput) usernameInput.value = savedUser;
+                if (passwordInput) passwordInput.value = savedPass;
 
-            const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement | null;
-            const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement | null;
+                autoSubmitTimeoutRef.current = setTimeout(() => {
+                    if (!isMounted) return;
+                    formRef.current?.requestSubmit();
+                }, 50);
+                return;
+            }
 
-            if (usernameInput) usernameInput.value = savedUser;
-            if (passwordInput) passwordInput.value = savedPass;
-
-            autoSubmitTimeoutRef.current = setTimeout(() => {
-                if (!isMounted) return;
-                formRef.current?.requestSubmit();
-            }, 50);
+            // Web: pre-fill the username only. The password input stays empty
+            // because browsers have no secure plaintext credential store.
+            try {
+                const savedUser = localStorage.getItem('tj-remember-user');
+                if (!savedUser) return;
+                setRememberMe(true);
+                const usernameInput = formRef.current?.querySelector('input[name="username"]') as HTMLInputElement | null;
+                if (usernameInput) usernameInput.value = savedUser;
+                const passwordInput = formRef.current?.querySelector('input[name="password"]') as HTMLInputElement | null;
+                passwordInput?.focus();
+            } catch { /* private mode — ignore */ }
         };
 
         loadSavedCredentials();
@@ -178,8 +204,12 @@ function LoginFormContent() {
                             onChange={(e) => setRememberMe(e.target.checked)}
                             className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                         />
-                        <label htmlFor="remember" className="text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
-                            Remember Password
+                        <label
+                            htmlFor="remember"
+                            className="text-sm text-gray-600 dark:text-gray-400 cursor-pointer"
+                            title="Desktop app: remembers your password securely via the OS keyring. Web: remembers your username only."
+                        >
+                            Remember me
                         </label>
                     </div>
 

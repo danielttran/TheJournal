@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Minimize2, Star, Hash, X, Lock } from 'lucide-react';
+import { Minimize2, Star, Hash, X, Lock, Printer, FileDown } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import WritingPromptsPicker from './WritingPromptsPicker';
@@ -1241,6 +1241,21 @@ function PluginLoadedEditor({
                             title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
                         >
                             <Star className={`w-4 h-4 ${isFavorited ? 'fill-yellow-400' : ''}`} />
+                        </button>
+
+                        <button
+                            onClick={() => window.dispatchEvent(new Event('trigger-print-entry'))}
+                            className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary"
+                            title="Print entry"
+                        >
+                            <Printer className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => window.dispatchEvent(new Event('trigger-export-pdf'))}
+                            className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary"
+                            title="Export entry as PDF"
+                        >
+                            <FileDown className="w-4 h-4" />
                         </button>
 
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>
