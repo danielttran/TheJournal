@@ -380,6 +380,12 @@ export class DBManager {
             // the renderer's minute-tick poll doesn't keep firing the same
             // popup forever.
             `ALTER TABLE Reminder ADD COLUMN NotifiedAt DATETIME`,
+            // M3.11: per-category passwords (envelope encryption).
+            // PasswordHash already exists (added earlier). PasswordSalt + a
+            // password-wrapped EEK let us decrypt entry content without ever
+            // persisting the plaintext key.
+            `ALTER TABLE Category ADD COLUMN PasswordSalt TEXT`,
+            `ALTER TABLE Category ADD COLUMN PasswordWrappedKey TEXT`,
         ];
 
         for (const migration of migrations) {

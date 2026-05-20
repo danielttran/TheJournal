@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Lock } from 'lucide-react';
 import type { Template } from './TemplatePicker';
 import type { Category } from '@/lib/types';
 
@@ -52,14 +52,24 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
     const [isSmartbook, setIsSmartbook] = useState(false);
     const [smartbookQuery, setSmartbookQuery] = useState<SmartbookQueryShape>({});
 
+    // Per-category password state (independent of main Save flow)
+    const [passwordLocked, setPasswordLocked] = useState(false);
+    const [showPwSet, setShowPwSet] = useState(false);
+    const [showPwClear, setShowPwClear] = useState(false);
+    const [pwInput1, setPwInput1] = useState('');
+    const [pwInput2, setPwInput2] = useState('');
+    const [pwBusy, setPwBusy] = useState(false);
+    const [pwError, setPwError] = useState<string | null>(null);
+
     useEffect(() => {
         let cancelled = false;
         const load = async () => {
             try {
-                const [catRes, tmplRes, allCatRes] = await Promise.all([
+                const [catRes, tmplRes, allCatRes, lockRes] = await Promise.all([
                     fetch(`/api/category/${categoryId}`),
                     fetch('/api/template'),
                     fetch('/api/category'),
+                    fetch(`/api/category/${categoryId}/lock`),
                 ]);
                 if (cancelled) return;
                 if (!catRes.ok) throw new Error('Could not load category');
@@ -78,6 +88,11 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
                 if (cat.SmartbookQuery) {
                     try { setSmartbookQuery(JSON.parse(cat.SmartbookQuery) as SmartbookQueryShape); }
                     catch { setSmartbookQuery({}); }
+                }
+
+                if (lockRes.ok) {
+                    const lockJson = await lockRes.json() as { locked: boolean };
+                    setPasswordLocked(!!lockJson.locked);
                 }
             } catch (err) {
                 if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -129,6 +144,56 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
 
     const updateQuery = (patch: Partial<SmartbookQueryShape>) =>
         setSmartbookQuery(q => ({ ...q, ...patch }));
+
+    const handleSetPassword = async () => {
+        if (pwInput1.length < 1) { setPwError('Password is required'); return; }
+        if (pwInput1 !== pwInput2) { setPwError('Passwords do not match'); return; }
+        setPwBusy(true);
+        setPwError(null);
+        try {
+            const res = await fetch(`/api/category/${categoryId}/lock`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pwInput1 }),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error?.toString?.() || `HTTP ${res.status}`);
+            }
+            setPasswordLocked(true);
+            setShowPwSet(false);
+            setPwInput1('');
+            setPwInput2('');
+        } catch (err) {
+            setPwError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setPwBusy(false);
+        }
+    };
+
+    const handleClearPassword = async () => {
+        if (!pwInput1) { setPwError('Enter the current password'); return; }
+        setPwBusy(true);
+        setPwError(null);
+        try {
+            const res = await fetch(`/api/category/${categoryId}/lock`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pwInput1 }),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error?.toString?.() || `HTTP ${res.status}`);
+            }
+            setPasswordLocked(false);
+            setShowPwClear(false);
+            setPwInput1('');
+        } catch (err) {
+            setPwError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setPwBusy(false);
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-[150] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
@@ -284,6 +349,94 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
                                             />
                                         </div>
                                     </div>
+                                </div>
+                            )}
+                        </section>
+
+                        <section>
+                            <label className="block text-text-muted text-xs uppercase tracking-wider mb-2 flex items-center gap-1">
+                                <Lock className="w-3 h-3" /> Password
+                            </label>
+                            {passwordLocked ? (
+                                <div className="space-y-2">
+                                    <p className="text-text-secondary">
+                                        This category is password-protected. Entries are encrypted at rest
+                                        with AES-256-GCM; forgetting the password makes the content unrecoverable.
+                                    </p>
+                                    {!showPwClear && (
+                                        <button
+                                            onClick={() => { setShowPwClear(true); setPwError(null); setPwInput1(''); }}
+                                            className="text-xs px-3 py-1 rounded bg-red-500/10 text-red-300 border border-red-500/30 hover:bg-red-500/20"
+                                        >
+                                            Remove password (decrypt entries)
+                                        </button>
+                                    )}
+                                    {showPwClear && (
+                                        <div className="flex flex-col gap-2">
+                                            <input
+                                                type="password"
+                                                placeholder="Current password"
+                                                value={pwInput1}
+                                                onChange={e => setPwInput1(e.target.value)}
+                                                className="w-full bg-bg-sidebar border border-border-primary rounded p-2 text-text-primary"
+                                            />
+                                            {pwError && <p className="text-xs text-red-400">{pwError}</p>}
+                                            <div className="flex gap-2 justify-end">
+                                                <button onClick={() => { setShowPwClear(false); setPwError(null); setPwInput1(''); }}
+                                                    className="px-3 py-1 text-text-muted hover:text-text-primary">Cancel</button>
+                                                <button onClick={handleClearPassword} disabled={pwBusy}
+                                                    className="px-3 py-1 bg-red-500 text-white rounded disabled:opacity-50">
+                                                    {pwBusy ? 'Decrypting…' : 'Remove password'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    <p className="text-text-secondary">
+                                        No password set. Entries in this category are not separately encrypted.
+                                    </p>
+                                    {!showPwSet && (
+                                        <button
+                                            onClick={() => { setShowPwSet(true); setPwError(null); setPwInput1(''); setPwInput2(''); }}
+                                            className="text-xs px-3 py-1 rounded bg-accent-primary/10 text-accent-primary border border-accent-primary/30 hover:bg-accent-primary/20"
+                                        >
+                                            Set a password (encrypt entries)
+                                        </button>
+                                    )}
+                                    {showPwSet && (
+                                        <div className="flex flex-col gap-2">
+                                            <input
+                                                type="password"
+                                                placeholder="New password"
+                                                value={pwInput1}
+                                                onChange={e => setPwInput1(e.target.value)}
+                                                autoComplete="new-password"
+                                                className="w-full bg-bg-sidebar border border-border-primary rounded p-2 text-text-primary"
+                                            />
+                                            <input
+                                                type="password"
+                                                placeholder="Confirm password"
+                                                value={pwInput2}
+                                                onChange={e => setPwInput2(e.target.value)}
+                                                autoComplete="new-password"
+                                                className="w-full bg-bg-sidebar border border-border-primary rounded p-2 text-text-primary"
+                                            />
+                                            <p className="text-xs text-yellow-400">
+                                                There is no recovery option. Losing this password means losing access to encrypted entries.
+                                            </p>
+                                            {pwError && <p className="text-xs text-red-400">{pwError}</p>}
+                                            <div className="flex gap-2 justify-end">
+                                                <button onClick={() => { setShowPwSet(false); setPwError(null); setPwInput1(''); setPwInput2(''); }}
+                                                    className="px-3 py-1 text-text-muted hover:text-text-primary">Cancel</button>
+                                                <button onClick={handleSetPassword} disabled={pwBusy}
+                                                    className="px-3 py-1 bg-accent-primary text-white rounded disabled:opacity-50">
+                                                    {pwBusy ? 'Encrypting…' : 'Set password'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </section>

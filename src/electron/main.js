@@ -312,6 +312,21 @@ function createWindow(url) {
     mainWindow.on('closed', () => {
         mainWindow = null;
     });
+
+    // M3: lock on minimize. When enabled in settings, hint the renderer
+    // to drop session state and route back to /login. The renderer also
+    // listens for its own idle timer; this main-process hook covers the
+    // case where the OS minimizes the window before the renderer notices.
+    mainWindow.on('minimize', () => {
+        try {
+            const s = settingsManager?.getSettings?.() ?? {};
+            if (s.lockOnMinimize && mainWindow) {
+                mainWindow.webContents.send('lock-app', { reason: 'minimize' });
+            }
+        } catch (err) {
+            console.error('[Electron] lock-on-minimize hook failed:', err);
+        }
+    });
 }
 
 function createMenu() {

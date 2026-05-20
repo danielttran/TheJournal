@@ -68,6 +68,7 @@ declare global {
             onLogoutRequest: (callback: () => void) => () => void;
             onOpenSettings: (callback: () => void) => () => void;
             onViewAction: (callback: (action: ElectronViewAction) => void) => () => void;
+            onLockApp?: (callback: (payload: { reason?: string }) => void) => () => void;
         };
     }
 }
