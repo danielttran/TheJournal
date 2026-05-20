@@ -578,6 +578,19 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                         </button>
                     )}
                     <button
+                        onClick={() => {
+                            if (!editor.isActive('image')) return;
+                            const current = (editor.getAttributes('image').alt as string | undefined) ?? '';
+                            const next = window.prompt('Image description (alt text — indexed by search):', current);
+                            if (next === null) return;
+                            editor.chain().focus().updateAttributes('image', { alt: next.trim() }).run();
+                        }}
+                        className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
+                        title="Edit alt text (description for screen readers and search)"
+                    >
+                        Alt
+                    </button>
+                    <button
                         onClick={removeSelectedImage}
                         className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-500/10"
                         title="Remove selected image"

@@ -71,6 +71,7 @@ export default function SearchPanel({
     const [entryType, setEntryType] = useState<'' | 'Page' | 'Folder'>('');
     const [matchCase, setMatchCase] = useState(false);
     const [wholeWord, setWholeWord] = useState(false);
+    const [regex, setRegex] = useState(false);
 
     // ── Results state ─────────────────────────────────────────────────────────
     const [results, setResults] = useState<SearchResult[]>([]);
@@ -111,6 +112,7 @@ export default function SearchPanel({
         if (entryType) params.set('entryType', entryType);
         if (matchCase) params.set('matchCase', '1');
         if (wholeWord) params.set('wholeWord', '1');
+        if (regex) params.set('regex', '1');
 
         try {
             const res = await fetch(`/api/search?${params}`, { signal: ctrl.signal });
@@ -126,7 +128,7 @@ export default function SearchPanel({
         } finally {
             setLoading(false);
         }
-    }, [currentCategoryId, scopeCategory, dateFrom, dateTo, searchIn, entryType, matchCase, wholeWord]);
+    }, [currentCategoryId, scopeCategory, dateFrom, dateTo, searchIn, entryType, matchCase, wholeWord, regex]);
 
     // Debounce simple search as user types
     const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -141,7 +143,7 @@ export default function SearchPanel({
     useEffect(() => {
         if (searched) executeSearch(query);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [searchIn, scopeCategory, dateFrom, dateTo, entryType, matchCase, wholeWord]);
+    }, [searchIn, scopeCategory, dateFrom, dateTo, entryType, matchCase, wholeWord, regex]);
 
     const loadMore = () => {
         offsetRef.current += 30;
@@ -161,7 +163,7 @@ export default function SearchPanel({
     };
 
     // ── Rendering ─────────────────────────────────────────────────────────────
-    const hasFilters = dateFrom || dateTo || entryType || matchCase || wholeWord || searchIn !== 'both' || scopeCategory !== 'current';
+    const hasFilters = dateFrom || dateTo || entryType || matchCase || wholeWord || regex || searchIn !== 'both' || scopeCategory !== 'current';
 
     return (
         /* Backdrop */
@@ -220,7 +222,7 @@ export default function SearchPanel({
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({
                                                 name,
-                                                query: { q: query, searchIn, scopeCategory, dateFrom, dateTo, entryType, matchCase, wholeWord },
+                                                query: { q: query, searchIn, scopeCategory, dateFrom, dateTo, entryType, matchCase, wholeWord, regex },
                                             }),
                                         });
                                         const res = await fetch('/api/saved-search');
@@ -246,6 +248,7 @@ export default function SearchPanel({
                                                     if (typeof q.entryType === 'string') setEntryType(q.entryType as '' | 'Page' | 'Folder');
                                                     if (typeof q.matchCase === 'boolean') setMatchCase(q.matchCase);
                                                     if (typeof q.wholeWord === 'boolean') setWholeWord(q.wholeWord);
+                                                    if (typeof q.regex === 'boolean') setRegex(q.regex);
                                                 } catch {}
                                                 setShowSavedMenu(false);
                                             }}
@@ -384,9 +387,19 @@ export default function SearchPanel({
                                     type="checkbox"
                                     checked={wholeWord}
                                     onChange={e => setWholeWord(e.target.checked)}
-                                    className="rounded border-border-primary accent-accent-primary"
+                                    disabled={regex}
+                                    className="rounded border-border-primary accent-accent-primary disabled:opacity-40"
                                 />
                                 Whole word
+                            </label>
+                            <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={regex}
+                                    onChange={e => setRegex(e.target.checked)}
+                                    className="rounded border-border-primary accent-accent-primary"
+                                />
+                                Regex
                             </label>
                         </div>
                     </div>

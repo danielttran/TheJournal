@@ -1,8 +1,15 @@
 import { db } from "@/lib/db";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
+import { compileSafeRegex, matchEntryAgainstRegex, SafeRegexError } from "@/lib/regexSearch";
 
 export const dynamic = 'force-dynamic';
+
+// When the user runs a regex search we bypass FTS — there's no index that
+// can pre-filter regex matches generically. Cap how many entries we walk
+// per request so a worst-case regex on a 100k-entry DB doesn't hang the
+// server. Pagination still works via offset on the post-filtered set.
+const REGEX_MAX_SCAN = 5000;
 
 interface SearchRow {
     EntryID: number;
@@ -90,6 +97,7 @@ export async function GET(req: NextRequest) {
         const entryType = searchParams.get('entryType') || null;
         const matchCase = searchParams.get('matchCase') === '1';
         const wholeWord = searchParams.get('wholeWord') === '1';
+        const regex = searchParams.get('regex') === '1';
         const parsedLimit = Number.parseInt(searchParams.get('limit') || '50', 10);
         const parsedOffset = Number.parseInt(searchParams.get('offset') || '0', 10);
         const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
@@ -117,6 +125,72 @@ export async function GET(req: NextRequest) {
         if (entryType) {
             conditions.push('e.EntryType = ?');
             params.push(entryType);
+        }
+
+        // Regex path: skip FTS, fetch a bounded slice of entries matching the
+        // SQL-level filters (category/date/etc.), then JS-filter.
+        if (regex) {
+            let re: RegExp;
+            try {
+                re = compileSafeRegex(q, { matchCase });
+            } catch (err) {
+                const msg = err instanceof SafeRegexError ? err.message : 'Invalid regex';
+                return NextResponse.json({ error: msg }, { status: 400 });
+            }
+
+            const whereClauseRx = conditions.join(' AND ');
+            const rxRows = await db.prepare(`
+                SELECT
+                    e.EntryID, e.Title, e.CategoryID, e.CreatedDate, e.ModifiedDate, e.EntryType,
+                    c.Name AS CategoryName, c.Type AS CategoryType,
+                    ec.HtmlContent
+                FROM Entry e
+                JOIN Category c ON e.CategoryID = c.CategoryID
+                LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
+                WHERE ${whereClauseRx}
+                ORDER BY e.ModifiedDate DESC
+                LIMIT ?
+            `).all<SearchRow>(...params, REGEX_MAX_SCAN);
+
+            const filtered: SearchRow[] = [];
+            for (const row of rxRows as SearchRow[]) {
+                const plain = row.HtmlContent ? stripHtml(row.HtmlContent) : '';
+                const out = matchEntryAgainstRegex(re, {
+                    title: row.Title,
+                    plainContent: plain,
+                    searchIn: searchIn as 'title' | 'content' | 'both',
+                });
+                if (out.any) filtered.push(row);
+            }
+
+            const total = filtered.length;
+            const slice = filtered.slice(offset, offset + limit);
+            return NextResponse.json({
+                results: slice.map(row => {
+                    const plain = row.HtmlContent ? stripHtml(row.HtmlContent) : '';
+                    re.lastIndex = 0;
+                    const titleMatch = re.test(row.Title);
+                    re.lastIndex = 0;
+                    const contentMatch = re.test(plain);
+                    const snippet = contentMatch ? extractSnippet(plain, q) : plain.substring(0, 200) + (plain.length > 200 ? '…' : '');
+                    return {
+                        EntryID: row.EntryID,
+                        Title: row.Title,
+                        CategoryID: row.CategoryID,
+                        CategoryName: row.CategoryName,
+                        CategoryType: row.CategoryType,
+                        CreatedDate: row.CreatedDate,
+                        ModifiedDate: row.ModifiedDate,
+                        EntryType: row.EntryType,
+                        snippet,
+                        titleMatch,
+                        contentMatch,
+                    };
+                }),
+                total,
+                hasMore: offset + limit < total,
+                scanCapped: rxRows.length >= REGEX_MAX_SCAN,
+            });
         }
 
         const useFts = !matchCase;
