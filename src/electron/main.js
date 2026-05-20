@@ -460,6 +460,54 @@ function createMenu() {
             ]
         },
         {
+            label: 'Help',
+            submenu: [
+                {
+                    label: 'Documentation',
+                    click: async () => {
+                        try { await shell.openExternal('https://github.com/danielttran/TheJournal#readme'); }
+                        catch (err) { console.error('[Electron] Failed to open docs:', err); }
+                    }
+                },
+                {
+                    label: 'Keyboard Shortcuts',
+                    click: () => {
+                        // Routes the renderer to the Settings → Keyboard Shortcuts panel.
+                        if (mainWindow) mainWindow.webContents.send('open-settings');
+                    }
+                },
+                {
+                    label: 'Plugin API Reference',
+                    click: async () => {
+                        try { await shell.openExternal('https://github.com/danielttran/TheJournal/blob/main/docs/plugins.md'); }
+                        catch (err) { console.error('[Electron] Failed to open plugin docs:', err); }
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: 'Report an Issue',
+                    click: async () => {
+                        try { await shell.openExternal('https://github.com/danielttran/TheJournal/issues/new'); }
+                        catch (err) { console.error('[Electron] Failed to open issues:', err); }
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: 'About TheJournal',
+                    click: () => {
+                        const { dialog: aboutDialog, app: aboutApp } = require('electron');
+                        aboutDialog.showMessageBox(mainWindow ?? undefined, {
+                            type: 'info',
+                            title: 'About TheJournal',
+                            message: 'TheJournal',
+                            detail: `Version ${aboutApp.getVersion()}\n\nA local-first encrypted journaling app with DavidRM "The Journal" parity.\n\nPlugins and keyboard shortcuts are configurable from the Settings menu.`,
+                            buttons: ['OK'],
+                        });
+                    }
+                }
+            ]
+        },
+        {
             label: 'View',
             submenu: [
                 { role: 'reload' },
