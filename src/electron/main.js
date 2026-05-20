@@ -102,6 +102,14 @@ async function startServer() {
     process.env.JOURNAL_DB_PATH = getDatabasePath();
     console.log('[Electron] Database Path:', process.env.JOURNAL_DB_PATH);
 
+    // Steer the web-build plugins API at the Electron plugin folder so the
+    // Settings → Plugins UI and the native Plugins → Install Plugin menu
+    // both touch the same on-disk location. Without this, installs done
+    // via the in-app UI would land in <cwd>/plugins while installs done
+    // via the menu land in [userData]/plugins.
+    process.env.JOURNAL_PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
+    console.log('[Electron] Plugins Path:', process.env.JOURNAL_PLUGINS_DIR);
+
     const port = await getPort({ port: getPort.makeRange(3000, 3100) });
 
     if (dev) {

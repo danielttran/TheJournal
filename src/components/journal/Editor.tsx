@@ -67,16 +67,32 @@ export default function Editor(props: EditorProps) {
     useEffect(() => {
         let isMounted = true;
 
+        // Plugin loading is identical on Electron and the web build — the
+        // only difference is the source:
+        //   - Electron: window.electron.getPlugins() (filesystem via IPC)
+        //   - Web:      GET /api/plugins (filesystem via the server)
+        // Both yield the same PluginPayload[] shape so the executor below
+        // doesn't care which mode we're in.
+        const fetchPlugins = async (): Promise<{ id: string; scriptContent: string }[]> => {
+            if (typeof window === 'undefined') return [];
+            if (window.electron?.getPlugins) {
+                return window.electron.getPlugins();
+            }
+            try {
+                const res = await fetch('/api/plugins');
+                if (!res.ok) return [];
+                const data = await res.json() as { plugins?: { id: string; scriptContent: string }[] };
+                return Array.isArray(data.plugins) ? data.plugins : [];
+            } catch {
+                return [];
+            }
+        };
+
         const loadPlugins = async () => {
             TheJournalAPI.reset();
 
-            if (typeof window === 'undefined' || !window.electron?.getPlugins) {
-                if (isMounted) setPluginsLoaded(true);
-                return;
-            }
-
             try {
-                const plugins = await window.electron.getPlugins();
+                const plugins = await fetchPlugins();
                 if (!isMounted) return;
 
                 for (const plugin of plugins) {
