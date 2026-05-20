@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveInitialEntryContent } from "@/lib/categoryTemplate";
+import { maybeEncryptForCategory } from "@/lib/entryEncryption";
 
 const CreateEntrySchema = z.object({
     categoryId: z.number().or(z.string().transform(val => parseInt(val, 10))),
@@ -45,6 +46,27 @@ export async function POST(req: NextRequest) {
                 { explicitTemplateId: templateId ?? null },
             );
 
+        // Encrypt initial content if the category is password-locked. Refuse
+        // when the EEK isn't cached — silently writing plaintext to a locked
+        // category would defeat the lock.
+        let storedHtml: string;
+        let storedJson: string;
+        try {
+            const enc = await maybeEncryptForCategory(
+                dbManager, userId, Number(categoryId), initialHtml, initialDocumentJson,
+            );
+            storedHtml = enc.html ?? '';
+            storedJson = enc.documentJson ?? initialDocumentJson;
+        } catch (err) {
+            if ((err as Error & { code?: string }).code === 'CATEGORY_LOCKED') {
+                return NextResponse.json(
+                    { error: 'Category is locked. Unlock it before creating new entries.' },
+                    { status: 423 },
+                );
+            }
+            throw err;
+        }
+
         // Create Entry + Content atomically to prevent orphaned rows
         const createEntry = db.transaction(async () => {
             const result = await db.prepare(`
@@ -57,7 +79,7 @@ export async function POST(req: NextRequest) {
             await db.prepare(`
                 INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson)
                 VALUES (?, ?, ?)
-            `).run(newEntryId, initialHtml, initialDocumentJson);
+            `).run(newEntryId, storedHtml, storedJson);
 
             return newEntryId;
         });

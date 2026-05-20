@@ -66,18 +66,27 @@ export default function CommandDispatcher({ runner = runCommand }: { runner?: Co
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
+            // If ProseMirror (or any earlier handler) already handled this
+            // key, bail — re-dispatching `trigger-undo` / `trigger-inline-code`
+            // / etc. would double-fire the action (e.g. two undos for a single
+            // Ctrl+Z). The TipTap StarterKit's history & marks keymap calls
+            // preventDefault on success.
+            if (e.defaultPrevented) return;
+
             for (const cmd of COMMANDS) {
                 const binding = resolveBindingForCommand(cmd.id, overridesRef.current);
                 if (!binding) continue;
                 if (eventMatchesBinding(e, binding)) {
                     // Only intercept if focus isn't inside an input/textarea
-                    // unless the binding starts with Ctrl/Alt/Meta — single-key
-                    // bindings shouldn't hijack ordinary typing.
+                    // unless the binding has a "real" modifier (Ctrl/Alt/Meta)
+                    // or is a function key — single-letter and Shift+letter
+                    // shouldn't hijack ordinary typing.
                     const parts = binding.split('+');
-                    const hasModifier = parts.length > 1 || /^F\d+$/.test(parts[0]);
+                    const hasRealModifier = parts.some(p => p === 'Ctrl' || p === 'Alt' || p === 'Meta')
+                        || /^F\d+$/.test(parts[parts.length - 1]);
                     const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
                     const inField = tag === 'input' || tag === 'textarea';
-                    if (!hasModifier && inField) continue;
+                    if (!hasRealModifier && inField) continue;
 
                     e.preventDefault();
                     runner(cmd.id);

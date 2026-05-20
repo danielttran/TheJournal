@@ -27,12 +27,25 @@ export function cacheCategoryKey(userId: number, categoryId: number, eek: Uint8A
     cache.set(key(userId, categoryId), { eek, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
+// Defense in depth: on eviction we zero the EEK buffer before dropping the
+// reference. JS GC will eventually reclaim the memory, but until then a
+// heap dump of the running process would expose the plaintext key. This
+// shrinks (not closes) that window. The crypto.randomBytes-allocated
+// Uint8Array we cache is backed by a regular ArrayBuffer we own, so
+// in-place fill is safe.
+function evict(k: string): void {
+    const entry = cache.get(k);
+    if (!entry) return;
+    try { entry.eek.fill(0); } catch { /* immutable view — best effort */ }
+    cache.delete(k);
+}
+
 export function getCategoryKey(userId: number, categoryId: number): Uint8Array | null {
     const k = key(userId, categoryId);
     const entry = cache.get(k);
     if (!entry) return null;
     if (Date.now() > entry.expiresAt) {
-        cache.delete(k);
+        evict(k);
         return null;
     }
     // Touch — sliding TTL keeps active sessions unlocked.
@@ -41,12 +54,12 @@ export function getCategoryKey(userId: number, categoryId: number): Uint8Array |
 }
 
 export function clearCategoryKey(userId: number, categoryId: number): void {
-    cache.delete(key(userId, categoryId));
+    evict(key(userId, categoryId));
 }
 
 export function clearAllForUser(userId: number): void {
     const prefix = `${userId}:`;
-    for (const k of cache.keys()) {
-        if (k.startsWith(prefix)) cache.delete(k);
+    for (const k of [...cache.keys()]) {
+        if (k.startsWith(prefix)) evict(k);
     }
 }
