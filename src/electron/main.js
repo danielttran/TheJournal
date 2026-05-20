@@ -203,9 +203,46 @@ async function installPluginFromFolder(sourcePath, dialog) {
         return false;
     }
 
-    const sanitizedId = String(manifest.id || path.basename(resolvedSourcePath)).replace(/[^A-Za-z0-9._-]/g, '-');
-    const pluginId = sanitizedId || path.basename(resolvedSourcePath) || 'plugin';
-    const destinationPath = path.resolve(ensurePluginDir(), pluginId);
+    const rawId = String(manifest.id || path.basename(resolvedSourcePath));
+    const sanitizedId = rawId.replace(/[^A-Za-z0-9._-]/g, '-');
+    // Reject ids that would escape the plugins directory or refer to the
+    // directory itself. Without this, a manifest with `"id": ".."` would
+    // resolve destinationPath to the userData root and the rmSync below
+    // would wipe the user's database, settings, and other plugins.
+    const looksLikeTraversal = !sanitizedId
+        || sanitizedId === '.'
+        || sanitizedId === '..'
+        || sanitizedId.startsWith('.')
+        || sanitizedId.includes('/')
+        || sanitizedId.includes('\\');
+    if (looksLikeTraversal) {
+        await dialog.showMessageBox(mainWindow ?? undefined, {
+            type: 'error',
+            title: 'Invalid Plugin ID',
+            message: 'The plugin id is not allowed.',
+            detail: 'Plugin ids must consist of letters, numbers, underscores, or hyphens, and cannot be ".", "..", or start with a dot.',
+        });
+        return false;
+    }
+    const pluginId = sanitizedId;
+    const pluginsDir = ensurePluginDir();
+    const destinationPath = path.resolve(pluginsDir, pluginId);
+    // Defense in depth: ensure destinationPath is strictly inside pluginsDir.
+    const relFromPluginsDir = path.relative(pluginsDir, destinationPath);
+    if (
+        !relFromPluginsDir
+        || relFromPluginsDir.startsWith('..')
+        || path.isAbsolute(relFromPluginsDir)
+        || relFromPluginsDir.split(path.sep).length !== 1
+    ) {
+        await dialog.showMessageBox(mainWindow ?? undefined, {
+            type: 'error',
+            title: 'Invalid Plugin Path',
+            message: 'The plugin destination is outside the plugins folder.',
+            detail: 'This plugin id would write outside the managed plugins directory and was refused.',
+        });
+        return false;
+    }
     const isAlreadyInstalled = resolvedSourcePath.toLowerCase() === destinationPath.toLowerCase();
 
     if (!isAlreadyInstalled && fs.existsSync(destinationPath)) {
@@ -274,6 +311,21 @@ function createWindow(url) {
 
     mainWindow.on('closed', () => {
         mainWindow = null;
+    });
+
+    // M3: lock on minimize. When enabled in settings, hint the renderer
+    // to drop session state and route back to /login. The renderer also
+    // listens for its own idle timer; this main-process hook covers the
+    // case where the OS minimizes the window before the renderer notices.
+    mainWindow.on('minimize', () => {
+        try {
+            const s = settingsManager?.getSettings?.() ?? {};
+            if (s.lockOnMinimize && mainWindow) {
+                mainWindow.webContents.send('lock-app', { reason: 'minimize' });
+            }
+        } catch (err) {
+            console.error('[Electron] lock-on-minimize hook failed:', err);
+        }
     });
 }
 
@@ -403,6 +455,54 @@ function createMenu() {
                         } catch (err) {
                             console.error('[Electron] Failed to open plugins folder:', err);
                         }
+                    }
+                }
+            ]
+        },
+        {
+            label: 'Help',
+            submenu: [
+                {
+                    label: 'Documentation',
+                    click: async () => {
+                        try { await shell.openExternal('https://github.com/danielttran/TheJournal#readme'); }
+                        catch (err) { console.error('[Electron] Failed to open docs:', err); }
+                    }
+                },
+                {
+                    label: 'Keyboard Shortcuts',
+                    click: () => {
+                        // Routes the renderer to the Settings → Keyboard Shortcuts panel.
+                        if (mainWindow) mainWindow.webContents.send('open-settings');
+                    }
+                },
+                {
+                    label: 'Plugin API Reference',
+                    click: async () => {
+                        try { await shell.openExternal('https://github.com/danielttran/TheJournal/blob/main/docs/plugins.md'); }
+                        catch (err) { console.error('[Electron] Failed to open plugin docs:', err); }
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: 'Report an Issue',
+                    click: async () => {
+                        try { await shell.openExternal('https://github.com/danielttran/TheJournal/issues/new'); }
+                        catch (err) { console.error('[Electron] Failed to open issues:', err); }
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: 'About TheJournal',
+                    click: () => {
+                        const { dialog: aboutDialog, app: aboutApp } = require('electron');
+                        aboutDialog.showMessageBox(mainWindow ?? undefined, {
+                            type: 'info',
+                            title: 'About TheJournal',
+                            message: 'TheJournal',
+                            detail: `Version ${aboutApp.getVersion()}\n\nA local-first encrypted journaling app with DavidRM "The Journal" parity.\n\nPlugins and keyboard shortcuts are configurable from the Settings menu.`,
+                            buttons: ['OK'],
+                        });
                     }
                 }
             ]

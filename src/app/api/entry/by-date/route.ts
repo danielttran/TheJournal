@@ -1,7 +1,10 @@
-import { db } from "@/lib/db";
+import { db, dbManager } from "@/lib/db";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { resolveInitialEntryContent } from "@/lib/categoryTemplate";
+import { linkEntryAsFutureReminder } from "@/lib/futureEntries";
+import { maybeEncryptForCategory } from "@/lib/entryEncryption";
 
 const RequestSchema = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD
@@ -30,14 +33,42 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 403 });
         }
 
+        // Resolve auto-template OUTSIDE the transaction so the SQLCipher
+        // statement doesn't compete with the transaction for the same conn
+        // and we keep the transaction body tight.
+        const initial = await resolveInitialEntryContent(dbManager, userId, Number(categoryId));
+
+        // If the category is password-locked, the initial content needs to be
+        // encrypted with the cached EEK before insert. maybeEncryptForCategory
+        // throws CATEGORY_LOCKED when the key isn't available — surface that
+        // as 423 so the renderer can prompt for the password rather than
+        // silently writing plaintext into a locked category.
+        let encryptedInitial: { html: string; documentJson: string };
+        try {
+            const enc = await maybeEncryptForCategory(
+                dbManager, userId, Number(categoryId), initial.html, initial.documentJson,
+            );
+            encryptedInitial = {
+                html: enc.html ?? '',
+                documentJson: enc.documentJson ?? initial.documentJson,
+            };
+        } catch (err) {
+            if ((err as Error & { code?: string }).code === 'CATEGORY_LOCKED') {
+                return NextResponse.json(
+                    { error: 'Category is locked. Unlock it before creating new entries.' },
+                    { status: 423 },
+                );
+            }
+            throw err;
+        }
+
         // Check and create atomically inside a transaction to prevent duplicate entries
         // from concurrent requests for the same date (TOCTOU race condition).
-        const initialDocumentJson = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] });
         const getOrCreateEntry = db.transaction(async () => {
             // Re-check inside the transaction so the SELECT + INSERT are atomic
             const existing = await db.prepare(`
                 SELECT e.EntryID, e.Title, ec.HtmlContent, ec.DocumentJson, e.Version,
-                       e.IsFavorited, e.Mood, e.Tags
+                       e.IsFavorited, e.Mood, e.Tags, e.IsLocked
                 FROM Entry e
                 LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
                 WHERE e.CategoryID = ? AND date(e.CreatedDate) = ? AND e.IsDeleted = 0
@@ -45,6 +76,7 @@ export async function POST(req: NextRequest) {
                 EntryID: number; Title: string; Version: number;
                 HtmlContent: string | null; DocumentJson: string | null;
                 IsFavorited: number | boolean; Mood: string | null; Tags: string | null;
+                IsLocked: number | boolean;
             } | undefined;
 
             if (existing) return { entry: existing, isNew: false };
@@ -53,19 +85,39 @@ export async function POST(req: NextRequest) {
             const newEntryResult = await db.prepare(`
                 INSERT INTO Entry (CategoryID, Title, PreviewText, CreatedDate)
                 VALUES (?, ?, ?, ?)
-            `).run(categoryId, 'New Entry', 'Start writing...', `${date} 12:00:00`);
+            `).run(categoryId, 'New Entry', initial.previewText, `${date} 12:00:00`);
 
             const newEntryId = newEntryResult.lastInsertRowid;
 
             await db.prepare(`
                 INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson)
                 VALUES (?, ?, ?)
-            `).run(newEntryId, '', initialDocumentJson);
+            `).run(newEntryId, encryptedInitial.html, encryptedInitial.documentJson);
 
-            return { entry: { EntryID: newEntryId, Title: 'New Entry', HtmlContent: '', DocumentJson: initialDocumentJson, Version: 1, IsFavorited: 0, Mood: null, Tags: '[]' }, isNew: true };
+            // Return the PLAINTEXT initial values to the renderer — the response
+            // is for immediate editor population, not for re-encryption.
+            return { entry: { EntryID: newEntryId, Title: 'New Entry', HtmlContent: initial.html, DocumentJson: initial.documentJson, Version: 1, IsFavorited: 0, Mood: null, Tags: '[]', IsLocked: 0 }, isNew: true };
         });
 
         const { entry, isNew } = await getOrCreateEntry();
+
+        // DavidRM parity: when the user navigates to a future date and a new
+        // entry is created, surface it as an Event reminder. linkEntryAsFutureReminder
+        // is a no-op for past/now dates so back-fills don't spawn stale reminders.
+        if (isNew) {
+            const nowIso = new Date().toISOString();
+            const dueAt = new Date(`${date}T12:00:00`).toISOString();
+            await linkEntryAsFutureReminder(dbManager, userId, {
+                entryId: Number(entry.EntryID),
+                title: entry.Title || `Journal entry — ${date}`,
+                dueAt,
+                nowIso,
+            }).catch(err => {
+                // Reminder creation failure shouldn't abort the entry — it's a
+                // side-feature, not a write to the entry itself.
+                console.error('[by-date] linkEntryAsFutureReminder failed:', err);
+            });
+        }
 
         return NextResponse.json({
             id: entry.EntryID,
@@ -76,6 +128,7 @@ export async function POST(req: NextRequest) {
             IsFavorited: entry.IsFavorited ?? 0,
             Mood: entry.Mood ?? null,
             Tags: entry.Tags ?? '[]',
+            IsLocked: entry.IsLocked ?? 0,
             isNew
         });
 

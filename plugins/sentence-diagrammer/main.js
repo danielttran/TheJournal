@@ -16,6 +16,8 @@
   };
   const tokenize = text => text.trim().split(/\s+/).filter(Boolean);
   const labelFor = key => ({ subject: 'Subject', verb: 'Predicate', directObject: 'Direct Object' })[key] || key;
+  // Custom MIME so foreign drags (e.g. selected text) cannot move tokens.
+  const TOKEN_MIME = 'application/x-tj-sentence-token';
 
   function createMeasure(root) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -169,14 +171,17 @@
     root.appendChild(svg);
     root.querySelectorAll('[data-drop-kind]').forEach(zone => {
       zone.addEventListener('dragover', event => {
+        // Only accept drags that originated from one of our token chips.
+        if (!Array.from(event.dataTransfer.types || []).includes(TOKEN_MIME)) return;
         event.preventDefault();
         zone.classList.add('sd-drop-active');
       });
       zone.addEventListener('dragleave', () => zone.classList.remove('sd-drop-active'));
       zone.addEventListener('drop', event => {
+        if (!Array.from(event.dataTransfer.types || []).includes(TOKEN_MIME)) return;
         event.preventDefault();
         zone.classList.remove('sd-drop-active');
-        options.onDrop(zone.getAttribute('data-slot'), zone.getAttribute('data-drop-kind'), event.dataTransfer.getData('text/plain'));
+        options.onDrop(zone.getAttribute('data-slot'), zone.getAttribute('data-drop-kind'), event.dataTransfer.getData(TOKEN_MIME));
       });
     });
   }
@@ -204,6 +209,9 @@
       return ({ node, view, getPos }) => {
         let currentNode = node;
         let isEditing = !(node.attrs.rawText || '').trim();
+        // Tracks the in-flight input value so click-outside / "Done" can
+        // commit text the user typed but never pressed Enter on.
+        let pendingRawText = null;
         const dom = document.createElement('div');
         dom.className = 'tj-sentence-diagram';
         dom.style.border = '1px solid var(--color-border-primary, #374151)';
@@ -219,6 +227,14 @@
           const attrs = { ...currentNode.attrs, ...next };
           const tr = view.state.tr.setNodeMarkup(pos, undefined, attrs);
           view.dispatch(tr);
+        };
+
+        const commitPendingInput = () => {
+          if (pendingRawText === null) return;
+          const rawText = pendingRawText.trim();
+          pendingRawText = null;
+          if (rawText === (currentNode.attrs.rawText || '')) return;
+          updateAttrs({ rawText, tokens: tokenize(rawText), diagramTree: defaultTree() });
         };
 
         const render = () => {
@@ -242,10 +258,12 @@
             input.style.borderRadius = '6px';
             input.style.background = 'var(--color-bg-sidebar, transparent)';
             input.style.color = 'inherit';
+            input.addEventListener('input', () => { pendingRawText = input.value; });
             input.addEventListener('keydown', event => {
               if (event.key !== 'Enter') return;
               event.preventDefault();
               const rawText = input.value.trim();
+              pendingRawText = null;
               updateAttrs({ rawText, tokens: tokenize(rawText), diagramTree: defaultTree() });
             });
             controls.appendChild(input);
@@ -258,7 +276,14 @@
             done.style.border = '1px solid var(--color-border-primary, #374151)';
             done.style.background = 'transparent';
             done.style.color = 'inherit';
-            done.addEventListener('click', () => { isEditing = false; render(); });
+            done.addEventListener('click', event => {
+              // Stop the click from bubbling to `dom`, whose listener would
+              // immediately flip `isEditing` back to true.
+              event.stopPropagation();
+              commitPendingInput();
+              isEditing = false;
+              render();
+            });
             controls.appendChild(done);
             dom.appendChild(controls);
 
@@ -278,7 +303,7 @@
               chip.style.cursor = 'grab';
               chip.style.userSelect = 'none';
               chip.addEventListener('dragstart', event => {
-                event.dataTransfer.setData('text/plain', String(index));
+                event.dataTransfer.setData(TOKEN_MIME, String(index));
                 event.dataTransfer.effectAllowed = 'move';
               });
               tokenRow.appendChild(chip);
@@ -304,6 +329,7 @@
 
         const outsideHandler = event => {
           if (!dom.contains(event.target) && isEditing) {
+            commitPendingInput();
             isEditing = false;
             render();
           }

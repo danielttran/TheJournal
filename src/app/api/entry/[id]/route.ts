@@ -1,6 +1,8 @@
 import { db, dbManager } from "@/lib/db";
 import { softDeleteEntry, permanentlyDeleteEntry } from "@/lib/trash";
 import { normalizeTag } from "@/lib/tags";
+import { isWriteToLockedEntryBlocked } from "@/lib/entryLock";
+import { decryptEntryContent, maybeEncryptForCategory } from "@/lib/entryEncryption";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -95,19 +97,37 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const userId = parseInt(userIdCookie.value, 10);
 
         const entry = await db.prepare(`
-            SELECT e.EntryID, e.Title, ec.HtmlContent, ec.DocumentJson, e.Icon, e.Version,
-                   e.IsFavorited, e.Mood, e.Tags
+            SELECT e.EntryID, e.Title, e.CategoryID, ec.HtmlContent, ec.DocumentJson, e.Icon, e.Version,
+                   e.IsFavorited, e.Mood, e.Tags, e.IsLocked
             FROM Entry e
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
             JOIN Category c ON e.CategoryID = c.CategoryID
             WHERE e.EntryID = ? AND c.UserID = ?
-        `).get(entryId, userId);
+        `).get(entryId, userId) as {
+            EntryID: number; Title: string; CategoryID: number;
+            HtmlContent: string | null; DocumentJson: string | null;
+            Icon: string | null; Version: number;
+            IsFavorited: number | boolean; Mood: string | null; Tags: string | null;
+            IsLocked: number | boolean;
+        } | undefined;
 
         if (!entry) {
             return NextResponse.json({ error: "Entry not found" }, { status: 404 });
         }
 
-        return NextResponse.json(entry);
+        // Decrypt category-locked content if the EEK is cached. When the
+        // category is locked and we don't have the key, return null
+        // content + categoryLocked=true so the renderer can prompt for
+        // the password instead of rendering ciphertext.
+        const decrypted = await decryptEntryContent(
+            dbManager, userId, entry.CategoryID, entry.HtmlContent, entry.DocumentJson,
+        );
+        return NextResponse.json({
+            ...entry,
+            HtmlContent: decrypted.html,
+            DocumentJson: decrypted.documentJson,
+            categoryLocked: decrypted.locked,
+        });
     } catch (error) {
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
@@ -146,6 +166,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         if (!ownerCheck) {
             return NextResponse.json({ error: "Entry not found or unauthorized" }, { status: 403 });
+        }
+
+        // 2a. Read-only-lock enforcement: a locked entry refuses content writes
+        // (html/documentJson/title/preview) but still allows isLocked toggles and
+        // metadata edits (mood/favorite/tags). Without this, a stale TipTap save
+        // from another tab could overwrite a locked entry's content.
+        if (await isWriteToLockedEntryBlocked(dbManager, entryId, result.data as Record<string, unknown>)) {
+            return NextResponse.json(
+                { error: "Entry is locked. Unlock from the sidebar menu to edit." },
+                { status: 423 },
+            );
         }
 
         // 2b. If parentEntryId is being set, validate it to prevent cycles and cross-category moves
@@ -204,9 +235,30 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
             // 4. Update Content (if provided)
             if (html !== undefined || documentJson !== undefined) {
-                const documentJsonString = documentJson !== undefined
+                let documentJsonString: string | null = documentJson !== undefined
                     ? (typeof documentJson === 'string' ? documentJson : JSON.stringify(documentJson))
                     : null;
+                let htmlToWrite: string | null = html ?? null;
+
+                // M3.11 — if the category is password-locked, encrypt with
+                // the cached EEK before persisting. A locked category with
+                // no cached EEK rejects the save (the request would
+                // otherwise overwrite ciphertext with plaintext).
+                try {
+                    const encrypted = await maybeEncryptForCategory(
+                        dbManager, userId, ownerCheck.CategoryID, htmlToWrite, documentJsonString,
+                    );
+                    htmlToWrite = encrypted.html;
+                    documentJsonString = encrypted.documentJson;
+                } catch (err) {
+                    if ((err as Error & { code?: string }).code === 'CATEGORY_LOCKED') {
+                        throw Object.assign(new Error('category_locked'), {
+                            status: 423,
+                            message: 'Category is locked. Unlock it first.',
+                        });
+                    }
+                    throw err;
+                }
 
                 const updateContent = await db.prepare(`
                     UPDATE EntryContent
@@ -214,7 +266,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                         HtmlContent = COALESCE(?, HtmlContent),
                         DocumentJson = COALESCE(?, DocumentJson)
                     WHERE EntryID = ?
-                `).run(html ?? null, documentJsonString, entryId);
+                `).run(htmlToWrite, documentJsonString, entryId);
 
                 if (updateContent.changes === 0) {
                     await db.prepare(`
@@ -261,6 +313,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             }
             if (e.status === 404) {
                 return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+            }
+            if (e.status === 423) {
+                return NextResponse.json({ error: e.message ?? 'Locked' }, { status: 423 });
             }
             throw txErr; // re-throw unexpected errors
         }

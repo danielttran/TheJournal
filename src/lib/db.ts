@@ -376,6 +376,18 @@ export class DBManager {
             // entries matching a saved query instead of holding its own entries.
             `ALTER TABLE Category ADD COLUMN IsSmartbook BOOLEAN DEFAULT 0`,
             `ALTER TABLE Category ADD COLUMN SmartbookQuery TEXT`,
+            // M2: track which reminders have already fired a notification so
+            // the renderer's minute-tick poll doesn't keep firing the same
+            // popup forever.
+            `ALTER TABLE Reminder ADD COLUMN NotifiedAt DATETIME`,
+            // M3.11: per-category passwords (envelope encryption).
+            // PasswordHash already exists (added earlier). PasswordSalt + a
+            // password-wrapped EEK let us decrypt entry content without ever
+            // persisting the plaintext key.
+            `ALTER TABLE Category ADD COLUMN PasswordSalt TEXT`,
+            `ALTER TABLE Category ADD COLUMN PasswordWrappedKey TEXT`,
+            // M6.17: hierarchical topics — Topic gains a nullable parent ref.
+            `ALTER TABLE Topic ADD COLUMN ParentTopicID INTEGER REFERENCES Topic(TopicID) ON DELETE SET NULL`,
         ];
 
         for (const migration of migrations) {

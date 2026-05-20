@@ -33,4 +33,8 @@ contextBridge.exposeInMainWorld('electron', {
     onOpenJournal:           (cb) => subscribe('open-journal', cb, (_event, filePath) => [filePath]),
     saveEntryPdf:            (entryHtml, suggestedName) =>
         ipcRenderer.invoke('save-entry-pdf', entryHtml, suggestedName),
+
+    // M3 security UX: main fires this when the window is minimized and
+    // lockOnMinimize is enabled, so the renderer can route to /login.
+    onLockApp:               (cb) => subscribe('lock-app', cb, (_event, payload) => [payload]),
 });

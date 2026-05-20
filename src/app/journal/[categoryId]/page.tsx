@@ -13,6 +13,7 @@ interface CategoryRow {
     IsPrivate: number;
     ViewSettings: string | null;
     SortOrder: number;
+    IsSmartbook?: number | boolean;
 }
 
 interface GridEntryRow {
@@ -129,6 +130,7 @@ export default async function JournalPage({ params, searchParams }: {
             gridTitle={gridTitle}
             dataUrl={dataUrl}
             gridMode={gridMode}
+            isSmartbook={!!category.IsSmartbook}
         />
     );
 }

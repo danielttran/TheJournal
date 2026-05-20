@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { X, Folder } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useToast } from './Toast';
+import KeybindingsSection from './KeybindingsSection';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -18,6 +19,8 @@ interface Settings {
     themePreferences?: ThemePreferences;
     themePalette?: string;
     defaultFontSize: number;
+    idleLockMinutes?: number;
+    lockOnMinimize?: boolean;
 }
 
 export const THEME_PALETTES = [
@@ -40,6 +43,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         backupFrequency: 3,
         retentionCount: 3,
         defaultFontSize: 14,
+        idleLockMinutes: 0,
+        lockOnMinimize: false,
         themePreferences: {},
     });
     const [loading, setLoading] = useState(true);
@@ -77,6 +82,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         themePreferences: saved.themePreferences || {},
                         themePalette: saved.themePalette || 'default',
                         defaultFontSize: saved.defaultFontSize || 14,
+                        idleLockMinutes: Number(saved.idleLockMinutes) || 0,
+                        lockOnMinimize: !!saved.lockOnMinimize,
                     });
                 }
             } catch (error) {
@@ -117,6 +124,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         }
         if (key === 'themePalette') {
             window.dispatchEvent(new Event('theme-settings-changed'));
+        }
+        if (key === 'idleLockMinutes' || key === 'lockOnMinimize') {
+            window.dispatchEvent(new Event('settings-changed'));
         }
     };
 
@@ -353,6 +363,53 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     </div>
                                 </div>
                             </section>
+
+                            <div className="h-px bg-border-primary" />
+
+                            {/* Security Section */}
+                            <section>
+                                <h3 className="text-sm font-semibold text-accent-primary uppercase tracking-wider mb-4">Security</h3>
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <label className="text-sm font-medium text-text-primary">Auto-lock when idle</label>
+                                            <p className="text-xs text-text-muted">Return to login screen after N minutes of inactivity. 0 disables.</p>
+                                        </div>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            max={240}
+                                            value={settings.idleLockMinutes ?? 0}
+                                            onChange={(e) => handleSave('idleLockMinutes', Math.max(0, Math.min(240, parseInt(e.target.value) || 0)))}
+                                            className="w-20 p-2 text-sm rounded-lg bg-bg-active border border-border-primary text-text-primary text-center"
+                                        />
+                                    </div>
+                                    {isElectron && (
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <label className="text-sm font-medium text-text-primary">Lock when window is minimized</label>
+                                                <p className="text-xs text-text-muted">Hides the journal as soon as the window is minimized.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => handleSave('lockOnMinimize', !settings.lockOnMinimize)}
+                                                className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary ${settings.lockOnMinimize ? 'bg-accent-primary' : 'bg-gray-200 dark:bg-gray-700'}`}
+                                            >
+                                                <span className={`absolute top-1 left-1 bg-white border border-gray-100 dark:border-0 w-4 h-4 rounded-full shadow transform transition-transform duration-200 ${settings.lockOnMinimize ? 'translate-x-5' : 'translate-x-0'}`} />
+                                            </button>
+                                        </div>
+                                    )}
+                                    <p className="text-xs text-text-muted">
+                                        Press <kbd className="px-1.5 py-0.5 rounded bg-bg-active border border-border-primary text-[10px]">Ctrl</kbd>
+                                        +<kbd className="px-1.5 py-0.5 rounded bg-bg-active border border-border-primary text-[10px]">Shift</kbd>
+                                        +<kbd className="px-1.5 py-0.5 rounded bg-bg-active border border-border-primary text-[10px]">L</kbd> at any time to lock immediately.
+                                    </p>
+                                </div>
+                            </section>
+
+                            <div className="h-px bg-border-primary" />
+
+                            {/* Keyboard Shortcuts Section */}
+                            <KeybindingsSection />
 
                             <div className="h-px bg-border-primary" />
 

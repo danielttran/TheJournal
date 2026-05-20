@@ -80,11 +80,18 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 throw new Error(data.error || 'Upload failed');
             }
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ResizableImage adds `width` but its type isn't merged into TipTap's command map
-            editor.chain().focus().setImage({ src: data.url, width: '100%' } as any).run();
+            if (data.kind === 'video') {
+                editor.chain().focus().insertContent({
+                    type: 'videoBlock',
+                    attrs: { src: data.url, mimeType: data.mimeType, width: '100%' },
+                }).run();
+            } else {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ResizableImage adds `width` but its type isn't merged into TipTap's command map
+                editor.chain().focus().setImage({ src: data.url, width: '100%' } as any).run();
+            }
         } catch (error) {
-            console.error('Image upload failed', error);
-            window.alert('Image upload failed. Please try again.');
+            console.error('Media upload failed', error);
+            window.alert('Media upload failed. Please try again.');
         } finally {
             setIsUploading(false);
         }
@@ -244,7 +251,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 ref={fileInputRef}
                 type="file"
                 className="hidden"
-                accept="image/*"
+                accept="image/*,video/*"
                 onChange={handleFileChange}
             />
 
@@ -577,6 +584,19 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                             Crop
                         </button>
                     )}
+                    <button
+                        onClick={() => {
+                            if (!editor.isActive('image')) return;
+                            const current = (editor.getAttributes('image').alt as string | undefined) ?? '';
+                            const next = window.prompt('Image description (alt text — indexed by search):', current);
+                            if (next === null) return;
+                            editor.chain().focus().updateAttributes('image', { alt: next.trim() }).run();
+                        }}
+                        className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
+                        title="Edit alt text (description for screen readers and search)"
+                    >
+                        Alt
+                    </button>
                     <button
                         onClick={removeSelectedImage}
                         className="text-xs px-2 py-1 rounded text-red-400 hover:bg-red-500/10"

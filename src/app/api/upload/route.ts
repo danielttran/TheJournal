@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-
-// Max upload size: 50MB (matches Next.js serverActions bodySizeLimit)
-const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
-
-// Allowlist of image MIME types accepted for upload
-const ALLOWED_MIME_TYPES = new Set([
-    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-    'image/svg+xml', 'image/avif', 'image/tiff',
-]);
+import { classifyMedia, MAX_UPLOAD_SIZE_BYTES } from '@/lib/uploadPolicy';
 
 export async function POST(req: NextRequest) {
     try {
@@ -25,12 +17,13 @@ export async function POST(req: NextRequest) {
         if (!file) {
             return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
         }
-        if (file.size > MAX_UPLOAD_SIZE) {
-            return NextResponse.json({ error: `File too large. Maximum size is ${MAX_UPLOAD_SIZE / 1024 / 1024}MB` }, { status: 413 });
+
+        const verdict = classifyMedia({ type: file.type, size: file.size });
+        if (!verdict.ok) {
+            const status = file.size > MAX_UPLOAD_SIZE_BYTES ? 413 : 415;
+            return NextResponse.json({ error: verdict.reason }, { status });
         }
-        if (!ALLOWED_MIME_TYPES.has(file.type)) {
-            return NextResponse.json({ error: `File type "${file.type}" is not allowed` }, { status: 415 });
-        }
+        const isVideo = verdict.kind === 'video';
 
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
@@ -51,7 +44,7 @@ export async function POST(req: NextRequest) {
         `).run(userId, safeName, file.type, file.size, buffer);
 
         const url = `/api/attachment/${result.lastInsertRowid}`;
-        return NextResponse.json({ url });
+        return NextResponse.json({ url, kind: isVideo ? 'video' : 'image', mimeType: file.type });
 
     } catch (error) {
         console.error("Upload error:", error);

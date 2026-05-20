@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['@journeyapps/sqlcipher', 'argon2'],
   experimental: {
     serverActions: {
-      bodySizeLimit: '50mb',
+      // M5: large media (video, audio, drawings) — match DavidRM's 225MB ceiling.
+      bodySizeLimit: '250mb',
     },
   },
   images: {

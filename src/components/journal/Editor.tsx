@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Minimize2, Star, Hash, X } from 'lucide-react';
+import { Minimize2, Star, Hash, X, Lock } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import WritingPromptsPicker from './WritingPromptsPicker';
@@ -31,6 +31,7 @@ import { TextStyle } from '@tiptap/extension-text-style';
 import FontFamily from '@tiptap/extension-font-family';
 import { FontSize } from './extensions/FontSize';
 import { Bookmark } from './extensions/Bookmark';
+import { VideoBlock } from './extensions/VideoBlock';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
@@ -181,6 +182,7 @@ function PluginLoadedEditor({
     const { setLoading, clearLoading } = useLoading();
 
     const [entryId, setEntryId] = useState<number | null>(null);
+    const [isLocked, setIsLocked] = useState(false);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(false);
     const [, setLoadingProgress] = useState<number | null>(null);
@@ -247,6 +249,7 @@ function PluginLoadedEditor({
         FontFamily,
         FontSize,
         Bookmark,
+        VideoBlock,
         Table.configure({ resizable: false }),
         TableRow,
         TableCell,
@@ -323,6 +326,30 @@ function PluginLoadedEditor({
     // Keep refs in sync with the actual editor instances
     useEffect(() => { editor1Ref.current = editor; }, [editor]);
     useEffect(() => { editor2Ref.current = editor2; }, [editor2]);
+
+    // Lock UX: when the entry is read-only, disable TipTap input on both
+    // panes. Drag/select/copy still work because TipTap's contentEditable
+    // is only toggled, not removed.
+    useEffect(() => {
+        editor?.setEditable(!isLocked);
+        editor2?.setEditable(!isLocked);
+    }, [isLocked, editor, editor2]);
+
+    const handleUnlock = useCallback(async () => {
+        const id = entryIdRef.current;
+        if (!id) return;
+        try {
+            const res = await fetch(`/api/entry/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ isLocked: false }),
+            });
+            if (res.ok) {
+                setIsLocked(false);
+                window.dispatchEvent(new CustomEvent('journal-entry-updated'));
+            }
+        } catch { /* silence */ }
+    }, []);
 
     // Tag autocomplete — fetches /api/tags/suggest 150 ms after the user
     // stops typing. Filters out tags already on the entry so the dropdown
@@ -708,6 +735,7 @@ function PluginLoadedEditor({
         setIsFavorited(false);
         setTags([]);
         setTagInput('');
+        setIsLocked(false);
 
         if (renderAbortRef.current) renderAbortRef.current.abort();
         const renderAbort = new AbortController();
@@ -759,7 +787,7 @@ function PluginLoadedEditor({
                 if (cached) {
                     if (!isMounted || renderAbort.signal.aborted) return;
 
-                    type EntryMeta = { Mood?: string | null; IsFavorited?: number | boolean; Tags?: string | null };
+                    type EntryMeta = { Mood?: string | null; IsFavorited?: number | boolean; Tags?: string | null; IsLocked?: number | boolean };
                     const applyMeta = (d: EntryMeta | null | undefined) => {
                         if (!d) return;
                         const m = d.Mood ?? null;
@@ -768,6 +796,7 @@ function PluginLoadedEditor({
                         try { t = d.Tags ? JSON.parse(d.Tags) : []; } catch { t = []; }
                         setMood(m); setIsFavorited(f); setTags(t);
                         moodRef.current = m; isFavoritedRef.current = f; tagsRef.current = t;
+                        setIsLocked(!!d.IsLocked);
                     };
 
                     if (urlEntryId) {
@@ -816,6 +845,7 @@ function PluginLoadedEditor({
                     Version?: number;
                     Mood?: string | null;
                     IsFavorited?: number | boolean;
+                    IsLocked?: number | boolean;
                     Tags?: string | null;
                     isNew?: boolean;
                 };
@@ -883,6 +913,7 @@ function PluginLoadedEditor({
                     setMood(loadedMood);
                     setIsFavorited(loadedFavorited);
                     setTags(loadedTags);
+                    setIsLocked(!!data.IsLocked);
                     moodRef.current = loadedMood;
                     isFavoritedRef.current = loadedFavorited;
                     tagsRef.current = loadedTags;
@@ -940,17 +971,17 @@ function PluginLoadedEditor({
 
     // ── Image helpers ────────────────────────────────────────────────────────────
 
-    /** Upload a File and return the attachment URL, or null on failure. */
-    const uploadImageFile = useCallback(async (file: File): Promise<string | null> => {
+    /** Upload a media File and return the attachment URL + media kind, or null on failure. */
+    const uploadMediaFile = useCallback(async (file: File): Promise<{ url: string; kind: 'image' | 'video'; mimeType: string } | null> => {
         const formData = new FormData();
         formData.append('file', file);
         try {
             const res = await fetch('/api/upload', { method: 'POST', body: formData });
             const data = await res.json();
             if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
-            return data.url as string;
+            return { url: data.url as string, kind: (data.kind as 'image' | 'video') ?? 'image', mimeType: (data.mimeType as string) ?? file.type };
         } catch (err) {
-            console.error('[Editor] image upload failed:', err);
+            console.error('[Editor] media upload failed:', err);
             return null;
         }
     }, []);
@@ -963,16 +994,30 @@ function PluginLoadedEditor({
         if (entryIdRef.current) performSave(entryIdRef.current, true);
     }, [editor, performSave]);
 
-    // Drag-and-drop images onto the editor area
+    /** Insert an uploaded video at the cursor. */
+    const insertVideo = useCallback((url: string, mimeType: string) => {
+        editor?.chain().focus().insertContent({
+            type: 'videoBlock',
+            attrs: { src: url, mimeType, width: '100%' },
+        }).run();
+        isDirtyRef.current = true;
+        if (entryIdRef.current) performSave(entryIdRef.current, true);
+    }, [editor, performSave]);
+
+    // Drag-and-drop images / videos onto the editor area
     const handleEditorDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
-        const imageFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
-        if (imageFiles.length === 0) return; // not image files — let default DnD handle it
+        const mediaFiles = Array.from(e.dataTransfer.files).filter(
+            f => f.type.startsWith('image/') || f.type.startsWith('video/'),
+        );
+        if (mediaFiles.length === 0) return; // not media files — let default DnD handle it
         e.preventDefault();
-        for (const file of imageFiles) {
-            const url = await uploadImageFile(file);
-            if (url) insertImage(url);
+        for (const file of mediaFiles) {
+            const res = await uploadMediaFile(file);
+            if (!res) continue;
+            if (res.kind === 'video') insertVideo(res.url, res.mimeType);
+            else insertImage(res.url);
         }
-    }, [uploadImageFile, insertImage]);
+    }, [uploadMediaFile, insertImage, insertVideo]);
 
     // Paste images from clipboard (e.g. screenshots) OR hot-link an image URL
     useEffect(() => {
@@ -996,12 +1041,13 @@ function PluginLoadedEditor({
             e.preventDefault();
             const file = imageItem.getAsFile();
             if (!file) return;
-            const url = await uploadImageFile(file);
+            const res = await uploadMediaFile(file);
+            const url = res?.url ?? null;
             if (url) insertImage(url);
         };
         window.addEventListener('paste', handlePaste);
         return () => window.removeEventListener('paste', handlePaste);
-    }, [editor, uploadImageFile, insertImage]);
+    }, [editor, uploadMediaFile, insertImage]);
 
     // Crop trigger from toolbar
     useEffect(() => {
@@ -1213,6 +1259,21 @@ function PluginLoadedEditor({
                         className="ml-4 px-3 py-1 bg-red-500 text-white rounded text-xs hover:bg-red-600 font-bold"
                     >
                         Retry Save
+                    </button>
+                </div>
+            )}
+
+            {isLocked && !isDistractionFree && (
+                <div className="bg-yellow-500/10 border border-yellow-500/40 text-yellow-300 px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
+                    <span className="flex items-center gap-2 font-semibold">
+                        <Lock className="w-3.5 h-3.5" />
+                        This entry is read-only.
+                    </span>
+                    <button
+                        onClick={handleUnlock}
+                        className="ml-4 px-3 py-1 bg-yellow-500/80 text-black rounded text-xs hover:bg-yellow-500 font-bold"
+                    >
+                        Unlock
                     </button>
                 </div>
             )}
