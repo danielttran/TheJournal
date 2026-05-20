@@ -11,6 +11,7 @@ const CreateSchema = z.object({
     color: z.string().regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/),
     hotkey: z.number().int().min(0).max(9).nullable().optional(),
     sortOrder: z.number().optional(),
+    parentTopicId: z.number().int().positive().nullable().optional(),
 });
 
 export const GET = authedHandler('GET /api/topic', async (userId) => {

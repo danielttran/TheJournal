@@ -386,6 +386,8 @@ export class DBManager {
             // persisting the plaintext key.
             `ALTER TABLE Category ADD COLUMN PasswordSalt TEXT`,
             `ALTER TABLE Category ADD COLUMN PasswordWrappedKey TEXT`,
+            // M6.17: hierarchical topics — Topic gains a nullable parent ref.
+            `ALTER TABLE Topic ADD COLUMN ParentTopicID INTEGER REFERENCES Topic(TopicID) ON DELETE SET NULL`,
         ];
 
         for (const migration of migrations) {

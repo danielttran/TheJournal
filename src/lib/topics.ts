@@ -8,6 +8,7 @@ export interface Topic {
     Hotkey: number | null;
     SortOrder: number;
     CreatedAt: string;
+    ParentTopicID: number | null;
 }
 
 export interface CreateTopicInput {
@@ -15,6 +16,7 @@ export interface CreateTopicInput {
     color: string;
     hotkey?: number | null;
     sortOrder?: number;
+    parentTopicId?: number | null;
 }
 
 export interface UpdateTopicInput {
@@ -22,6 +24,7 @@ export interface UpdateTopicInput {
     color?: string;
     hotkey?: number | null;
     sortOrder?: number;
+    parentTopicId?: number | null;
 }
 
 const HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -61,11 +64,21 @@ export async function createTopic(dbm: DBManager, userId: number, input: CreateT
         if (existing) throw new Error(`Hotkey ${input.hotkey} already in use`);
     }
 
+    if (input.parentTopicId != null) {
+        const ownsParent = await dbm.prepare(
+            'SELECT 1 FROM Topic WHERE TopicID = ? AND UserID = ?'
+        ).get(input.parentTopicId, userId);
+        if (!ownsParent) throw new Error('Parent topic not found or unauthorized');
+    }
+
     try {
         const r = await dbm.prepare(`
-            INSERT INTO Topic (UserID, Name, Color, Hotkey, SortOrder)
-            VALUES (?, ?, ?, ?, ?)
-        `).run(userId, input.name.trim(), input.color, input.hotkey ?? null, input.sortOrder ?? 0);
+            INSERT INTO Topic (UserID, Name, Color, Hotkey, SortOrder, ParentTopicID)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+            userId, input.name.trim(), input.color, input.hotkey ?? null,
+            input.sortOrder ?? 0, input.parentTopicId ?? null,
+        );
         return r.lastInsertRowid;
     } catch (err) {
         // UNIQUE(UserID, Name) violation → friendlier error
@@ -108,6 +121,12 @@ export async function updateTopic(dbm: DBManager, userId: number, topicId: numbe
         if (conflict) throw new Error(`Hotkey ${input.hotkey} already in use`);
     }
 
+    // Reparenting through updateTopic delegates to moveTopic so the cycle
+    // guard is applied even when the caller drives the change via UPDATE.
+    if (input.parentTopicId !== undefined) {
+        await moveTopic(dbm, userId, topicId, input.parentTopicId);
+    }
+
     const sets: string[] = [];
     const vals: (string | number | null)[] = [];
     if (input.name !== undefined) { sets.push('Name = ?'); vals.push(input.name.trim()); }
@@ -117,6 +136,48 @@ export async function updateTopic(dbm: DBManager, userId: number, topicId: numbe
     if (!sets.length) return;
     vals.push(topicId);
     await dbm.prepare(`UPDATE Topic SET ${sets.join(', ')} WHERE TopicID = ?`).run(...vals);
+}
+
+/**
+ * Reparent a topic. parentTopicId=null moves it to the root.
+ *
+ * Cycle guard: walks up from the proposed parent and refuses if the topic
+ * itself appears in the ancestor chain. Mirrors the cycle guard used for
+ * Entry parent moves.
+ */
+export async function moveTopic(
+    dbm: DBManager,
+    userId: number,
+    topicId: number,
+    parentTopicId: number | null,
+): Promise<void> {
+    await assertTopicOwnership(dbm, userId, topicId);
+
+    if (parentTopicId === topicId) {
+        throw new Error('A topic cannot be its own parent');
+    }
+
+    if (parentTopicId != null) {
+        await assertTopicOwnership(dbm, userId, parentTopicId);
+        // Walk up from parentTopicId — if we reach topicId we'd form a cycle.
+        let cursor: number | null = parentTopicId;
+        const seen = new Set<number>();
+        while (cursor != null) {
+            if (seen.has(cursor)) break; // safety net for pre-existing cycles
+            seen.add(cursor);
+            if (cursor === topicId) {
+                throw new Error('Cannot move topic — would form a cycle (descendant of itself)');
+            }
+            const row = await dbm.prepare(
+                'SELECT ParentTopicID FROM Topic WHERE TopicID = ? AND UserID = ?'
+            ).get(cursor, userId) as { ParentTopicID: number | null } | undefined;
+            cursor = row?.ParentTopicID ?? null;
+        }
+    }
+
+    await dbm.prepare(
+        'UPDATE Topic SET ParentTopicID = ? WHERE TopicID = ? AND UserID = ?'
+    ).run(parentTopicId, topicId, userId);
 }
 
 export async function deleteTopic(dbm: DBManager, userId: number, topicId: number): Promise<void> {
