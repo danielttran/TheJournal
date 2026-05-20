@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { X, Folder } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useToast } from './Toast';
+import KeybindingsSection from './KeybindingsSection';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -404,6 +405,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     </p>
                                 </div>
                             </section>
+
+                            <div className="h-px bg-border-primary" />
+
+                            {/* Keyboard Shortcuts Section */}
+                            <KeybindingsSection />
 
                             <div className="h-px bg-border-primary" />
 
