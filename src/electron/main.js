@@ -203,9 +203,46 @@ async function installPluginFromFolder(sourcePath, dialog) {
         return false;
     }
 
-    const sanitizedId = String(manifest.id || path.basename(resolvedSourcePath)).replace(/[^A-Za-z0-9._-]/g, '-');
-    const pluginId = sanitizedId || path.basename(resolvedSourcePath) || 'plugin';
-    const destinationPath = path.resolve(ensurePluginDir(), pluginId);
+    const rawId = String(manifest.id || path.basename(resolvedSourcePath));
+    const sanitizedId = rawId.replace(/[^A-Za-z0-9._-]/g, '-');
+    // Reject ids that would escape the plugins directory or refer to the
+    // directory itself. Without this, a manifest with `"id": ".."` would
+    // resolve destinationPath to the userData root and the rmSync below
+    // would wipe the user's database, settings, and other plugins.
+    const looksLikeTraversal = !sanitizedId
+        || sanitizedId === '.'
+        || sanitizedId === '..'
+        || sanitizedId.startsWith('.')
+        || sanitizedId.includes('/')
+        || sanitizedId.includes('\\');
+    if (looksLikeTraversal) {
+        await dialog.showMessageBox(mainWindow ?? undefined, {
+            type: 'error',
+            title: 'Invalid Plugin ID',
+            message: 'The plugin id is not allowed.',
+            detail: 'Plugin ids must consist of letters, numbers, underscores, or hyphens, and cannot be ".", "..", or start with a dot.',
+        });
+        return false;
+    }
+    const pluginId = sanitizedId;
+    const pluginsDir = ensurePluginDir();
+    const destinationPath = path.resolve(pluginsDir, pluginId);
+    // Defense in depth: ensure destinationPath is strictly inside pluginsDir.
+    const relFromPluginsDir = path.relative(pluginsDir, destinationPath);
+    if (
+        !relFromPluginsDir
+        || relFromPluginsDir.startsWith('..')
+        || path.isAbsolute(relFromPluginsDir)
+        || relFromPluginsDir.split(path.sep).length !== 1
+    ) {
+        await dialog.showMessageBox(mainWindow ?? undefined, {
+            type: 'error',
+            title: 'Invalid Plugin Path',
+            message: 'The plugin destination is outside the plugins folder.',
+            detail: 'This plugin id would write outside the managed plugins directory and was refused.',
+        });
+        return false;
+    }
     const isAlreadyInstalled = resolvedSourcePath.toLowerCase() === destinationPath.toLowerCase();
 
     if (!isAlreadyInstalled && fs.existsSync(destinationPath)) {
