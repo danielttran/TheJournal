@@ -14,7 +14,7 @@
  *   matchesGlob("FooBar",    "*Bar")  → true
  */
 import { describe, it, expect } from 'vitest';
-import { parseEntryRef, matchesGlob } from '../../src/lib/entryRefs';
+import { parseEntryRef, matchesGlob, globToSqlLike } from '../../src/lib/entryRefs';
 
 describe('parseEntryRef', () => {
     it('parses bare title', () => {
@@ -79,5 +79,39 @@ describe('matchesGlob', () => {
         expect(matchesGlob('axb', 'a.b')).toBe(false);  // '.' is literal, not regex
         expect(matchesGlob('a(b)', 'a(b)')).toBe(true);
         expect(matchesGlob('a$b', 'a$b')).toBe(true);
+    });
+});
+
+describe('globToSqlLike', () => {
+    it('expands * to %', () => {
+        expect(globToSqlLike('Trip*')).toBe('Trip%');
+        expect(globToSqlLike('*end')).toBe('%end');
+        expect(globToSqlLike('a*b*c')).toBe('a%b%c');
+    });
+
+    it('expands ? to _', () => {
+        expect(globToSqlLike('c?t')).toBe('c_t');
+        expect(globToSqlLike('???')).toBe('___');
+    });
+
+    it('escapes literal % so it is not treated as a SQL wildcard', () => {
+        expect(globToSqlLike('100%')).toBe('100\\%');
+        // Combined: literal % followed by glob *.
+        expect(globToSqlLike('100%*')).toBe('100\\%%');
+    });
+
+    it('escapes literal _ so it is not treated as a SQL single-char wildcard', () => {
+        expect(globToSqlLike('snake_case')).toBe('snake\\_case');
+        expect(globToSqlLike('foo_*')).toBe('foo\\_%');
+    });
+
+    it('escapes literal backslashes', () => {
+        // A literal backslash in the user input becomes \\ for the ESCAPE '\\' clause.
+        expect(globToSqlLike('path\\to')).toBe('path\\\\to');
+    });
+
+    it('handles the all-wildcard case (caller is expected to refuse this with no scope)', () => {
+        expect(globToSqlLike('*')).toBe('%');
+        expect(globToSqlLike('**')).toBe('%%');
     });
 });

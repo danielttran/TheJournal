@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Minimize2, Star, Hash, X, Lock } from 'lucide-react';
+import { Minimize2, Star, Hash, X, Lock, Printer, FileDown } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import WritingPromptsPicker from './WritingPromptsPicker';
@@ -40,56 +40,11 @@ import { Markdown } from 'tiptap-markdown';
 import { isSafeImageUrl } from '@/lib/hotlinkImages';
 import { applyBuiltins, parseTemplateVariables, substituteVariables } from '@/lib/smartTemplates';
 import { TheJournalAPI } from '@/lib/pluginApi';
+import { cacheEntry, getCachedEntry, invalidateEntry } from '@/lib/entryCache';
+import { htmlToPlainText } from '@/lib/htmlText';
 // Shared HTML-stripping count + reading-time helpers — the editor previously
 // hand-rolled an `countWords` that drifted from the test-covered version.
 import { wordCount as countWords, readingTimeMinutesFromWords } from '@/lib/readingTime';
-
-// Strip HTML tags and decode common entities without touching the DOM —
-// avoids the layout thrashing of `div.innerHTML = ...; div.textContent` in
-// the autosave hot path.
-function htmlToPlainText(html: string): string {
-    if (!html) return '';
-    return html
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
-        .replace(/<[^>]+>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
-}
-
-// ─── Entry content cache ──────────────────────────────────────────────────────
-const entryContentCache = new Map<string, { html: string; documentJson: JSONContent | null; timestamp: number }>();
-const CACHE_TTL_MS = 10 * 60 * 1000;        // 10 minutes
-const CACHE_MAX_ENTRIES = 200;               // hard cap
-
-function cacheEntry(key: string, html: string, documentJson: JSONContent | null) {
-    entryContentCache.delete(key);
-    entryContentCache.set(key, { html, documentJson, timestamp: Date.now() });
-
-    const now = Date.now();
-    for (const [k, v] of entryContentCache) {
-        if (entryContentCache.size <= CACHE_MAX_ENTRIES && now - v.timestamp <= CACHE_TTL_MS) break;
-        entryContentCache.delete(k);
-    }
-}
-
-function getCachedEntry(key: string) {
-    const cached = entryContentCache.get(key);
-    if (!cached) return null;
-    if (Date.now() - cached.timestamp > CACHE_TTL_MS) {
-        entryContentCache.delete(key);
-        return null;
-    }
-    entryContentCache.delete(key);
-    entryContentCache.set(key, { ...cached, timestamp: Date.now() });
-    return cached;
-}
 
 type EditorProps = {
     categoryId: string;
@@ -543,8 +498,8 @@ function PluginLoadedEditor({
             }
             if (res.status === 409) {
                 setSaveError(true);
-                entryContentCache.delete(`entry-${id}`);
-                if (cacheKeyAtSave) entryContentCache.delete(cacheKeyAtSave);
+                invalidateEntry(`entry-${id}`);
+                if (cacheKeyAtSave) invalidateEntry(cacheKeyAtSave);
                 // Surface stale-version state by clearing the in-memory version
                 // so the next save round-trips and refreshes before retrying.
                 versionRef.current = null;
@@ -1241,6 +1196,21 @@ function PluginLoadedEditor({
                             title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
                         >
                             <Star className={`w-4 h-4 ${isFavorited ? 'fill-yellow-400' : ''}`} />
+                        </button>
+
+                        <button
+                            onClick={() => window.dispatchEvent(new Event('trigger-print-entry'))}
+                            className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary"
+                            title="Print entry"
+                        >
+                            <Printer className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => window.dispatchEvent(new Event('trigger-export-pdf'))}
+                            className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary"
+                            title="Export entry as PDF"
+                        >
+                            <FileDown className="w-4 h-4" />
                         </button>
 
                         <span className={`text-[10px] uppercase tracking-wider font-semibold flex items-center ${saveError ? 'text-red-500' : saving ? 'text-yellow-500' : 'text-green-500'}`}>

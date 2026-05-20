@@ -2,6 +2,7 @@
 
 import { db, dbManager } from "@/lib/db";
 import { getAppDbKey, hashPassword, verifyPassword } from "@/lib/auth";
+import { seedDefaultCategories } from "@/lib/defaultCategories";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -116,6 +117,16 @@ export async function register(prevState: unknown, formData: FormData) {
         }
 
         const result = await db.prepare('INSERT INTO User (Username, PasswordHash) VALUES (?, ?)').run(validatedFields.data.username, passwordHash);
+
+        // DavidRM parity: seed a fresh account with a Daily Journal +
+        // Notebook so the user lands on a usable layout. Idempotent — if
+        // the seed fails for some reason we still let registration succeed
+        // (the user can create categories manually).
+        try {
+            await seedDefaultCategories(dbManager, Number(result.lastInsertRowid));
+        } catch (err) {
+            console.error('[Action:Register] seedDefaultCategories failed:', err);
+        }
 
         await setSession(result.lastInsertRowid);
         redirect("/dashboard");

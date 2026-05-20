@@ -42,11 +42,22 @@ export default function LockGate() {
     useEffect(() => {
         const load = async () => {
             try {
+                let raw: unknown = 0;
                 if (typeof window !== 'undefined' && window.electron?.getSettings) {
                     const s = await window.electron.getSettings();
-                    const n = Number(s?.idleLockMinutes ?? 0);
-                    idleMinutesRef.current = Number.isFinite(n) && n > 0 ? n : 0;
+                    raw = s?.idleLockMinutes ?? 0;
+                } else if (typeof window !== 'undefined') {
+                    // Web: settings live in localStorage under 'app-settings'.
+                    const settingsStr = localStorage.getItem('app-settings');
+                    if (settingsStr) {
+                        try {
+                            const parsed = JSON.parse(settingsStr) as { idleLockMinutes?: unknown };
+                            raw = parsed.idleLockMinutes ?? 0;
+                        } catch { /* fall through */ }
+                    }
                 }
+                const n = Number(raw);
+                idleMinutesRef.current = Number.isFinite(n) && n > 0 ? n : 0;
             } catch { /* silence */ }
         };
         load();

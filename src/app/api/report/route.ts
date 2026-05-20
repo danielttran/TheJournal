@@ -1,6 +1,7 @@
-import { db } from '@/lib/db';
+import { db, dbManager } from '@/lib/db';
 import { authedHandler } from '@/lib/route-helpers';
 import { exportEntryAsRTF, htmlToPlainText } from '@/lib/export-formats';
+import { loadEntryHtmlForRead } from '@/lib/entryEncryption';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -66,6 +67,21 @@ export const GET = authedHandler<[NextRequest]>('GET /api/report', async (userId
                 return tags.map(t => t.toLowerCase()).includes(want);
             } catch { return false; }
         });
+    }
+
+    // Decrypt password-locked content before assembling the report. If any
+    // category in the result set is locked and its EEK isn't cached, refuse
+    // the whole report — partial output with ciphertext rows would defeat
+    // the lock.
+    for (let i = 0; i < rows.length; i++) {
+        const decrypted = await loadEntryHtmlForRead(dbManager, userId, rows[i].CategoryID, rows[i].HtmlContent);
+        if (decrypted === null) {
+            return NextResponse.json(
+                { error: 'One or more categories in the report are locked. Unlock them first.' },
+                { status: 423 },
+            );
+        }
+        rows[i] = { ...rows[i], HtmlContent: decrypted };
     }
 
     const totalWords = rows.reduce((s, r) => s + wordCount(r.HtmlContent), 0);

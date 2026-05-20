@@ -1,7 +1,9 @@
-import { db } from "@/lib/db";
+import { db, dbManager } from "@/lib/db";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { compileSafeRegex, matchEntryAgainstRegex, SafeRegexError } from "@/lib/regexSearch";
+import { loadEntryHtmlForRead } from "@/lib/entryEncryption";
+import { ENC_PREFIX } from "@/lib/categoryCrypto";
 
 export const dynamic = 'force-dynamic';
 
@@ -152,12 +154,27 @@ export async function GET(req: NextRequest) {
                 LIMIT ?
             `).all<SearchRow>(...params, REGEX_MAX_SCAN);
 
-            const filtered: SearchRow[] = [];
+            // Pre-decrypt all rows so the regex matches against plaintext
+            // (otherwise locked-category entries are searched as base64
+            // ciphertext, which is never useful).
+            type EnrichedRow = SearchRow & { _plain: string; _locked: boolean };
+            const enriched: EnrichedRow[] = [];
             for (const row of rxRows as SearchRow[]) {
-                const plain = row.HtmlContent ? stripHtml(row.HtmlContent) : '';
+                let rawHtml = row.HtmlContent ?? '';
+                let locked = false;
+                if (rawHtml.startsWith(ENC_PREFIX)) {
+                    const decrypted = await loadEntryHtmlForRead(dbManager, userId, row.CategoryID, rawHtml);
+                    if (decrypted === null) { locked = true; rawHtml = ''; }
+                    else rawHtml = decrypted;
+                }
+                enriched.push({ ...row, _plain: rawHtml ? stripHtml(rawHtml) : '', _locked: locked });
+            }
+
+            const filtered: EnrichedRow[] = [];
+            for (const row of enriched) {
                 const out = matchEntryAgainstRegex(re, {
                     title: row.Title,
-                    plainContent: plain,
+                    plainContent: row._plain,
                     searchIn: searchIn as 'title' | 'content' | 'both',
                 });
                 if (out.any) filtered.push(row);
@@ -167,12 +184,14 @@ export async function GET(req: NextRequest) {
             const slice = filtered.slice(offset, offset + limit);
             return NextResponse.json({
                 results: slice.map(row => {
-                    const plain = row.HtmlContent ? stripHtml(row.HtmlContent) : '';
+                    const plain = row._plain;
                     re.lastIndex = 0;
                     const titleMatch = re.test(row.Title);
                     re.lastIndex = 0;
                     const contentMatch = re.test(plain);
-                    const snippet = contentMatch ? extractSnippet(plain, q) : plain.substring(0, 200) + (plain.length > 200 ? '…' : '');
+                    const snippet = row._locked
+                        ? '[locked — unlock this category to see content]'
+                        : contentMatch ? extractSnippet(plain, q) : plain.substring(0, 200) + (plain.length > 200 ? '…' : '');
                     return {
                         EntryID: row.EntryID,
                         Title: row.Title,
@@ -185,6 +204,7 @@ export async function GET(req: NextRequest) {
                         snippet,
                         titleMatch,
                         contentMatch,
+                        categoryLocked: row._locked,
                     };
                 }),
                 total,
@@ -224,17 +244,35 @@ export async function GET(req: NextRequest) {
             ${useFts ? 'JOIN EntrySearch es ON es.rowid = e.EntryID' : ''}
         `;
 
-        const mapRow = (row: SearchRow) => {
-            const plain = row.HtmlContent ? stripHtml(row.HtmlContent) : '';
+        const mapRow = async (row: SearchRow) => {
+            // Decrypt category-locked content before producing the snippet.
+            // When the EEK isn't cached we surface a "[locked]" placeholder
+            // instead of leaking ciphertext base64 to the search results.
+            let rawHtml: string;
+            let categoryLocked = false;
+            if (row.HtmlContent && row.HtmlContent.startsWith(ENC_PREFIX)) {
+                const decrypted = await loadEntryHtmlForRead(dbManager, userId, row.CategoryID, row.HtmlContent);
+                if (decrypted === null) {
+                    categoryLocked = true;
+                    rawHtml = '';
+                } else {
+                    rawHtml = decrypted;
+                }
+            } else {
+                rawHtml = row.HtmlContent ?? '';
+            }
+            const plain = rawHtml ? stripHtml(rawHtml) : '';
             const titleMatch = matchCase
                 ? row.Title.includes(q)
                 : row.Title.toLowerCase().includes(q.toLowerCase());
             const contentMatch = matchCase
                 ? plain.includes(q)
                 : plain.toLowerCase().includes(q.toLowerCase());
-            const snippet = contentMatch
-                ? extractSnippet(plain, q)
-                : plain.substring(0, 200) + (plain.length > 200 ? '…' : '');
+            const snippet = categoryLocked
+                ? '[locked — unlock this category to see content]'
+                : contentMatch
+                    ? extractSnippet(plain, q)
+                    : plain.substring(0, 200) + (plain.length > 200 ? '…' : '');
 
             return {
                 EntryID: row.EntryID,
@@ -248,6 +286,7 @@ export async function GET(req: NextRequest) {
                 snippet,
                 titleMatch,
                 contentMatch,
+                categoryLocked,
             };
         };
 
@@ -278,7 +317,7 @@ export async function GET(req: NextRequest) {
         `).all<SearchRow>(...params, limit, offset);
 
         return NextResponse.json({
-            results: rows.map(mapRow),
+            results: await Promise.all(rows.map(mapRow)),
             total,
             hasMore: offset + limit < total,
         });
