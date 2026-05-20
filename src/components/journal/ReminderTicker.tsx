@@ -33,6 +33,9 @@ export default function ReminderTicker() {
     useEffect(() => {
         if (typeof window === 'undefined' || !('Notification' in window)) return;
         if (Notification.permission === 'default') {
+            // requestPermission() in a useEffect is not a user gesture, so
+            // Chrome may silently fail. The poll loop below still handles
+            // the "denied" outcome gracefully.
             Notification.requestPermission().catch(() => {});
         }
     }, []);
@@ -42,6 +45,13 @@ export default function ReminderTicker() {
 
         const poll = async () => {
             if (inFlight.current || cancelled) return;
+            // Short-circuit: if the user denied notifications, no point
+            // hitting the DB every minute — we'd never fire a popup.
+            if (typeof window !== 'undefined'
+                && 'Notification' in window
+                && Notification.permission === 'denied') {
+                return;
+            }
             inFlight.current = true;
             try {
                 const res = await fetch('/api/reminder/due');

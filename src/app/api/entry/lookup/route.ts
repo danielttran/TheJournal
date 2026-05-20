@@ -38,6 +38,18 @@ export const GET = authedHandler<[NextRequest]>('GET /api/entry/lookup', async (
         const ref = parseEntryRef(refParam);
         if (!ref) return NextResponse.json({ error: 'Invalid ref' }, { status: 400 });
 
+        // Refuse a pattern that's entirely wildcards without a category scope —
+        // it'd produce a full table scan against every entry in the user's
+        // journal. With a category scope we allow it (the user is asking for
+        // "every entry in this category", which is fine).
+        const onlyWildcards = /^[*?]+$/.test(ref.titlePattern);
+        if (onlyWildcards && !ref.categoryName) {
+            return NextResponse.json(
+                { error: 'Wildcard-only patterns require a category scope (e.g. "Daily Journal\\*")' },
+                { status: 400 },
+            );
+        }
+
         const where: string[] = ['c.UserID = ?', 'e.IsDeleted = 0'];
         const args: (string | number)[] = [userId];
         if (ref.categoryName) {

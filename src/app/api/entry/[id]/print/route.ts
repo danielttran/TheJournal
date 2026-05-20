@@ -1,5 +1,6 @@
 import { dbManager } from "@/lib/db";
 import { renderEntryForPrint } from "@/lib/printRender";
+import { loadEntryHtmlForRead } from "@/lib/entryEncryption";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -13,6 +14,7 @@ interface EntryRow {
     Mood: string | null;
     Tags: string | null;
     HtmlContent: string | null;
+    CategoryID: number;
     CategoryName: string;
     UserID: number;
 }
@@ -34,7 +36,7 @@ export const GET = authedHandler<[NextRequest, { params: Promise<{ id: string }>
 
         const row = await dbManager.prepare(`
             SELECT e.EntryID, e.Title, e.CreatedDate, e.ModifiedDate, e.Mood, e.Tags,
-                   ec.HtmlContent, c.Name AS CategoryName, c.UserID
+                   ec.HtmlContent, e.CategoryID, c.Name AS CategoryName, c.UserID
             FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
             LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
@@ -43,6 +45,16 @@ export const GET = authedHandler<[NextRequest, { params: Promise<{ id: string }>
 
         if (!row || row.UserID !== userId) {
             return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+        }
+
+        // Decrypt for password-locked categories. When the EEK isn't cached
+        // we refuse to print ciphertext — the user needs to unlock first.
+        const decrypted = await loadEntryHtmlForRead(dbManager, userId, row.CategoryID, row.HtmlContent);
+        if (decrypted === null) {
+            return NextResponse.json(
+                { error: 'Category is locked. Unlock it before printing entries from it.' },
+                { status: 423 },
+            );
         }
 
         let tags: string[] = [];
@@ -55,7 +67,7 @@ export const GET = authedHandler<[NextRequest, { params: Promise<{ id: string }>
 
         const html = renderEntryForPrint({
             title: row.Title,
-            htmlContent: row.HtmlContent ?? '',
+            htmlContent: decrypted,
             createdDate: row.CreatedDate,
             modifiedDate: row.ModifiedDate,
             categoryName: row.CategoryName,

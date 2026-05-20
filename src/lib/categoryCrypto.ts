@@ -122,11 +122,17 @@ export async function setCategoryPassword(
     const wrapped = wrap(eek, kek);
     const passwordHash = await hashPassword(password);
 
-    await dbm.prepare(`
+    // Race guard: only succeed if PasswordHash is still NULL at write time.
+    // A concurrent setCategoryPassword that won the race already populated
+    // the row — refuse rather than silently overwrite their key material.
+    const res = await dbm.prepare(`
         UPDATE Category
         SET PasswordHash = ?, PasswordSalt = ?, PasswordWrappedKey = ?
-        WHERE CategoryID = ? AND UserID = ?
+        WHERE CategoryID = ? AND UserID = ? AND PasswordHash IS NULL
     `).run(passwordHash, saltHex, wrapped, categoryId, userId);
+    if (!res.changes) {
+        throw new Error('Category already locked — clear the existing password first');
+    }
 
     return new Uint8Array(eek);
 }

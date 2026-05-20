@@ -77,16 +77,20 @@ export default function CommandDispatcher({ runner = runCommand }: { runner?: Co
                 const binding = resolveBindingForCommand(cmd.id, overridesRef.current);
                 if (!binding) continue;
                 if (eventMatchesBinding(e, binding)) {
-                    // Only intercept if focus isn't inside an input/textarea
-                    // unless the binding has a "real" modifier (Ctrl/Alt/Meta)
-                    // or is a function key — single-letter and Shift+letter
-                    // shouldn't hijack ordinary typing.
+                    // Only intercept if focus isn't inside a text-input
+                    // surface — single-letter and Shift+letter bindings
+                    // shouldn't hijack ordinary typing. We check three
+                    // surfaces: <input>, <textarea>, and any contenteditable
+                    // ancestor (covers ProseMirror's editor root, which
+                    // uses a contenteditable div).
                     const parts = binding.split('+');
                     const hasRealModifier = parts.some(p => p === 'Ctrl' || p === 'Alt' || p === 'Meta')
                         || /^F\d+$/.test(parts[parts.length - 1]);
-                    const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-                    const inField = tag === 'input' || tag === 'textarea';
-                    if (!hasRealModifier && inField) continue;
+                    const target = e.target as HTMLElement | null;
+                    const tag = target?.tagName?.toLowerCase();
+                    const inFormField = tag === 'input' || tag === 'textarea';
+                    const inEditable = !!target?.closest?.('[contenteditable="true"], [contenteditable=""]');
+                    if (!hasRealModifier && (inFormField || inEditable)) continue;
 
                     e.preventDefault();
                     runner(cmd.id);

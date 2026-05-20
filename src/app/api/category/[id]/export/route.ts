@@ -1,6 +1,7 @@
-import { db } from "@/lib/db";
+import { db, dbManager } from "@/lib/db";
 import { exportCategory, type FrontmatterInput } from "@/lib/markdown";
 import { exportEntriesAsATOM, htmlToPlainText, exportEntryAsHTML, exportEntryAsRTF } from "@/lib/export-formats";
+import { loadEntryHtmlForRead } from "@/lib/entryEncryption";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -19,7 +20,7 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/category/[id]/
     ).get(categoryId, userId) as { Name: string } | undefined;
     if (!cat) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    const rows = await db.prepare(`
+    const rawRows = await db.prepare(`
         SELECT e.EntryID, e.Title, e.CreatedDate, e.ModifiedDate, e.Tags, e.Mood, ec.HtmlContent
         FROM Entry e
         LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
@@ -29,6 +30,22 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/category/[id]/
         EntryID: number; Title: string; CreatedDate: string; ModifiedDate: string;
         Tags: string; Mood: string | null; HtmlContent: string | null;
     }[];
+
+    // Decrypt all entry content up-front. If the category is password-locked
+    // and the EEK isn't cached, refuse the whole export — partial output with
+    // ciphertext rows would defeat the lock.
+    type ExportRow = (typeof rawRows)[number];
+    const rows: ExportRow[] = [];
+    for (const r of rawRows) {
+        const decrypted = await loadEntryHtmlForRead(dbManager, userId, categoryId, r.HtmlContent);
+        if (decrypted === null) {
+            return NextResponse.json(
+                { error: 'Category is locked. Unlock it before exporting.' },
+                { status: 423 },
+            );
+        }
+        rows.push({ ...r, HtmlContent: decrypted });
+    }
 
     const safeName = cat.Name.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60);
 

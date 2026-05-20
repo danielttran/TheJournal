@@ -25,9 +25,15 @@ import { useSearchParams } from 'next/navigation';
  *          OS print dialog has a "Save to PDF" option on all major
  *          platforms.
  */
-async function fetchEntryHtml(entryId: number): Promise<{ html: string; title: string } | null> {
+interface FetchResult {
+    html: string;
+    title: string;
+}
+
+async function fetchEntryHtml(entryId: number): Promise<FetchResult | { locked: true } | null> {
     try {
         const res = await fetch(`/api/entry/${entryId}/print`);
+        if (res.status === 423) return { locked: true };
         if (!res.ok) return null;
         const ct = res.headers.get('content-type') ?? '';
         if (ct.includes('application/json')) {
@@ -53,6 +59,14 @@ function printHtmlInIframe(html: string) {
     iframe.style.width = '0';
     iframe.style.height = '0';
     iframe.style.border = '0';
+    // SECURITY: the iframe srcdoc carries user-authored entry HTML. Sandbox
+    // it to neuter any <script> that slipped past the TipTap schema — without
+    // allow-scripts the iframe can't execute JS, but the parent (us) can
+    // still call contentWindow.print() because print() is a browser API,
+    // not a script-defined function. allow-same-origin keeps parent → iframe
+    // access working. We intentionally do NOT set allow-popups or
+    // allow-top-navigation.
+    iframe.setAttribute('sandbox', 'allow-same-origin');
     document.body.appendChild(iframe);
     const cleanup = () => {
         // Defer removal so the print dialog finishes referencing the doc.
@@ -63,10 +77,10 @@ function printHtmlInIframe(html: string) {
             iframe.contentWindow?.focus();
             iframe.contentWindow?.print();
         } catch {
-            // Pop-up blockers or sandbox issues — fall back to a new tab.
-            const blob = new Blob([html], { type: 'text/html' });
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank');
+            // Pop-up blockers or sandbox issues — surface to the user
+            // instead of opening an unsandboxed Blob URL tab that would
+            // execute any inline JS in the entry HTML.
+            window.alert('Could not open the print dialog. Use your browser’s File → Print menu instead.');
         } finally {
             cleanup();
         }
@@ -77,33 +91,45 @@ function printHtmlInIframe(html: string) {
 export default function EntryPrintBridge() {
     const searchParams = useSearchParams();
 
-    const runPrint = useCallback(async () => {
+    const resolveEntryId = useCallback((): number | null => {
         const entry = searchParams.get('entry');
         if (!entry) {
-            window.alert('Open an entry first, then try printing.');
-            return;
+            window.alert('Open an entry first, then try this action.');
+            return null;
         }
         const id = parseInt(entry, 10);
-        if (!Number.isFinite(id)) return;
+        if (!Number.isFinite(id) || id <= 0) {
+            window.alert(`Invalid entry id in URL: ${entry}`);
+            return null;
+        }
+        return id;
+    }, [searchParams]);
+
+    const runPrint = useCallback(async () => {
+        const id = resolveEntryId();
+        if (id == null) return;
         const data = await fetchEntryHtml(id);
         if (!data) {
             window.alert('Could not load entry for printing.');
             return;
         }
-        printHtmlInIframe(data.html);
-    }, [searchParams]);
-
-    const runExportPdf = useCallback(async () => {
-        const entry = searchParams.get('entry');
-        if (!entry) {
-            window.alert('Open an entry first, then try exporting.');
+        if ('locked' in data) {
+            window.alert('This entry’s category is locked. Unlock it before printing.');
             return;
         }
-        const id = parseInt(entry, 10);
-        if (!Number.isFinite(id)) return;
+        printHtmlInIframe(data.html);
+    }, [resolveEntryId]);
+
+    const runExportPdf = useCallback(async () => {
+        const id = resolveEntryId();
+        if (id == null) return;
         const data = await fetchEntryHtml(id);
         if (!data) {
             window.alert('Could not load entry for export.');
+            return;
+        }
+        if ('locked' in data) {
+            window.alert('This entry’s category is locked. Unlock it before exporting.');
             return;
         }
         if (typeof window !== 'undefined' && window.electron?.saveEntryPdf) {
@@ -115,7 +141,7 @@ export default function EntryPrintBridge() {
         }
         // Web fallback — OS print dialog has "Save as PDF" on every major platform.
         printHtmlInIframe(data.html);
-    }, [searchParams]);
+    }, [resolveEntryId]);
 
     useEffect(() => {
         // Electron File-menu hooks.

@@ -59,6 +59,30 @@ export async function decryptEntryContent(
 }
 
 /**
+ * Convenience for read-side routes (print, export, report, search snippets)
+ * that have a CategoryID already in hand. Returns plaintext HTML if the
+ * category isn't locked OR the EEK is cached. Returns null when the EEK is
+ * required but not cached — the caller decides whether to surface a
+ * "[locked]" placeholder, 423, or filter the entry out of an export.
+ *
+ * `null` here is a sentinel for "we can't show the content", NOT "the
+ * entry was empty". Empty entries return the empty string.
+ */
+export async function loadEntryHtmlForRead(
+    dbm: DBManager,
+    userId: number,
+    categoryId: number,
+    rawHtml: string | null,
+): Promise<string | null> {
+    if (!rawHtml) return '';
+    if (!rawHtml.startsWith(ENC_PREFIX)) return rawHtml;
+    const eek = getCategoryKey(userId, categoryId);
+    if (!eek) return null;
+    try { return decryptWithKey(rawHtml, eek); }
+    catch { return null; }
+}
+
+/**
  * Encrypt the html / documentJson before persisting, if the category has
  * a password set. Returns the values to write. Throws when the category
  * is locked but no EEK is cached — the route should map that to 423.

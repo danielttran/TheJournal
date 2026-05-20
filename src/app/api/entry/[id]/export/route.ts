@@ -1,6 +1,7 @@
-import { db } from "@/lib/db";
+import { db, dbManager } from "@/lib/db";
 import { exportEntry } from "@/lib/markdown";
 import { exportEntryAsHTML, exportEntryAsRTF, htmlToPlainText, exportEntriesAsATOM } from "@/lib/export-formats";
+import { loadEntryHtmlForRead } from "@/lib/entryEncryption";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -15,7 +16,7 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/entry/[id]/exp
     const format = (searchParams.get('format') ?? 'md').toLowerCase();
 
     const row = await db.prepare(`
-        SELECT e.EntryID, e.Title, e.CreatedDate, e.ModifiedDate, e.Tags, e.Mood, ec.HtmlContent
+        SELECT e.EntryID, e.Title, e.CreatedDate, e.ModifiedDate, e.Tags, e.Mood, ec.HtmlContent, e.CategoryID
         FROM Entry e
         JOIN Category cat ON e.CategoryID = cat.CategoryID
         LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
@@ -23,9 +24,19 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/entry/[id]/exp
     `).get(entryId, userId) as {
         EntryID: number; Title: string; CreatedDate: string; ModifiedDate: string;
         Tags: string; Mood: string | null; HtmlContent: string | null;
+        CategoryID: number;
     } | undefined;
 
     if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+    // Decrypt before exporting — exporting ciphertext defeats the lock.
+    const decrypted = await loadEntryHtmlForRead(dbManager, userId, row.CategoryID, row.HtmlContent);
+    if (decrypted === null) {
+        return NextResponse.json(
+            { error: 'Category is locked. Unlock it before exporting entries.' },
+            { status: 423 },
+        );
+    }
 
     let tags: string[] = [];
     try { tags = row.Tags ? JSON.parse(row.Tags) : []; } catch {}
@@ -37,7 +48,7 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/entry/[id]/exp
         tags,
         mood: row.Mood ?? null,
     };
-    const html = row.HtmlContent ?? '';
+    const html = decrypted;
     const safeTitle = (row.Title || 'entry').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60);
 
     if (format === 'html') {
