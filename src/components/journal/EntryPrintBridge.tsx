@@ -51,6 +51,12 @@ async function fetchEntryHtml(entryId: number): Promise<FetchResult | { locked: 
     }
 }
 
+// How long to keep the print iframe attached after the print dialog opens.
+// Removing it too early lets the browser GC the document mid-print and the
+// dialog ends up blank in some Chromium builds. One second is the conservative
+// value used by the html2canvas / print-js projects.
+const PRINT_IFRAME_CLEANUP_MS = 1000;
+
 function printHtmlInIframe(html: string) {
     const iframe = document.createElement('iframe');
     iframe.style.position = 'fixed';
@@ -70,7 +76,7 @@ function printHtmlInIframe(html: string) {
     document.body.appendChild(iframe);
     const cleanup = () => {
         // Defer removal so the print dialog finishes referencing the doc.
-        setTimeout(() => { try { document.body.removeChild(iframe); } catch { /* gone */ } }, 1000);
+        setTimeout(() => { try { document.body.removeChild(iframe); } catch { /* gone */ } }, PRINT_IFRAME_CLEANUP_MS);
     };
     iframe.onload = () => {
         try {
