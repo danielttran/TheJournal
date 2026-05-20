@@ -1,4 +1,5 @@
 import TabBar from '@/components/journal/TabBar';
+import ReminderTicker from '@/components/journal/ReminderTicker';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
@@ -17,6 +18,7 @@ export default async function JournalLayout({
             <div className="flex-1 overflow-hidden relative border-2 border-accent-primary">
                 {children}
             </div>
+            <ReminderTicker />
         </div>
     );
 }

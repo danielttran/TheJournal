@@ -376,6 +376,10 @@ export class DBManager {
             // entries matching a saved query instead of holding its own entries.
             `ALTER TABLE Category ADD COLUMN IsSmartbook BOOLEAN DEFAULT 0`,
             `ALTER TABLE Category ADD COLUMN SmartbookQuery TEXT`,
+            // M2: track which reminders have already fired a notification so
+            // the renderer's minute-tick poll doesn't keep firing the same
+            // popup forever.
+            `ALTER TABLE Reminder ADD COLUMN NotifiedAt DATETIME`,
         ];
 
         for (const migration of migrations) {

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveInitialEntryContent } from "@/lib/categoryTemplate";
+import { linkEntryAsFutureReminder } from "@/lib/futureEntries";
 
 const RequestSchema = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD
@@ -72,6 +73,24 @@ export async function POST(req: NextRequest) {
         });
 
         const { entry, isNew } = await getOrCreateEntry();
+
+        // DavidRM parity: when the user navigates to a future date and a new
+        // entry is created, surface it as an Event reminder. linkEntryAsFutureReminder
+        // is a no-op for past/now dates so back-fills don't spawn stale reminders.
+        if (isNew) {
+            const nowIso = new Date().toISOString();
+            const dueAt = new Date(`${date}T12:00:00`).toISOString();
+            await linkEntryAsFutureReminder(dbManager, userId, {
+                entryId: Number(entry.EntryID),
+                title: entry.Title || `Journal entry — ${date}`,
+                dueAt,
+                nowIso,
+            }).catch(err => {
+                // Reminder creation failure shouldn't abort the entry — it's a
+                // side-feature, not a write to the entry itself.
+                console.error('[by-date] linkEntryAsFutureReminder failed:', err);
+            });
+        }
 
         return NextResponse.json({
             id: entry.EntryID,
