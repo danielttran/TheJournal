@@ -200,3 +200,43 @@ export async function clearCategoryPassword(
     `).run(categoryId, userId);
     return true;
 }
+
+/**
+ * Rotate the category password atomically.
+ *
+ *   1. Verify the old password and unwrap the EEK.
+ *   2. Generate a brand-new EEK so a compromised old key can't decrypt
+ *      future content.
+ *   3. Derive a fresh KEK from newPassword + new salt.
+ *   4. UPDATE the category in one statement so concurrent readers never
+ *      see a partially-set state (NULL PasswordHash mid-rotation).
+ *
+ * Returns { oldEek, newEek }. Caller is expected to re-encrypt entry
+ * content from oldEek to newEek and then forget the oldEek.
+ */
+export async function rotateCategoryPassword(
+    dbm: DBManager,
+    userId: number,
+    categoryId: number,
+    oldPassword: string,
+    newPassword: string,
+): Promise<{ oldEek: Uint8Array; newEek: Uint8Array } | null> {
+    const oldEek = await verifyAndUnwrap(dbm, userId, categoryId, oldPassword);
+    if (!oldEek) return null;
+
+    const newEek = randomBytes(KEK_KEYLEN);
+    const saltHex = randomBytes(SALT_BYTES).toString('hex');
+    const kek = deriveKEK(newPassword, saltHex);
+    const wrapped = wrap(newEek, kek);
+    const passwordHash = await hashPassword(newPassword);
+
+    const result = await dbm.prepare(`
+        UPDATE Category
+        SET PasswordHash = ?, PasswordSalt = ?, PasswordWrappedKey = ?
+        WHERE CategoryID = ? AND UserID = ? AND PasswordHash IS NOT NULL
+    `).run(passwordHash, saltHex, wrapped, categoryId, userId);
+
+    if (!result.changes) return null;  // category vanished or got unlocked concurrently
+
+    return { oldEek, newEek: new Uint8Array(newEek) };
+}

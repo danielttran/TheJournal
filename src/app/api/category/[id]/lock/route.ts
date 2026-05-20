@@ -3,6 +3,7 @@ import {
     setCategoryPassword,
     verifyAndUnwrap,
     clearCategoryPassword,
+    rotateCategoryPassword,
     isCategoryLocked,
 } from '@/lib/categoryCrypto';
 import {
@@ -70,19 +71,18 @@ export const POST = authedHandler<[NextRequest, Params]>(
             if (!parsed.success) {
                 return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
             }
-            const eek = await verifyAndUnwrap(dbManager, userId, categoryId, parsed.data.oldPassword);
-            if (!eek) return NextResponse.json({ error: 'wrong password' }, { status: 403 });
-            // Clear then re-set with the new password. We DON'T re-encrypt
-            // entries — the EEK is reused implicitly by callers; the next
-            // setCategoryPassword generates a fresh EEK, so we keep the old
-            // ciphertext readable only by holding the cached old EEK while
-            // we re-encrypt below.
-            await clearCategoryPassword(dbManager, userId, categoryId, parsed.data.oldPassword);
-            const newEek = await setCategoryPassword(dbManager, userId, categoryId, parsed.data.newPassword);
-            // Re-encrypt all entries in this category that begin with the
-            // legacy ENC_PREFIX, swapping the old EEK ciphertext for the new.
-            await reEncryptCategoryEntries(userId, categoryId, eek, newEek);
-            cacheCategoryKey(userId, categoryId, newEek);
+            // Atomic clear+set inside the lib helper — the category never
+            // briefly appears unlocked to a concurrent request.
+            const keys = await rotateCategoryPassword(
+                dbManager, userId, categoryId, parsed.data.oldPassword, parsed.data.newPassword,
+            );
+            if (!keys) return NextResponse.json({ error: 'wrong password' }, { status: 403 });
+
+            // Cache the new EEK BEFORE re-encrypting so concurrent reads land
+            // on the up-to-date key as soon as the row's PasswordHash flipped.
+            cacheCategoryKey(userId, categoryId, keys.newEek);
+            // Re-encrypt all existing ciphertext from oldEek → newEek.
+            await reEncryptCategoryEntries(userId, categoryId, keys.oldEek, keys.newEek);
             return NextResponse.json({ rotated: true });
         }
 

@@ -24,6 +24,7 @@ import {
     setCategoryPassword,
     verifyAndUnwrap,
     clearCategoryPassword,
+    rotateCategoryPassword,
     isCategoryLocked,
     encryptWithKey,
     decryptWithKey,
@@ -116,6 +117,39 @@ describe('clearCategoryPassword', () => {
         const ok = await clearCategoryPassword(dbm, USER_ID, CAT_ID, 'WRONG');
         expect(ok).toBe(false);
         expect(await isCategoryLocked(dbm, USER_ID, CAT_ID)).toBe(true);
+    });
+});
+
+describe('rotateCategoryPassword', () => {
+    it('verifies the old password, mints a new EEK, and never NULLs PasswordHash mid-flight', async () => {
+        await setCategoryPassword(dbm, USER_ID, CAT_ID, 'first');
+        const keys = await rotateCategoryPassword(dbm, USER_ID, CAT_ID, 'first', 'second');
+        expect(keys).not.toBeNull();
+        expect(keys!.oldEek.length).toBe(32);
+        expect(keys!.newEek.length).toBe(32);
+        // EEKs must differ — rotating doesn't reuse the old key material.
+        expect(Buffer.from(keys!.oldEek).equals(Buffer.from(keys!.newEek))).toBe(false);
+
+        // Old password no longer unlocks.
+        expect(await verifyAndUnwrap(dbm, USER_ID, CAT_ID, 'first')).toBeNull();
+        // New password unwraps to newEek.
+        const out = await verifyAndUnwrap(dbm, USER_ID, CAT_ID, 'second');
+        expect(out).not.toBeNull();
+        expect(Buffer.from(out!).equals(Buffer.from(keys!.newEek))).toBe(true);
+    });
+
+    it('returns null on wrong old password (no schema mutation)', async () => {
+        await setCategoryPassword(dbm, USER_ID, CAT_ID, 'first');
+        const out = await rotateCategoryPassword(dbm, USER_ID, CAT_ID, 'WRONG', 'second');
+        expect(out).toBeNull();
+        // Original password still works.
+        expect(await verifyAndUnwrap(dbm, USER_ID, CAT_ID, 'first')).not.toBeNull();
+    });
+
+    it('returns null when the category has no password set', async () => {
+        const out = await rotateCategoryPassword(dbm, USER_ID, CAT_ID, 'anything', 'new');
+        expect(out).toBeNull();
+        expect(await isCategoryLocked(dbm, USER_ID, CAT_ID)).toBe(false);
     });
 });
 
