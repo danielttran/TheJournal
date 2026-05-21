@@ -51,6 +51,26 @@ npm run build:electron
 npm run build:installer
 ```
 
+#### Windows convenience scripts
+
+Three `.bat` wrappers in `scripts/` cover the most common build flows on
+Windows. Each handles Node-version check, `npm ci`, the build itself,
+and prints the output paths.
+
+```cmd
+REM Web standalone bundle only
+scripts\build-web.bat
+
+REM Electron NSIS installer only
+scripts\build-electron.bat
+
+REM Both
+scripts\build-all.bat
+```
+
+The scripts exit non-zero on any failure, so they're safe to chain in CI
+or a developer's local pipeline.
+
 ## Deploy (self-hosted web)
 
 See **[deploy/README.md](./deploy/README.md)** for the full runbook: clone,
