@@ -1,0 +1,6 @@
+{
+  "id": "drawio",
+  "name": "Draw.io Diagrams",
+  "version": "1.0.0",
+  "description": "Insert editable draw.io diagrams into your entries. Edits happen in an embedded diagrams.net iframe; the diagram XML and an SVG preview are stored inline in the entry."
+}
