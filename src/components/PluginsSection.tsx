@@ -12,6 +12,29 @@ interface InstalledPlugin {
     };
 }
 
+interface ZodIssue { path?: (string | number)[]; message?: string }
+
+/**
+ * The /api/plugins endpoints surface errors as either a single string
+ * (lib-side throws) or a zod issues array. Render the latter as a
+ * human-readable bullet list instead of dumping JSON to the user.
+ */
+function formatApiError(body: unknown, status: number): string {
+    if (body && typeof body === 'object' && 'error' in body) {
+        const err = (body as { error: unknown }).error;
+        if (typeof err === 'string') return err;
+        if (Array.isArray(err)) {
+            const lines = (err as ZodIssue[])
+                .map(issue => {
+                    const where = issue.path?.length ? issue.path.join('.') + ': ' : '';
+                    return `${where}${issue.message ?? 'invalid'}`;
+                });
+            return lines.join('; ');
+        }
+    }
+    return `HTTP ${status}`;
+}
+
 /**
  * Plugin management UI. Works in BOTH modes:
  *   - Electron: posts to /api/plugins which writes into the server's
@@ -55,15 +78,18 @@ export default function PluginsSection() {
         if (files.length === 0) return;
 
         // Files come back with `webkitRelativePath` like "my-plugin/manifest.json".
-        // The first path segment is the folder name; we infer the plugin id
-        // from it (the server re-sanitises).
-        const findFile = (name: string) =>
-            files.find(f => f.webkitRelativePath.endsWith(`/${name}`));
-        const manifestFile = findFile('manifest.json');
-        const scriptFile = findFile('main.js');
+        // We want the TOPMOST manifest.json + main.js — i.e. a path of the
+        // form "<rootDir>/manifest.json" with exactly two segments. A nested
+        // manifest in a vendored subfolder must not be selected by mistake.
+        const findTopmost = (name: string) => files.find(f => {
+            const parts = f.webkitRelativePath.split('/');
+            return parts.length === 2 && parts[1] === name;
+        });
+        const manifestFile = findTopmost('manifest.json');
+        const scriptFile = findTopmost('main.js');
 
         if (!manifestFile || !scriptFile) {
-            setError('Folder must contain both manifest.json and main.js.');
+            setError('The picked folder must contain manifest.json and main.js at its top level.');
             return;
         }
 
@@ -94,7 +120,7 @@ export default function PluginsSection() {
             });
             const body = await res.json().catch(() => ({}));
             if (!res.ok) {
-                throw new Error(body?.error ? JSON.stringify(body.error) : `HTTP ${res.status}`);
+                throw new Error(formatApiError(body, res.status));
             }
             await load();
             // The editor reads plugins only on initial mount. Tell the user.
@@ -115,7 +141,7 @@ export default function PluginsSection() {
             const res = await fetch(`/api/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' });
             if (!res.ok) {
                 const body = await res.json().catch(() => ({}));
-                throw new Error(body?.error ? JSON.stringify(body.error) : `HTTP ${res.status}`);
+                throw new Error(formatApiError(body, res.status));
             }
             await load();
         } catch (err) {
