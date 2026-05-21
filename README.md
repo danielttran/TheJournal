@@ -51,6 +51,40 @@ npm run build:electron
 npm run build:installer
 ```
 
+#### Windows convenience scripts
+
+Three `.bat` wrappers in `scripts/` cover the most common build flows on
+Windows. Each handles Node-version check, `npm ci`, the build itself,
+and prints the output paths.
+
+```cmd
+REM Web standalone bundle only
+scripts\build-web.bat
+
+REM Electron NSIS installer only
+scripts\build-electron.bat
+
+REM Both
+scripts\build-all.bat
+```
+
+The scripts exit non-zero on any failure, so they're safe to chain in CI
+or a developer's local pipeline.
+
+## Deploy (self-hosted web)
+
+See **[deploy/README.md](./deploy/README.md)** for the full runbook: clone,
+`npm run build`, `node .next/standalone/server.js` under systemd, fronted
+by Caddy for automatic HTTPS.
+
+Related references:
+- **[docs/env-vars.md](./docs/env-vars.md)** — every `JOURNAL_*` env var,
+  what it does, what's required in production.
+- **[docs/backup-runbook.md](./docs/backup-runbook.md)** — WAL-aware backup
+  workflow (rsync / S3 / B2) and a nightly cron snippet.
+- **[docs/release.md](./docs/release.md)** — maintainer release flow
+  (tag → CI → Windows installer + auto-update).
+
 ## Search
 
 Press **Ctrl+F** anywhere in the journal view to open the search panel, or use the **View → Search** menu item, or right-click in the editor.
@@ -112,8 +146,10 @@ npm run test:watch
 
 ```
 tests/
+├── features/
+│   └── *.test.ts          # ~700 unit/integration tests
 └── stress/
-    └── db.stress.test.ts   # 20 tests across 10 suites
+    └── db.stress.test.ts  # ~20 high-concurrency stress tests
 ```
 
 Each test run creates an isolated temporary database, seeds it with a test user, and deletes all three SQLite files (`.tjdb`, `.tjdb-shm`, `.tjdb-wal`) on teardown.
@@ -279,6 +315,6 @@ Response:
 - **Styling**: Tailwind CSS with CSS variables
 - **Database**: @journeyapps/sqlcipher (AES-256 Encrypted)
 - **Key Derivation**: Argon2id
-- **Desktop**: Electron 35
+- **Desktop**: Electron 41
 - **DnD**: @dnd-kit
 - **Testing**: Vitest 4

@@ -1,30 +1,54 @@
 # Local Plugins
 
-TheJournal supports trusted local plugins in the Electron app. Plugins are plain folders on disk that contain a `manifest.json` file and a `main.js` file.
+TheJournal supports trusted local plugins in both the Electron app **and** the
+self-hosted web build. Plugins are plain folders on disk that contain a
+`manifest.json` file and a `main.js` file.
 
 Plugins run inside the renderer before the Tiptap editor mounts. This lets a plugin synchronously register custom Tiptap extensions and NodeViews through `window.TheJournalAPI`.
 
 ## Install A Plugin
 
-Use the desktop menu:
+### Electron (Desktop)
 
-1. Open **Plugins -> Install Plugin...**.
-2. Select a plugin folder that contains `manifest.json` and `main.js`.
-3. Choose **Reload Now** when prompted.
+Three options — they all write to the same folder:
 
-You can also use **Plugins -> Open Plugins Folder** and copy plugin folders there manually. The app creates this folder automatically:
+1. **Settings → Plugins → Install plugin…** (works in both Electron and web).
+2. **Plugins → Install Plugin…** (native menu, Electron only).
+3. Drop the folder directly into the Plugins folder via **Plugins → Open Plugins Folder**.
+
+Reload the app afterwards to make the plugin available.
+
+### Web (self-hosted)
+
+Open **Settings → Plugins → Install plugin…** and pick the plugin folder.
+The browser reads `manifest.json` + `main.js` from the folder and POSTs them
+to `/api/plugins`; the server writes them into the plugin directory. Reload
+the page after install.
+
+You can also drop plugin folders directly into the plugin directory on the
+server's filesystem (no UI needed). The location precedence is:
+
+1. `JOURNAL_PLUGINS_DIR` env var (explicit override).
+2. `<server cwd>/plugins/` (the repo's `plugins/` folder is auto-discovered).
+
+When Electron launches it sets `JOURNAL_PLUGINS_DIR` to its userData/plugins
+folder so the embedded Next.js server and the native Electron menu both
+target the same location.
+
+### Plugin folder locations
 
 ```text
-[Electron userData]/plugins/[plugin-id]/
+Electron:  [Electron userData]/plugins/[plugin-id]/
+Web:       <server cwd>/plugins/[plugin-id]/   (or $JOURNAL_PLUGINS_DIR)
 ```
 
-On Windows development builds, this is typically:
+On Windows development builds, the Electron path is typically:
 
 ```text
 C:\Users\<you>\AppData\Roaming\temp-app\plugins
 ```
 
-Packaged builds use the product name and are typically:
+Packaged builds use the product name:
 
 ```text
 C:\Users\<you>\AppData\Roaming\TheJournal\plugins
@@ -96,6 +120,22 @@ The API accepts either a Tiptap extension instance or a plain Tiptap node config
 - Registration must be synchronous. Async work can happen later inside a NodeView or command, but extensions must be registered during initial script execution.
 - A plugin with invalid JSON or a script error is skipped and logged; other plugins still load.
 - The app continues normally when the plugins folder is missing or empty.
+
+## Multi-user self-host warning
+
+The plugin folder is **shared across every user on the same server**.
+`POST /api/plugins` is auth-gated (any logged-in user), but installation
+isn't restricted to an admin role — there isn't one in TheJournal's
+auth model. On a single-operator self-host this matches the "trusted
+local scripts" trust model and is fine.
+
+For a multi-user deployment where users don't all trust each other:
+
+- Set `JOURNAL_PLUGINS_DIR` to a directory you (the operator) own and
+  pre-populate with the plugins you want available. Mount it
+  read-only — the API will surface a 500 when a non-operator tries to
+  install, blocking the install.
+- Or fork the route and add an admin check before allowing POST/DELETE.
 
 ## Current API
 

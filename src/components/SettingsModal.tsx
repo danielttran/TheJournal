@@ -5,6 +5,7 @@ import { X, Folder } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useToast } from './Toast';
 import KeybindingsSection from './KeybindingsSection';
+import PluginsSection from './PluginsSection';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -410,6 +411,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                             {/* Keyboard Shortcuts Section */}
                             <KeybindingsSection />
+
+                            <div className="h-px bg-border-primary" />
+
+                            {/* Plugins Section — same in Electron and web. */}
+                            <PluginsSection />
 
                             <div className="h-px bg-border-primary" />
 

@@ -100,9 +100,16 @@ export const POST = authedHandler<[NextRequest, Params]>(
             // Cache the new EEK BEFORE re-encrypting so concurrent reads land
             // on the up-to-date key as soon as the row's PasswordHash flipped.
             cacheCategoryKey(userId, categoryId, keys.newEek);
-            await transformCategoryEntries(
-                dbManager, userId, categoryId, rewrapIfCiphertext(keys.oldEek, keys.newEek),
-            );
+            try {
+                await transformCategoryEntries(
+                    dbManager, userId, categoryId, rewrapIfCiphertext(keys.oldEek, keys.newEek),
+                );
+            } catch (err) {
+                console.error('[lock route] re-encrypt failed during rotate:', err);
+                return NextResponse.json({
+                    error: 'Rotation partially failed — at least one entry could not be re-encrypted. The new password works for new writes; old entries may still need manual fixup.',
+                }, { status: 500 });
+            }
             return NextResponse.json({ rotated: true });
         }
 
@@ -113,10 +120,21 @@ export const POST = authedHandler<[NextRequest, Params]>(
         if (!alreadyLocked) {
             const eek = await setCategoryPassword(dbManager, userId, categoryId, parsed.data.password);
             // First-time lock: encrypt every existing entry's content so a
-            // database thief sees only ciphertext.
-            await transformCategoryEntries(
-                dbManager, userId, categoryId, encryptIfPlaintext(eek),
-            );
+            // database thief sees only ciphertext. transformCategoryEntries
+            // is atomic; if any encryption fails, no rows are encrypted but
+            // the password is already set (verified above). Surface the
+            // failure to the client rather than leaving the user in a
+            // half-locked state.
+            try {
+                await transformCategoryEntries(
+                    dbManager, userId, categoryId, encryptIfPlaintext(eek),
+                );
+            } catch (err) {
+                console.error('[lock route] encrypt-all failed during initial lock:', err);
+                return NextResponse.json({
+                    error: 'Could not encrypt every existing entry. The password was set, but reload and verify your data before adding new content.',
+                }, { status: 500 });
+            }
             cacheCategoryKey(userId, categoryId, eek);
             return NextResponse.json({ set: true });
         }
@@ -148,7 +166,19 @@ export const DELETE = authedHandler<[NextRequest, Params]>(
 
         const eek = await verifyAndUnwrap(dbManager, userId, categoryId, parsed.data.password);
         if (!eek) return NextResponse.json({ error: 'wrong password' }, { status: 403 });
-        await transformCategoryEntries(dbManager, userId, categoryId, decryptIfCiphertext(eek));
+        // transformCategoryEntries is atomic — if any row's ciphertext is
+        // corrupt and decryption throws, the whole transaction rolls back
+        // and we refuse to clear the password. Without the rollback the
+        // user would end up with a category that has no password but still
+        // contains undecryptable ENC1: rows → permanent data loss.
+        try {
+            await transformCategoryEntries(dbManager, userId, categoryId, decryptIfCiphertext(eek));
+        } catch (err) {
+            console.error('[lock route] decrypt-all failed during clear-password:', err);
+            return NextResponse.json({
+                error: 'Could not decrypt every entry in this category. Password NOT removed. Inspect the failing entries before retrying.',
+            }, { status: 500 });
+        }
 
         const ok = await clearCategoryPassword(dbManager, userId, categoryId, parsed.data.password);
         if (!ok) return NextResponse.json({ error: 'wrong password' }, { status: 403 });

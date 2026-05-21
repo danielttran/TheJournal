@@ -302,4 +302,36 @@ describe('transformCategoryEntries', () => {
             .get(eId) as { HtmlContent: string };
         expect(row.HtmlContent).toBe('<p>foreign</p>');
     });
+
+    it('rolls back ALL row updates when the transform throws partway through', async () => {
+        // Critical: without rollback, a corrupt entry mid-loop would leave
+        // the category half-decrypted while the password-clear that follows
+        // nullifies the EEK → permanent data loss for the remaining rows.
+        const before = await dbm.prepare(
+            'SELECT EntryID, HtmlContent FROM EntryContent WHERE EntryID IN (?, ?, ?)'
+        ).all(...CAT_ENTRIES) as { EntryID: number; HtmlContent: string }[];
+        const beforeByEntry = new Map(before.map(r => [r.EntryID, r.HtmlContent]));
+
+        let calls = 0;
+        const failingTransform = (current: string) => {
+            calls += 1;
+            // Fail on the 3rd call so earlier rows have already been touched
+            // by the transform and their UPDATEs queued. With the fix in
+            // place, none of those UPDATEs actually commits.
+            if (calls === 3) throw new Error('simulated decrypt failure');
+            return current + ' /*touched*/';
+        };
+
+        await expect(
+            transformCategoryEntries(dbm, USER_ID, CAT_ID, failingTransform)
+        ).rejects.toThrow(/simulated/);
+
+        // Every original value preserved — the transaction rolled back.
+        const after = await dbm.prepare(
+            'SELECT EntryID, HtmlContent FROM EntryContent WHERE EntryID IN (?, ?, ?)'
+        ).all(...CAT_ENTRIES) as { EntryID: number; HtmlContent: string }[];
+        for (const row of after) {
+            expect(row.HtmlContent).toBe(beforeByEntry.get(row.EntryID));
+        }
+    });
 });
