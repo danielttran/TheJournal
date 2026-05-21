@@ -24,66 +24,181 @@ A cross-platform journaling and note-taking application built with Next.js and E
 - 🪟 **Split View** - Side-by-side editor panes for multi-entry editing
 - **Local Plugins** - Trusted local plugins can register custom TipTap extensions and editor NodeViews
 
-## Getting Started
-
-### Development (Web)
+## Quick start
 
 ```bash
+git clone https://github.com/danielttran/TheJournal.git
+cd TheJournal
 npm install
-npm run dev
+npm run dev                  # web at http://localhost:3000
+# — or —
+npm run dev:electron         # Electron desktop window
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Node **22+** required. The SQLCipher native binding is built for napi-v6;
+older Node versions fail to load it.
 
-### Development (Electron)
+## Build & deploy
+
+TheJournal has two deployable targets that share the same codebase:
+
+| Target | What you ship | Who runs it |
+|---|---|---|
+| **Web** | `.next/standalone/` directory (~80 MB) | A Linux server you control |
+| **Electron** | `TheJournal Setup vX.Y.Z.exe` NSIS installer (~150 MB) | Each end-user on Windows |
+
+The web target uses Next.js's standalone output (a self-contained
+`server.js` + traced `node_modules`). Electron embeds the same Next.js
+build but launches it programmatically via `next()`.
+
+### Command reference
+
+| Command | What it does | Output |
+|---|---|---|
+| `npm run dev` | Hot-reload dev server (web) | `http://localhost:3000` |
+| `npm run dev:electron` | Hot-reload dev server + Electron window | desktop window |
+| `npm run build` | Production web build + stage assets | `.next/standalone/` |
+| `npm run start:web` | Run the staged standalone bundle | `http://localhost:3000` (or `$PORT`) |
+| `npm run build:installer` | Build the Windows NSIS installer | `dist/TheJournal Setup vX.Y.Z.exe` |
+| `npm test` | Run the vitest suite (~750 tests) | — |
+
+### Web app — production deployment
+
+**1. Build the standalone bundle on a Linux box.**
 
 ```bash
-npm run dev:electron
+git clone https://github.com/danielttran/TheJournal.git
+cd TheJournal
+npm ci
+npm run build
 ```
 
-### Production Build
+`npm run build` chains `next build` → `node scripts/stage-standalone.js`.
+The staging script copies `.next/static/`, `public/`, and `plugins/`
+next to `.next/standalone/server.js` so the bundle is self-contained.
+After it finishes you can `rm -rf` everything except `.next/standalone/`,
+`package.json`, and the env file (below).
+
+**2. Set the required env vars.**
 
 ```bash
-# Build Next.js
-npm run build:electron
+JOURNAL_DB_SECRET=$(openssl rand -hex 32)   # CRITICAL — back up separately
+JOURNAL_DB_PATH=/var/lib/thejournal/data/journal.tjdb
+JOURNAL_PLUGINS_DIR=/var/lib/thejournal/data/plugins
+NODE_ENV=production
+PORT=3000
+```
 
-# Build installer
+Lose `JOURNAL_DB_SECRET` and the database is unrecoverable — every entry
+is encrypted with a key derived from it. Production **refuses to start**
+on the dev default secret (see `src/lib/auth.ts` `checkDbSecret`).
+
+**3. Run the server.**
+
+```bash
+cd .next/standalone
+node server.js
+# or: npm run start:web  (from the repo root)
+```
+
+The standalone `server.js` listens on `$PORT` (default 3000) and serves
+the full app. There is no `next` CLI involved at runtime — it's just a
+Node process.
+
+**4. Front it with Caddy for HTTPS.**
+
+A working `Caddyfile` is in [`deploy/Caddyfile.example`](./deploy/Caddyfile.example).
+Edit the hostname and reload:
+
+```Caddyfile
+your.hostname.com {
+  reverse_proxy localhost:3000
+  request_body { max_size 250MB }     # matches Next.js bodySizeLimit for video uploads
+}
+```
+
+Caddy auto-provisions Let's Encrypt certs on first request.
+
+**5. Verify.**
+
+```bash
+curl -s https://your.hostname.com/api/health
+# {"status":"ok","dbUnlocked":true,"uptimeMs":1234,"version":"0.1.0"}
+```
+
+For the **full step-by-step runbook** including a hardened systemd unit,
+backup workflow, libssl1.1 troubleshooting on Ubuntu 24.04, and
+zero-downtime upgrades, see [`deploy/README.md`](./deploy/README.md).
+
+### Electron desktop app — packaging the installer
+
+The Electron target ships a single `.exe` that bundles Chromium, Node,
+the standalone Next.js bundle, and the SQLCipher native binding compiled
+against Electron's ABI.
+
+**1. Build.**
+
+```bash
+npm ci
 npm run build:installer
 ```
 
-#### Windows convenience scripts
+This chains:
+- `scripts/install-sqlite.js` — rebuilds `@journeyapps/sqlcipher` for
+  Electron's napi version (the regular Node binding can't load into the
+  Electron renderer).
+- `electron-builder` — packages the app per `electron-builder.yml`.
 
-Three `.bat` wrappers in `scripts/` cover the most common build flows on
-Windows. Each handles Node-version check, `npm ci`, the build itself,
-and prints the output paths.
+**2. Output.**
+
+`dist/TheJournal Setup vX.Y.Z.exe` is the installer. On install it
+unpacks to `%LOCALAPPDATA%\Programs\TheJournal\` and creates the user
+data folder at `%APPDATA%\TheJournal\` (or `%APPDATA%\temp-app\` for
+unpackaged dev builds).
+
+**3. Cross-build notes.**
+
+Electron-builder can cross-build Windows installers from macOS/Linux,
+but **the SQLCipher native binding must match the target platform's
+ABI**. The repo's setup builds Windows-only on a Windows runner
+(`windows-latest`) — see `.github/workflows/release.yml`. Building
+Windows targets from Linux requires Wine + cross-compiled libssl1.1,
+which is fragile; just use a Windows VM or the GitHub Actions runner.
+
+### Electron desktop app — releases & auto-update
+
+Tag-driven release flow. Bumping a `vX.Y.Z` tag triggers
+`.github/workflows/release.yml` to build the installer on a
+`windows-latest` runner and publish it to a GitHub Release with a
+`latest.yml` manifest. Running TheJournal installations check
+`autoUpdater.checkForUpdatesAndNotify()` 60 s after launch and every
+6 h thereafter; when a newer `latest.yml` is found, the new installer
+downloads in the background and prompts the user to restart.
+
+See [`docs/release.md`](./docs/release.md) for the full maintainer
+workflow, hot-fix process, and rollback procedure.
+
+### Windows convenience scripts
+
+Three `.bat` wrappers in `scripts/` cover the common build flows on
+Windows. Each verifies Node version, runs `npm ci`, executes the build,
+and prints output paths.
 
 ```cmd
-REM Web standalone bundle only
-scripts\build-web.bat
-
-REM Electron NSIS installer only
-scripts\build-electron.bat
-
-REM Both
-scripts\build-all.bat
+scripts\build-web.bat        REM Web standalone bundle only
+scripts\build-electron.bat   REM Electron NSIS installer only
+scripts\build-all.bat        REM Both
 ```
 
-The scripts exit non-zero on any failure, so they're safe to chain in CI
-or a developer's local pipeline.
+They exit non-zero on any failure — safe to chain in CI.
 
-## Deploy (self-hosted web)
+### Reference docs
 
-See **[deploy/README.md](./deploy/README.md)** for the full runbook: clone,
-`npm run build`, `node .next/standalone/server.js` under systemd, fronted
-by Caddy for automatic HTTPS.
-
-Related references:
-- **[docs/env-vars.md](./docs/env-vars.md)** — every `JOURNAL_*` env var,
-  what it does, what's required in production.
-- **[docs/backup-runbook.md](./docs/backup-runbook.md)** — WAL-aware backup
-  workflow (rsync / S3 / B2) and a nightly cron snippet.
-- **[docs/release.md](./docs/release.md)** — maintainer release flow
-  (tag → CI → Windows installer + auto-update).
+- [`deploy/README.md`](./deploy/README.md) — full web self-host runbook (systemd + Caddy + backup + upgrades).
+- [`docs/env-vars.md`](./docs/env-vars.md) — every `JOURNAL_*` env var, defaults, scope (server / electron / both), what's required in production.
+- [`docs/backup-runbook.md`](./docs/backup-runbook.md) — WAL-aware backup workflow (rsync / S3 / B2) + nightly cron snippet.
+- [`docs/release.md`](./docs/release.md) — maintainer release flow (tag → CI → installer → auto-update).
+- [`docs/plugins.md`](./docs/plugins.md) — plugin authoring guide + bundled examples.
 
 ## Search
 
@@ -108,7 +223,16 @@ Results show a snippet centred on the first match with the matching text highlig
 
 ## Local Plugins
 
-The Electron app can load trusted local plugins from the user plugins folder. Use **Plugins -> Install Plugin...** to select a plugin folder, or **Plugins -> Open Plugins Folder** to manage installed plugins manually.
+Both the Electron desktop app **and** the self-hosted web build load
+trusted local plugins from a single plugins folder.
+
+- **Electron**: use **Plugins → Install Plugin…** to pick a plugin
+  folder, or **Plugins → Open Plugins Folder** to manage them manually.
+  On first launch the bundled plugins are seeded into
+  `%APPDATA%\TheJournal\plugins\` automatically.
+- **Web**: use **Settings → Plugins → Install plugin…** (the browser
+  POSTs the folder to `/api/plugins`), or drop folders directly into
+  `$JOURNAL_PLUGINS_DIR` on the server.
 
 A plugin folder must contain:
 
@@ -118,13 +242,24 @@ my-plugin/
   main.js
 ```
 
-Plugins execute before the TipTap editor mounts and can register extensions with:
+Plugins execute before the TipTap editor mounts and can register
+extensions and toolbar buttons:
 
 ```js
 window.TheJournalAPI.registerTiptapExtension(extension);
+window.TheJournalAPI.registerToolbarButton({ id, label, icon, onClick });
 ```
 
-See [docs/plugins.md](docs/plugins.md) for the full authoring guide and example plugins, including the sentence diagrammer in `plugins/sentence-diagrammer`.
+Two example plugins ship in `plugins/`:
+
+- **`plugins/sentence-diagrammer`** — interactive Reed-Kellogg sentence
+  diagrams with draggable word tokens.
+- **`plugins/drawio`** — embed editable [draw.io](https://embed.diagrams.net)
+  diagrams inline. Click to open a full-screen editor; the diagram XML
+  and an SVG preview are stored on the node, so viewing is fully offline
+  (editing needs diagrams.net reachable).
+
+See [docs/plugins.md](docs/plugins.md) for the full authoring guide.
 
 ## Testing
 
@@ -147,7 +282,7 @@ npm run test:watch
 ```
 tests/
 ├── features/
-│   └── *.test.ts          # ~700 unit/integration tests
+│   └── *.test.ts          # ~750 unit/integration tests
 └── stress/
     └── db.stress.test.ts  # ~20 high-concurrency stress tests
 ```
@@ -225,19 +360,29 @@ src/
 │   ├── useElectronIPC.ts   # Safe IPC event subscription
 │   └── index.ts            # Barrel export
 │
-├── lib/
+├── lib/                    # Pure helpers — no React, no DOM, all testable
 │   ├── db.ts               # Encrypted SQLite connection (SQLCipher)
-│   ├── auth.ts             # Argon2id key derivation & hashing
+│   ├── auth.ts             # Argon2id key derivation & DB-secret guard
+│   ├── route-helpers.ts    # authedHandler + getUserIdFromRequest
+│   ├── categoryCrypto.ts   # Per-category envelope encryption
+│   ├── serverPlugins.ts    # Web-side plugin install/list/uninstall
 │   └── types.ts            # TypeScript interfaces
 │
 └── electron/               # Electron main process
-    ├── main.js             # Window creation & menu
+    ├── main.js             # Window creation, menu, plugin seeding, auto-update
     ├── preload.js          # Context bridge API
     └── settings.js         # User settings persistence
 
+plugins/                    # Bundled example plugins
+├── sentence-diagrammer/    # Reed-Kellogg sentence diagrams
+└── drawio/                 # Inline draw.io diagram embeds
+
+deploy/                     # Web self-host runbook + Caddyfile
+docs/                       # env-vars, backup, release, plugins guides
+
 tests/
-└── stress/
-    └── db.stress.test.ts   # Database stress and integration tests
+├── features/               # ~750 unit/integration tests (DB layer, no HTTP)
+└── stress/                 # ~20 high-concurrency stress tests
 ```
 
 ## Component Responsibilities

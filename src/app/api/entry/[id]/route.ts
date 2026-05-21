@@ -46,8 +46,6 @@ const UpdateSchema = z.object({
     expectedVersion: z.number().optional(),
 });
 
-// ... imports
-
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { id } = await params;
