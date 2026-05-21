@@ -5,6 +5,7 @@ import { isWriteToLockedEntryBlocked } from "@/lib/entryLock";
 import { decryptEntryContent, maybeEncryptForCategory } from "@/lib/entryEncryption";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 
 /**
  * Tags arrive as a JSON-encoded array of user-entered strings. Normalize each
@@ -52,11 +53,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         const { id } = await params;
         const entryId = parseInt(id, 10);
 
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         // Ownership check
         const entry = await db.prepare(`
@@ -90,11 +88,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const entryId = parseInt(id, 10);
 
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const entry = await db.prepare(`
             SELECT e.EntryID, e.Title, e.CategoryID, ec.HtmlContent, ec.DocumentJson, e.Icon, e.Version,
@@ -140,12 +135,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
         // Auth: always read userId from session cookie — never trust the request body.
         // sendBeacon (POST alias below) also sends cookies for same-origin requests.
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
-        if (isNaN(userId)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const body = await req.json();
 

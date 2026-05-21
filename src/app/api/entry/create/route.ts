@@ -1,5 +1,5 @@
 import { db, dbManager } from "@/lib/db";
-import { cookies } from "next/headers";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveInitialEntryContent } from "@/lib/categoryTemplate";
@@ -16,13 +16,8 @@ const CreateEntrySchema = z.object({
 export async function POST(req: NextRequest) {
     try {
         // Auth: always read userId from session cookie — never trust the request body.
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie?.value) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        }
-        const userId = parseInt(userIdCookie.value, 10);
-        if (isNaN(userId)) {
+        const userId = getUserIdFromRequest(req);
+        if (!userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 

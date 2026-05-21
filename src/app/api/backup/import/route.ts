@@ -3,7 +3,7 @@ import { writeFile, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { cookies } from 'next/headers';
+import { getUserIdFromRequest } from '@/lib/route-helpers';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // seconds
@@ -48,12 +48,10 @@ export async function POST(req: NextRequest) {
             ownsTempFile = true;
         }
 
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) {
+        const userId = getUserIdFromRequest(req);
+        if (!userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
-        const userId = parseInt(userIdCookie.value, 10);
 
         // 1. ATTACH the database file
         try {

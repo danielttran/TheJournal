@@ -1,21 +1,14 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { cookies } from "next/headers";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 
 export const dynamic = 'force-dynamic';
 
-async function getUserId(): Promise<number | null> {
-    const cookieStore = await cookies();
-    const userIdCookie = cookieStore.get("userId");
-    if (!userIdCookie) return null;
-    return parseInt(userIdCookie.value, 10);
-}
-
 // GET /api/template — list all templates for the current user
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
-        const userId = await getUserId();
+        const userId = getUserIdFromRequest(req);
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const templates = await db.prepare(`
@@ -41,7 +34,7 @@ const CreateSchema = z.object({
 // POST /api/template — create a new template
 export async function POST(req: NextRequest) {
     try {
-        const userId = await getUserId();
+        const userId = getUserIdFromRequest(req);
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const body = await req.json();

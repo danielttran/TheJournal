@@ -111,6 +111,11 @@ async function startServer() {
     process.env.JOURNAL_PLUGINS_DIR = path.join(app.getPath('userData'), 'plugins');
     console.log('[Electron] Plugins Path:', process.env.JOURNAL_PLUGINS_DIR);
 
+    // Copy bundled plugins (drawio, sentence-diagrammer) into the user
+    // plugin folder on first launch so they show up in the toolbar
+    // immediately. No-op on subsequent runs.
+    seedBundledPluginsIfEmpty();
+
     const port = await getPort({ port: getPort.makeRange(3000, 3100) });
 
     if (dev) {
@@ -149,6 +154,36 @@ function ensurePluginDir() {
     const pluginDir = getPluginDir();
     fs.mkdirSync(pluginDir, { recursive: true });
     return pluginDir;
+}
+
+/**
+ * First-run seed: if [userData]/plugins/ is empty (or missing), copy the
+ * bundled plugins from the app's repo-relative plugins/ folder. Without
+ * this the bundled drawio + sentence-diagrammer plugins are invisible to
+ * Electron users on first launch because the plugin loader scans
+ * [userData]/plugins/, not the asar-bundled repo folder.
+ *
+ * Subsequent launches see the seeded plugins on disk and skip the copy.
+ * Users who delete a bundled plugin keep it deleted — we only seed when
+ * the directory has NO entries at all.
+ */
+function seedBundledPluginsIfEmpty() {
+    const pluginDir = ensurePluginDir();
+    let existing = [];
+    try { existing = fs.readdirSync(pluginDir); } catch { existing = []; }
+    if (existing.length > 0) return;
+
+    // Bundled plugins live in the asar (or app dir in dev) under `plugins/`.
+    // Resolve from this file's location: src/electron/main.js → ../../plugins/
+    const bundledRoot = path.join(__dirname, '..', '..', 'plugins');
+    if (!fs.existsSync(bundledRoot)) return;
+
+    try {
+        fs.cpSync(bundledRoot, pluginDir, { recursive: true });
+        console.log('[Electron] Seeded bundled plugins into', pluginDir);
+    } catch (err) {
+        console.error('[Electron] Failed to seed bundled plugins:', err);
+    }
 }
 
 function readInstalledPlugins() {

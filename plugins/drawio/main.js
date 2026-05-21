@@ -23,19 +23,40 @@
   const EMPTY_XML =
     '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
 
-  function safeAttr(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+  // How long to wait for the embed iframe to reply with its `init` event
+  // before showing an error. Covers slow networks; 15s is generous.
+  const INIT_TIMEOUT_MS = 15_000;
+  // How long to wait for the SVG export reply after a save. If the iframe
+  // never replies we still commit the xml so the user doesn't lose work;
+  // the preview just stays as whatever it was previously.
+  const EXPORT_TIMEOUT_MS = 5_000;
+
+  // UTF-8 ↔ base64 round-trip. btoa/atob alone are latin1-only and corrupt
+  // SVGs that contain non-ASCII characters (rare but possible in labels).
+  function utf8ToBase64(str) {
+    return btoa(unescape(encodeURIComponent(str)));
   }
+  function base64ToUtf8(b64) {
+    try {
+      return decodeURIComponent(escape(atob(b64)));
+    } catch {
+      return '';
+    }
+  }
+
+  // Reentrancy guard: don't open two overlays if the user double-clicks the
+  // node. Tracked as a window property so the closure survives plugin reload.
+  function setEditorOpen(v) { window.__tjDrawioEditorOpen = !!v; }
+  function isEditorOpen() { return !!window.__tjDrawioEditorOpen; }
 
   // ── Modal overlay ───────────────────────────────────────────────────────────
   // Opening a diagram pops a full-viewport overlay containing the iframe. We
   // never embed the iframe inline in the entry because draw.io needs a lot of
   // chrome and a tall canvas.
   function openEditor(opts) {
+    if (isEditorOpen()) return;  // ignore double-clicks
+    setEditorOpen(true);
+
     const { initialXml, onSave, onClose } = opts;
     const overlay = document.createElement('div');
     overlay.className = 'tj-drawio-overlay';
@@ -45,6 +66,7 @@
       zIndex: '9999',
       background: 'rgba(0, 0, 0, .6)',
       display: 'flex',
+      flexDirection: 'column',
       alignItems: 'stretch',
       justifyContent: 'stretch',
     });
@@ -63,10 +85,60 @@
       background: 'white',
     });
     overlay.appendChild(frame);
+
+    // Inline error banner — used if init never lands. We render it but hide
+    // until the timeout fires so the markup is ready.
+    const errorBanner = document.createElement('div');
+    Object.assign(errorBanner.style, {
+      display: 'none',
+      background: '#7f1d1d',
+      color: 'white',
+      padding: '14px 20px',
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '14px',
+      borderTop: '1px solid #ef4444',
+      textAlign: 'center',
+    });
+    errorBanner.innerHTML =
+      'Could not reach <strong>embed.diagrams.net</strong>. Check your network or try again later. ' +
+      '<button type="button" id="tj-drawio-error-close" style="margin-left:12px;padding:4px 10px;border-radius:4px;border:1px solid white;background:transparent;color:white;cursor:pointer;">Close</button>';
+    overlay.appendChild(errorBanner);
+
     document.body.appendChild(overlay);
 
     let savedAtLeastOnce = false;
-    const messageHandler = (event) => {
+    let pendingSaveXml = null;        // set when save lands; cleared after export reply
+    let exportTimeoutHandle = null;
+    let initTimeoutHandle = setTimeout(() => {
+      // Show the network error banner; the iframe is probably blocked.
+      errorBanner.style.display = 'block';
+      const btn = errorBanner.querySelector('#tj-drawio-error-close');
+      if (btn) btn.addEventListener('click', tearDown, { once: true });
+    }, INIT_TIMEOUT_MS);
+
+    function clearInitTimeout() {
+      if (initTimeoutHandle != null) {
+        clearTimeout(initTimeoutHandle);
+        initTimeoutHandle = null;
+      }
+    }
+    function clearExportTimeout() {
+      if (exportTimeoutHandle != null) {
+        clearTimeout(exportTimeoutHandle);
+        exportTimeoutHandle = null;
+      }
+    }
+    function commitPending(previewSvg) {
+      if (pendingSaveXml === null) return;
+      const xml = pendingSaveXml;
+      pendingSaveXml = null;
+      clearExportTimeout();
+      const patch = { xml };
+      if (previewSvg) patch.previewSvg = previewSvg;
+      onSave(patch);
+    }
+
+    function messageHandler(event) {
       // Origin-bind the listener: ignore everything that isn't from the
       // diagrams.net frame we mounted. Without this any iframe on the page
       // could push xml into our node.
@@ -80,6 +152,7 @@
 
       switch (msg.event) {
         case 'init':
+          clearInitTimeout();
           // Embed is ready — push the current xml in.
           frame.contentWindow.postMessage(JSON.stringify({
             action: 'load',
@@ -89,44 +162,55 @@
 
         case 'save': {
           const xml = typeof msg.xml === 'string' ? msg.xml : '';
+          pendingSaveXml = xml;
+          savedAtLeastOnce = true;
           // Request an SVG export so the closed-state preview doesn't need
           // a network round-trip on every render.
           frame.contentWindow.postMessage(JSON.stringify({
             action: 'export',
             format: 'xmlsvg',
           }), EMBED_HOST);
-          // Defer the actual onSave until the export reply lands so we can
-          // batch xml + svg into one node update.
-          messageHandler._pendingXml = xml;
-          savedAtLeastOnce = true;
+          // If the export reply never lands, still commit the xml so the
+          // user doesn't silently lose their work. The preview will stay
+          // as whatever it was before this save.
+          clearExportTimeout();
+          exportTimeoutHandle = setTimeout(() => commitPending(null), EXPORT_TIMEOUT_MS);
           break;
         }
 
         case 'export':
           // SVG data URI. Strip the prefix so we store raw SVG markup;
           // smaller and easier to embed in an <img src="data:..."> later.
-          if (typeof msg.data === 'string' && messageHandler._pendingXml !== undefined) {
-            const xml = messageHandler._pendingXml;
+          if (typeof msg.data === 'string') {
             const svg = msg.data.startsWith('data:image/svg+xml;base64,')
-              ? atob(msg.data.split(',')[1] || '')
+              ? base64ToUtf8(msg.data.split(',')[1] || '')
               : null;
-            onSave({ xml, previewSvg: svg });
-            messageHandler._pendingXml = undefined;
+            commitPending(svg);
           }
           break;
 
         case 'exit':
+          // Flush any save that was in flight before the user hit exit.
+          if (pendingSaveXml !== null) commitPending(null);
           tearDown();
           break;
       }
-    };
+    }
 
-    const onEscape = (ev) => { if (ev.key === 'Escape') tearDown(); };
+    function onEscape(ev) {
+      if (ev.key === 'Escape') {
+        if (pendingSaveXml !== null) commitPending(null);
+        tearDown();
+      }
+    }
 
     function tearDown() {
+      clearInitTimeout();
+      clearExportTimeout();
       window.removeEventListener('message', messageHandler);
       window.removeEventListener('keydown', onEscape);
       try { document.body.removeChild(overlay); } catch { /* already gone */ }
+      setEditorOpen(false);
       onClose(savedAtLeastOnce);
     }
 
@@ -149,22 +233,19 @@
           parseHTML: (el) => el.getAttribute('data-xml') || '',
           renderHTML: (attrs) => ({ 'data-xml': attrs.xml || '' }),
         },
-        // SVG snapshot of the last saved state. Stored as a base64-encoded
-        // string in the attribute so HTML attribute quoting doesn't fight
-        // with embedded `<` and `"`. Could be hundreds of KB for a complex
-        // diagram — acceptable trade-off for offline rendering.
+        // SVG snapshot of the last saved state. Stored as a UTF-8 / base64
+        // round-trip in the attribute so HTML attribute quoting doesn't
+        // fight with embedded `<` and `"`. Could be hundreds of KB for a
+        // complex diagram — acceptable trade-off for offline rendering.
         previewSvg: {
           default: '',
           parseHTML: (el) => {
             const raw = el.getAttribute('data-preview-svg-b64');
-            if (!raw) return '';
-            try { return atob(raw); } catch { return ''; }
+            return raw ? base64ToUtf8(raw) : '';
           },
           renderHTML: (attrs) => {
             const svg = attrs.previewSvg || '';
-            return svg
-              ? { 'data-preview-svg-b64': btoa(unescape(encodeURIComponent(svg))) }
-              : {};
+            return svg ? { 'data-preview-svg-b64': utf8ToBase64(svg) } : {};
           },
         },
       };
@@ -231,7 +312,10 @@
             cursor: 'pointer',
             fontSize: '11px',
           });
-          editBtn.addEventListener('click', (ev) => { ev.stopPropagation(); openIfPosValid(); });
+          editBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            openIfPosValid();
+          });
           header.appendChild(editBtn);
           dom.appendChild(header);
 
@@ -250,8 +334,7 @@
             img.alt = 'draw.io diagram';
             img.style.maxWidth = '100%';
             img.style.height = 'auto';
-            img.src = 'data:image/svg+xml;base64,' +
-              btoa(unescape(encodeURIComponent(attrs.previewSvg)));
+            img.src = 'data:image/svg+xml;base64,' + utf8ToBase64(attrs.previewSvg);
             preview.appendChild(img);
             dom.appendChild(preview);
           } else {
@@ -272,11 +355,7 @@
           if (pos === null || pos === undefined) return;
           openEditor({
             initialXml: currentNode.attrs.xml || '',
-            onSave: ({ xml, previewSvg }) => {
-              const patch = { xml };
-              if (previewSvg) patch.previewSvg = previewSvg;
-              updateAttrs(patch);
-            },
+            onSave: (patch) => updateAttrs(patch),
             onClose: () => { /* preview re-renders via update() */ },
           });
         }

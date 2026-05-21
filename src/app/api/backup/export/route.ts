@@ -1,14 +1,13 @@
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getUserIdFromRequest } from '@/lib/route-helpers';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) {
+        const userId = getUserIdFromRequest(req);
+        if (!userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
