@@ -56,7 +56,12 @@ export async function GET() {
             status: dbReachable ? 'ok' : 'degraded',
             dbUnlocked,
             uptimeMs: Date.now() - PROCESS_STARTED_AT,
-            version: process.env.npm_package_version ?? 'unknown',
+            // NEXT_PUBLIC_APP_VERSION is inlined at build time via
+            // next.config.ts. Falls back to npm_package_version (set
+            // when npm runs scripts) and finally 'unknown'.
+            version: process.env.NEXT_PUBLIC_APP_VERSION
+                ?? process.env.npm_package_version
+                ?? 'unknown',
         },
         { status: 200 },
     );

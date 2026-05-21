@@ -38,7 +38,24 @@ function checkDbSecret() {
     }
 }
 
+// Fire the check at module-import time so a misconfigured production
+// server surfaces the error on the first request that touches an
+// auth-using route — including /api/health. That's good enough for
+// production monitoring: the next upstream healthcheck flips the route
+// to degraded and the operator gets alerted.
+//
+// Skip during `next build` — Next.js evaluates server modules at build
+// time to collect page data, and the build host won't (and shouldn't)
+// have the production DB secret. The runtime check still fires when
+// the production server starts and the first request lands.
+if (process.env.NEXT_PHASE !== 'phase-production-build') {
+    checkDbSecret();
+}
+
 export function getAppDbKey(): string {
+    // Re-check on every call too — vitest tests `vi.resetModules()` and
+    // re-imports auth.ts with mutated env vars, so a fresh check per
+    // call preserves the per-test contract.
     checkDbSecret();
     // Always return the fixed 64-hex-char (32-byte) app-level key.
     return createHash('sha256')

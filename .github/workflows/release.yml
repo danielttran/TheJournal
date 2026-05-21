@@ -28,6 +28,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Refuse to publish a broken installer. The release workflow is the
+      # last chance to catch regressions — if tsc or tests fail, the
+      # GitHub Release never gets created and electron-updater clients
+      # keep the previous version.
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
       - name: Build installer
         # build:installer = `node scripts/install-sqlite.js && electron-builder`.
         # The install-sqlite step rebuilds @journeyapps/sqlcipher's native

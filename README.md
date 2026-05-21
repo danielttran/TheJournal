@@ -146,8 +146,10 @@ npm run test:watch
 
 ```
 tests/
+├── features/
+│   └── *.test.ts          # ~700 unit/integration tests
 └── stress/
-    └── db.stress.test.ts   # 20 tests across 10 suites
+    └── db.stress.test.ts  # ~20 high-concurrency stress tests
 ```
 
 Each test run creates an isolated temporary database, seeds it with a test user, and deletes all three SQLite files (`.tjdb`, `.tjdb-shm`, `.tjdb-wal`) on teardown.
@@ -313,6 +315,6 @@ Response:
 - **Styling**: Tailwind CSS with CSS variables
 - **Database**: @journeyapps/sqlcipher (AES-256 Encrypted)
 - **Key Derivation**: Argon2id
-- **Desktop**: Electron 35
+- **Desktop**: Electron 41
 - **DnD**: @dnd-kit
 - **Testing**: Vitest 4

@@ -1,8 +1,30 @@
 import type { NextConfig } from "next";
+import { readFileSync } from "fs";
+import { resolve } from "path";
+
+// Pin the package version into the build so /api/health can surface it
+// even when launched via `node .next/standalone/server.js` (where
+// npm_package_version isn't set because npm isn't invoking the process).
+const pkgVersion: string = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'));
+    return typeof pkg.version === 'string' ? pkg.version : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
 
 const nextConfig: NextConfig = {
   /* config options here */
   reactStrictMode: true,
+  env: {
+    // Read by /api/health/route.ts via process.env. NEXT_PUBLIC_ prefix is
+    // a Next.js convention that inlines the value at build time. Health
+    // is a server-only endpoint so technically the prefix isn't required,
+    // but using NEXT_PUBLIC_ keeps the var accessible in any future
+    // client-side "About" UI that wants to render the version.
+    NEXT_PUBLIC_APP_VERSION: pkgVersion,
+  },
   // Standalone output produces a minimal .next/standalone/ directory containing
   // server.js + the traced node_modules. `node .next/standalone/server.js`
   // runs the production web server with no `next` CLI involved. Electron's

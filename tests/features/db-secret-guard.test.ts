@@ -40,11 +40,13 @@ describe('JOURNAL_DB_SECRET guard', () => {
         expect(key).toMatch(/^[0-9a-f]{64}$/);
     });
 
-    it('throws in production when JOURNAL_DB_SECRET is unset (falls back to dev default)', async () => {
+    it('throws AT IMPORT TIME in production when JOURNAL_DB_SECRET is unset (falls back to dev default)', async () => {
         delete env.JOURNAL_DB_SECRET;
         env.NODE_ENV = 'production';
-        const { getAppDbKey } = await import('../../src/lib/auth');
-        expect(() => getAppDbKey()).toThrow(/JOURNAL_DB_SECRET/);
+        // The check fires at module-load time so a misconfigured prod
+        // server fails before serving a single request. The throw
+        // surfaces inside the dynamic import().
+        await expect(import('../../src/lib/auth')).rejects.toThrow(/JOURNAL_DB_SECRET/);
     });
 
     it('warns but does not throw in dev when JOURNAL_DB_SECRET is unset', async () => {

@@ -136,18 +136,31 @@ register action seeds a "Daily Journal" + "Notebook" category for you
 ## Upgrades
 
 ```bash
+# 1. Stop the running server to make the rebuild atomic.
+sudo systemctl stop thejournal
+
+# 2. Pull + rebuild as the service user.
 sudo -u thejournal -i
 cd /var/lib/thejournal/app
 git fetch && git checkout vX.Y.Z   # or `git pull` for main
 npm ci
 npm run build
 exit
-sudo systemctl restart thejournal
+
+# 3. Start the new build.
+sudo systemctl start thejournal
+curl -s http://127.0.0.1:3000/api/health   # confirm status=ok
 ```
 
 The DB file under `/var/lib/thejournal/data/` is untouched by `git pull`
 because it lives outside the repo. Schema migrations run automatically
 on next request (see `src/lib/db.ts`'s migration list).
+
+**Why stop first?** `npm ci` deletes `node_modules/` then reinstalls it.
+If the systemd unit is running it'll hit `MODULE_NOT_FOUND` during the
+window where node_modules is being rebuilt and either crash or serve
+500s. Stopping first costs ~30 s of downtime; downtime-free upgrades
+need a second instance behind Caddy (out of scope for the basic setup).
 
 ## Troubleshooting
 

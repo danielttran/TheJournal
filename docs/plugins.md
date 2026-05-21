@@ -121,6 +121,22 @@ The API accepts either a Tiptap extension instance or a plain Tiptap node config
 - A plugin with invalid JSON or a script error is skipped and logged; other plugins still load.
 - The app continues normally when the plugins folder is missing or empty.
 
+## Multi-user self-host warning
+
+The plugin folder is **shared across every user on the same server**.
+`POST /api/plugins` is auth-gated (any logged-in user), but installation
+isn't restricted to an admin role — there isn't one in TheJournal's
+auth model. On a single-operator self-host this matches the "trusted
+local scripts" trust model and is fine.
+
+For a multi-user deployment where users don't all trust each other:
+
+- Set `JOURNAL_PLUGINS_DIR` to a directory you (the operator) own and
+  pre-populate with the plugins you want available. Mount it
+  read-only — the API will surface a 500 when a non-operator tries to
+  install, blocking the install.
+- Or fork the route and add an admin check before allowing POST/DELETE.
+
 ## Current API
 
 ```js
