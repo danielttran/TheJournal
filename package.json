@@ -9,7 +9,7 @@
     "dev": "npm rebuild @journeyapps/sqlcipher && next dev",
     "build": "next build && node scripts/stage-standalone.js",
     "start": "next start",
-    "start:web": "node .next/standalone/server.js",
+    "start:web": "cd .next/standalone && node server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint",

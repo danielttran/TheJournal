@@ -127,10 +127,20 @@ mv "$DEST/journal-$(date +%F).tjdb.tmp" "$DEST/journal-$(date +%F).tjdb"
 find "$DEST" -name 'journal-*.tjdb' -mtime "+$KEEP_DAYS" -delete
 ```
 
-Source the secret from a file the script can read but no other user
-can: `chmod 0400 /etc/thejournal/secret.env` containing
-`export JOURNAL_DB_SECRET=...`, then `source /etc/thejournal/secret.env`
-at the top of the script.
+Source the secret from the same env file the systemd unit uses
+(see [../deploy/README.md](../deploy/README.md)): the backup script
+runs as root so it can read the 0640 root:thejournal file. Add an
+`export` line at the top of the script:
+
+```bash
+set -a
+. /etc/thejournal/env
+set +a
+```
+
+`set -a` makes every variable defined in the sourced file exported
+automatically — works even though the env file has bare `KEY=VAL`
+lines (no `export` prefix, the format systemd requires).
 
 ## Restoring
 
