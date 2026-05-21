@@ -51,6 +51,20 @@ npm run build:electron
 npm run build:installer
 ```
 
+## Deploy (self-hosted web)
+
+See **[deploy/README.md](./deploy/README.md)** for the full runbook: clone,
+`npm run build`, `node .next/standalone/server.js` under systemd, fronted
+by Caddy for automatic HTTPS.
+
+Related references:
+- **[docs/env-vars.md](./docs/env-vars.md)** — every `JOURNAL_*` env var,
+  what it does, what's required in production.
+- **[docs/backup-runbook.md](./docs/backup-runbook.md)** — WAL-aware backup
+  workflow (rsync / S3 / B2) and a nightly cron snippet.
+- **[docs/release.md](./docs/release.md)** — maintainer release flow
+  (tag → CI → Windows installer + auto-update).
+
 ## Search
 
 Press **Ctrl+F** anywhere in the journal view to open the search panel, or use the **View → Search** menu item, or right-click in the editor.

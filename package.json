@@ -7,8 +7,9 @@
   "description": "TheJournal App",
   "scripts": {
     "dev": "npm rebuild @journeyapps/sqlcipher && next dev",
-    "build": "next build",
+    "build": "next build && node scripts/stage-standalone.js",
     "start": "next start",
+    "start:web": "node .next/standalone/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint",
@@ -59,6 +60,7 @@
     "swagger-ui-react": "^5.32.2",
     "tailwind-merge": "^3.5.0",
     "tiptap-markdown": "^0.9.0",
+    "electron-updater": "^6.6.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {

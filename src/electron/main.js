@@ -1,4 +1,5 @@
 const { app, BrowserWindow, screen, ipcMain, Menu, safeStorage } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
 const { createServer } = require('http');
@@ -493,6 +494,35 @@ function createMenu() {
                 },
                 { type: 'separator' },
                 {
+                    label: 'Check for Updates…',
+                    click: async () => {
+                        const { dialog: upDialog } = require('electron');
+                        try {
+                            const result = await autoUpdater.checkForUpdates();
+                            if (!result || !result.updateInfo || result.updateInfo.version === app.getVersion()) {
+                                await upDialog.showMessageBox(mainWindow ?? undefined, {
+                                    type: 'info',
+                                    title: 'No updates',
+                                    message: `You're on the latest version (${app.getVersion()}).`,
+                                    buttons: ['OK'],
+                                });
+                            }
+                            // If a newer version IS available, autoUpdater
+                            // emits 'update-downloaded' when it's ready;
+                            // the existing listener pops the restart prompt.
+                        } catch (err) {
+                            await upDialog.showMessageBox(mainWindow ?? undefined, {
+                                type: 'warning',
+                                title: 'Update check failed',
+                                message: 'Could not check for updates.',
+                                detail: err && err.message ? err.message : String(err),
+                                buttons: ['OK'],
+                            });
+                        }
+                    }
+                },
+                { type: 'separator' },
+                {
                     label: 'Report an Issue',
                     click: async () => {
                         try { await shell.openExternal('https://github.com/danielttran/TheJournal/issues/new'); }
@@ -803,6 +833,48 @@ app.whenReady().then(async () => {
         app.on('activate', () => {
             if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
         });
+
+        // ── Auto-update (electron-updater) ─────────────────────────────────────
+        // Reads the `publish:` block in electron-builder.yml to find the
+        // GitHub Release manifest (latest.yml), downloads the new installer
+        // when the released version > the installed one, and prompts the
+        // user to relaunch. Disabled in dev so we don't fight the dev server.
+        if (!dev) {
+            // Avoid blocking startup on a slow network — first check fires
+            // 60s after window creation, then every 6 hours.
+            const SIX_HOURS_MS_UPDATE = 6 * 60 * 60 * 1000;
+            const INITIAL_DELAY_MS = 60_000;
+            const checkForUpdates = () => {
+                autoUpdater.checkForUpdatesAndNotify().catch(err => {
+                    console.error('[Electron] autoUpdater check failed:', err);
+                });
+            };
+            setTimeout(checkForUpdates, INITIAL_DELAY_MS);
+            setInterval(checkForUpdates, SIX_HOURS_MS_UPDATE);
+
+            autoUpdater.on('update-downloaded', (info) => {
+                console.log('[Electron] Update downloaded:', info?.version);
+                if (!mainWindow) return;
+                const { dialog } = require('electron');
+                dialog.showMessageBox(mainWindow, {
+                    type: 'info',
+                    buttons: ['Restart now', 'Later'],
+                    defaultId: 0,
+                    cancelId: 1,
+                    title: 'Update ready',
+                    message: `TheJournal ${info?.version ?? ''} has been downloaded.`,
+                    detail: 'Restart the app to finish installing the update.',
+                }).then(({ response }) => {
+                    if (response === 0) {
+                        autoUpdater.quitAndInstall();
+                    }
+                });
+            });
+
+            autoUpdater.on('error', (err) => {
+                console.error('[Electron] autoUpdater error:', err);
+            });
+        }
 
         // ── Scheduled background backup ────────────────────────────────────────
         // If auto-backup is enabled, run performAutoBackup every 6 hours so that

@@ -35,3 +35,12 @@ nsis:
 # first DB access. scripts/install-sqlite.js runs an explicit rebuild first as
 # a belt-and-braces measure.
 npmRebuild: true
+
+# electron-updater reads this block at runtime to find the latest release.
+# The release workflow (.github/workflows/release.yml) uploads the .exe AND
+# a `latest.yml` manifest to the GitHub Release; the running app polls that
+# manifest and downloads the new version when its version > the installed one.
+publish:
+  - provider: github
+    owner: danielttran
+    repo: TheJournal

@@ -1,0 +1,43 @@
+name: Release
+
+# Triggers on push of a semver tag like v1.2.3. Build the Windows NSIS
+# installer + electron-updater manifest and publish them to the
+# corresponding GitHub Release.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+jobs:
+  build-windows:
+    name: Build Windows NSIS installer
+    runs-on: windows-latest
+    permissions:
+      # electron-builder needs to create the GitHub Release and upload artifacts.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build installer
+        # build:installer = `node scripts/install-sqlite.js && electron-builder`.
+        # The install-sqlite step rebuilds @journeyapps/sqlcipher's native
+        # binding against the Electron runtime's V8 ABI. electron-builder
+        # then bundles the installer and — because electron-builder.yml has
+        # a `publish: github` block — uploads it to the Release for this
+        # tag (creating the Release if needed).
+        run: npm run build:installer
+        env:
+          # electron-builder picks up GH_TOKEN to authenticate the upload.
+          # The default GITHUB_TOKEN has `contents: write` from `permissions`
+          # above, which is exactly what electron-builder needs.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

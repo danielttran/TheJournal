@@ -1,0 +1,45 @@
+# Caddy reverse-proxy example for TheJournal.
+#
+# Usage:
+#   1. Copy to /etc/caddy/Caddyfile (or your distro's equivalent).
+#   2. Replace `example.com` with the hostname you've pointed at this server.
+#   3. systemctl reload caddy
+#
+# Caddy provisions and renews a Let's Encrypt certificate automatically the
+# first time the hostname is hit — no certbot needed. The hostname must
+# resolve to this server's public IP and ports 80 + 443 must be open.
+
+example.com {
+    # Forward all traffic to the standalone Next.js server.
+    reverse_proxy localhost:3000
+
+    # Allow large media uploads. Matches the bodySizeLimit in next.config.ts
+    # (250 MB). Caddy's default 10 MB cap would reject big audio/video.
+    request_body {
+        max_size 250MB
+    }
+
+    # Standard hardening headers. Adjust to taste.
+    header {
+        # 1y HSTS once you're sure the cert chain is solid.
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "SAMEORIGIN"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        # Caddy emits its own Server header — strip if you'd rather not advertise.
+        -Server
+    }
+
+    # Compress text responses. Caddy serves binaries (images, videos) raw.
+    encode zstd gzip
+
+    # Per-route healthcheck override: keep this verbose-free so log lines
+    # from monitors don't drown out the real traffic.
+    log {
+        output file /var/log/caddy/thejournal.access.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+        format console
+    }
+}
