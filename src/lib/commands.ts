@@ -41,6 +41,11 @@ export const COMMANDS: CommandDef[] = [
     { id: 'edit.undo',  label: 'Undo',  category: 'Edit', defaultBinding: 'Ctrl+Z' },
     { id: 'edit.redo',  label: 'Redo',  category: 'Edit', defaultBinding: 'Ctrl+Y' },
     { id: 'edit.find',  label: 'Find / replace',  category: 'Edit', defaultBinding: 'Ctrl+F' },
+    { id: 'edit.find-next', label: 'Find next', category: 'Edit', defaultBinding: 'F3' },
+    { id: 'edit.replace', label: 'Replace',  category: 'Edit', defaultBinding: 'Ctrl+H' },
+    { id: 'edit.paste-special', label: 'Paste as plain text', category: 'Edit', defaultBinding: 'Ctrl+Shift+V' },
+    { id: 'entry.save', label: 'Save entry', category: 'Edit', defaultBinding: 'Ctrl+S' },
+    { id: 'entry.properties', label: 'Entry properties…', category: 'Edit', defaultBinding: null },
 
     // ── Format ───────────────────────────────────────────────────────
     { id: 'format.bold',          label: 'Bold',           category: 'Format', defaultBinding: 'Ctrl+B' },
@@ -66,15 +71,32 @@ export const COMMANDS: CommandDef[] = [
     { id: 'insert.link',           label: 'Insert link',     category: 'Insert', defaultBinding: 'Ctrl+K' },
     { id: 'insert.bookmark',       label: 'Insert bookmark', category: 'Insert', defaultBinding: null },
     { id: 'insert.hr',             label: 'Horizontal rule', category: 'Insert', defaultBinding: null },
+    { id: 'insert.special-char',   label: 'Special character…', category: 'Insert', defaultBinding: null },
+    { id: 'insert.attachment',     label: 'File attachment…',  category: 'Insert', defaultBinding: null },
+    { id: 'entry.new-subentry',    label: 'New sub-entry',     category: 'Insert', defaultBinding: 'Ctrl+Shift+Enter' },
     { id: 'insert.datetime',       label: 'Insert date & time', category: 'Insert', defaultBinding: null },
     { id: 'insert.checklist',      label: 'Checklist',       category: 'Insert', defaultBinding: null },
     { id: 'insert.template',       label: 'Insert from template…', category: 'Insert', defaultBinding: 'Ctrl+Shift+T' },
-    { id: 'insert.prompt',         label: 'Insert writing prompt…', category: 'Insert', defaultBinding: 'Ctrl+Shift+P' },
+    { id: 'insert.prompt',         label: 'Insert writing prompt…', category: 'Insert', defaultBinding: null },
 
     // ── View ─────────────────────────────────────────────────────────
     { id: 'view.search',         label: 'Open search',         category: 'View', defaultBinding: 'Ctrl+F' },
     { id: 'view.focus-mode',     label: 'Focus mode',          category: 'View', defaultBinding: 'F11' },
     { id: 'view.split',          label: 'Toggle split editor', category: 'View', defaultBinding: 'Ctrl+\\' },
+    { id: 'view.toggle-sidebar', label: 'Show / hide sidebar',  category: 'View', defaultBinding: 'Ctrl+Shift+B' },
+    { id: 'view.sidebar-side',   label: 'Move sidebar left / right', category: 'View', defaultBinding: null },
+    { id: 'view.toggle-toolbar', label: 'Show / hide formatting toolbar', category: 'View', defaultBinding: null },
+
+    // ── Navigation (David RM Go menu) ────────────────────────────────
+    // Note: J8 desktop uses Ctrl+Left/Right for prev/next entry; on the web
+    // those move the caret by word inside the editor, so we use Ctrl+PageUp /
+    // Ctrl+PageDown instead (documented in docs/j8-gap-analysis.md).
+    { id: 'nav.today',       label: 'Go to today',     category: 'Navigation', defaultBinding: 'Ctrl+T' },
+    { id: 'nav.go-to-date',  label: 'Go to date…',     category: 'Navigation', defaultBinding: 'Ctrl+G' },
+    { id: 'nav.prev-entry',  label: 'Previous entry',  category: 'Navigation', defaultBinding: 'Ctrl+Pageup' },
+    { id: 'nav.next-entry',  label: 'Next entry',      category: 'Navigation', defaultBinding: 'Ctrl+Pagedown' },
+    { id: 'nav.back',        label: 'Back',            category: 'Navigation', defaultBinding: 'Alt+Arrowleft' },
+    { id: 'nav.forward',     label: 'Forward',         category: 'Navigation', defaultBinding: 'Alt+Arrowright' },
 
     // ── Security ─────────────────────────────────────────────────────
     { id: 'security.lock',       label: 'Lock now', category: 'Security', defaultBinding: 'Ctrl+Shift+L' },

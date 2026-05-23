@@ -21,11 +21,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         if (!row) return new NextResponse(null, { status: 404 });
 
+        // ?download=1 forces a download (File Attachment); default is inline so
+        // images/PDFs still render in-page.
+        const wantsDownload = new URL(req.url).searchParams.get('download') === '1';
+        const disposition = wantsDownload ? 'attachment' : 'inline';
+
         // Convert Buffer → Uint8Array so NextResponse accepts it as BodyInit
         return new NextResponse(new Uint8Array(row.Data), {
             headers: {
                 'Content-Type': row.MimeType,
-                'Content-Disposition': `inline; filename="${encodeURIComponent(row.Filename)}"`,
+                'Content-Disposition': `${disposition}; filename="${encodeURIComponent(row.Filename)}"`,
                 // Immutable: the blob never changes once written; safe to cache indefinitely.
                 'Cache-Control': 'private, max-age=31536000, immutable',
             },

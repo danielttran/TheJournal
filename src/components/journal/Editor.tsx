@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Minimize2, Star, Hash, X, Lock, Printer, FileDown } from 'lucide-react';
+import { Minimize2, Star, Hash, X, Lock, Printer, FileDown, Info } from 'lucide-react';
 import Breadcrumbs from './Breadcrumbs';
 import TemplatePicker, { type Template } from './TemplatePicker';
 import WritingPromptsPicker from './WritingPromptsPicker';
@@ -31,6 +31,8 @@ import { TextStyle } from '@tiptap/extension-text-style';
 import FontFamily from '@tiptap/extension-font-family';
 import { FontSize } from './extensions/FontSize';
 import { Bookmark } from './extensions/Bookmark';
+import { FileAttachment } from './extensions/FileAttachment';
+import { ParagraphStyle } from './extensions/ParagraphStyle';
 import { VideoBlock } from './extensions/VideoBlock';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
@@ -45,6 +47,20 @@ import { htmlToPlainText } from '@/lib/htmlText';
 // Shared HTML-stripping count + reading-time helpers — the editor previously
 // hand-rolled an `countWords` that drifted from the test-covered version.
 import { wordCount as countWords, readingTimeMinutesFromWords } from '@/lib/readingTime';
+import { computeEntryStats } from '@/lib/entryProperties';
+import { BUNDLED_PLUGINS } from '@/lib/bundledPlugins';
+import { logAction } from '@/lib/actionLog';
+
+// Module-level (stable) helpers for the editor right-click menu so they aren't
+// re-created each render (avoids react/no-unstable-nested-components).
+function CtxItem({ label, kbd, onClick }: { label: string; kbd?: string; onClick: () => void }) {
+    return (
+        <button onClick={() => { logAction('context menu', label); onClick(); }} className="w-full text-left px-4 py-1.5 hover:bg-accent-primary hover:text-white flex items-center justify-between gap-8 text-text-primary">
+            <span>{label}</span>{kbd && <kbd className="text-[10px] opacity-60 font-sans">{kbd}</kbd>}
+        </button>
+    );
+}
+function CtxSep() { return <div className="mx-2 my-1 border-t border-border-primary" />; }
 
 type EditorProps = {
     categoryId: string;
@@ -92,8 +108,21 @@ export default function Editor(props: EditorProps) {
             TheJournalAPI.reset();
 
             try {
-                const plugins = await fetchPlugins();
+                const installed = await fetchPlugins();
                 if (!isMounted) return;
+
+                // First-party plugins (drawio, sentence-diagrammer) are bundled
+                // INTO the app so they always load with no runtime fetch. The
+                // bundled copy is canonical and WINS over any filesystem copy of
+                // the same id — otherwise a stale seeded copy (e.g. an older
+                // version copied into Electron's userData/plugins on first run)
+                // would shadow shipped updates. Third-party installs (ids not in
+                // the bundle) load from /api/plugins as usual.
+                const bundledIds = new Set(BUNDLED_PLUGINS.map(b => b.id));
+                const plugins = [
+                    ...BUNDLED_PLUGINS.map(b => ({ id: b.id, scriptContent: b.scriptContent })),
+                    ...installed.filter(p => !bundledIds.has(p.id)),
+                ];
 
                 for (const plugin of plugins) {
                     if (!isMounted) return;
@@ -172,6 +201,16 @@ function PluginLoadedEditor({
     const [tags, setTags] = useState<string[]>([]);
     const [showMoodPicker, setShowMoodPicker] = useState(false);
     const [showWritingPrompts, setShowWritingPrompts] = useState(false);
+    const [showProperties, setShowProperties] = useState(false);
+    const [propsMeta, setPropsMeta] = useState<{ created?: string; modified?: string; title?: string }>({});
+    const [toolbarHidden, setToolbarHidden] = useState(false);
+    const [statusBarHidden, setStatusBarHidden] = useState(false);
+    const [showFontDialog, setShowFontDialog] = useState(false);
+    const [showParagraphDialog, setShowParagraphDialog] = useState(false);
+    const [ctxInsertOpen, setCtxInsertOpen] = useState(false);
+    const [bgImage, setBgImage] = useState<string | null>(null);
+    const textColorInputRef = useRef<HTMLInputElement>(null);
+    const bgColorInputRef = useRef<HTMLInputElement>(null);
     const [tagInput, setTagInput] = useState('');
     const [tagSuggestions, setTagSuggestions] = useState<{ tag: string; count: number }[]>([]);
     const [tagSuggestIndex, setTagSuggestIndex] = useState(0);
@@ -220,6 +259,8 @@ function PluginLoadedEditor({
         FontFamily,
         FontSize,
         Bookmark,
+        FileAttachment,
+        ParagraphStyle,
         VideoBlock,
         Table.configure({ resizable: false }),
         TableRow,
@@ -638,6 +679,134 @@ function PluginLoadedEditor({
 
             attemptSave(0);
         }
+    }, [editor]);
+
+    // David RM Entry menu: explicit Save (Ctrl+S) flushes the autosave buffer;
+    // Entry Properties opens a metadata dialog with live word/character counts.
+    useEffect(() => {
+        const onSave = () => flushPendingSave();
+        const onProperties = async () => {
+            const id = entryIdRef.current;
+            if (!id) return;
+            try {
+                const d = await (await fetch(`/api/entry/${id}`)).json();
+                setPropsMeta({ created: d?.CreatedDate, modified: d?.ModifiedDate, title: d?.Title });
+            } catch { setPropsMeta({}); }
+            setShowProperties(true);
+        };
+        const onToggleToolbar = () => setToolbarHidden(v => {
+            const next = !v;
+            try { localStorage.setItem('toolbarHidden', next ? '1' : '0'); } catch { /* ignore */ }
+            return next;
+        });
+        try { setToolbarHidden(localStorage.getItem('toolbarHidden') === '1'); } catch { /* ignore */ }
+        const onToggleStatusBar = () => setStatusBarHidden(v => {
+            const next = !v;
+            try { localStorage.setItem('statusBarHidden', next ? '1' : '0'); } catch { /* ignore */ }
+            return next;
+        });
+        try { setStatusBarHidden(localStorage.getItem('statusBarHidden') === '1'); } catch { /* ignore */ }
+        window.addEventListener('trigger-save', onSave);
+        window.addEventListener('trigger-entry-properties', onProperties);
+        window.addEventListener('trigger-toggle-toolbar', onToggleToolbar);
+        window.addEventListener('trigger-toggle-status-bar', onToggleStatusBar);
+        return () => {
+            window.removeEventListener('trigger-save', onSave);
+            window.removeEventListener('trigger-entry-properties', onProperties);
+            window.removeEventListener('trigger-toggle-toolbar', onToggleToolbar);
+            window.removeEventListener('trigger-toggle-status-bar', onToggleStatusBar);
+        };
+    }, [flushPendingSave]);
+
+    // Format/Insert menu actions that map to editor commands (David RM Format
+    // & Insert menus), plus per-entry lock toggle.
+    useEffect(() => {
+        if (!editor) return;
+        const chain = () => editor.chain().focus();
+        const handlers: Record<string, () => void> = {
+            'trigger-insert-table': () => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+            'trigger-style-normal': () => chain().setParagraph().run(),
+            'trigger-style-h1': () => chain().toggleHeading({ level: 1 }).run(),
+            'trigger-style-h2': () => chain().toggleHeading({ level: 2 }).run(),
+            'trigger-style-h3': () => chain().toggleHeading({ level: 3 }).run(),
+            'trigger-style-quote': () => chain().toggleBlockquote().run(),
+            'trigger-style-code': () => chain().toggleCodeBlock().run(),
+            'trigger-bullets-numbering': () => chain().toggleBulletList().run(),
+            'trigger-text-color': () => textColorInputRef.current?.click(),
+            'trigger-font-properties': () => setShowFontDialog(true),
+            'trigger-paragraph-properties': () => setShowParagraphDialog(true),
+        };
+        const onLock = async () => {
+            const id = entryIdRef.current;
+            if (!id) return;
+            if (isLocked) {
+                const pw = window.prompt('Enter password to unlock this entry:');
+                if (pw == null) return;
+                const res = await fetch(`/api/entry/${id}/lock`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+                if (res.ok) window.location.reload(); else window.alert('Wrong password or unlock failed.');
+            } else {
+                const pw = window.prompt('Set a password to lock this entry (encrypts its content):');
+                if (!pw) return;
+                await flushPendingSave();
+                const res = await fetch(`/api/entry/${id}/lock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+                if (res.ok) window.location.reload(); else window.alert('Lock failed.');
+            }
+        };
+        // Run a plugin's registered action by id (from the Plugins menu).
+        const onRunPlugin = (e: Event) => {
+            const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+            if (!id) return;
+            const btn = TheJournalAPI.registeredToolbarButtons.find(b => b.id === id);
+            logAction('plugin', `run-plugin:${id}`, { found: !!btn });
+            if (btn) btn.onClick(editor);
+            else window.alert(`Plugin "${id}" is not loaded.`);
+        };
+        for (const [evt, fn] of Object.entries(handlers)) window.addEventListener(evt, fn);
+        window.addEventListener('trigger-lock-entry', onLock);
+        window.addEventListener('trigger-run-plugin', onRunPlugin);
+        return () => {
+            for (const [evt, fn] of Object.entries(handlers)) window.removeEventListener(evt, fn);
+            window.removeEventListener('trigger-lock-entry', onLock);
+            window.removeEventListener('trigger-run-plugin', onRunPlugin);
+        };
+    }, [editor, isLocked, flushPendingSave]);
+
+    // Per-entry background image (David RM context-menu "Background Image").
+    // Persisted in localStorage keyed by entry so it survives reloads.
+    useEffect(() => {
+        if (!entryId) { setBgImage(null); return; }
+        try { setBgImage(localStorage.getItem(`entryBg-${entryId}`)); } catch { setBgImage(null); }
+    }, [entryId]);
+
+    const setBackgroundImage = useCallback(() => {
+        const id = entryIdRef.current;
+        if (!id) return;
+        const current = (() => { try { return localStorage.getItem(`entryBg-${id}`) ?? ''; } catch { return ''; } })();
+        const url = window.prompt('Background image URL (leave blank to clear):', current);
+        if (url === null) return;
+        const trimmed = url.trim();
+        try {
+            if (trimmed) localStorage.setItem(`entryBg-${id}`, trimmed);
+            else localStorage.removeItem(`entryBg-${id}`);
+        } catch { /* ignore */ }
+        setBgImage(trimmed || null);
+    }, []);
+
+    const saveEntryAs = useCallback(() => {
+        const id = entryIdRef.current;
+        if (!id) return;
+        const fmt = (window.prompt('Save entry as (md, rtf, html, txt):', 'html') || '').trim().toLowerCase();
+        if (!fmt) return;
+        if (!['md', 'rtf', 'html', 'txt'].includes(fmt)) { window.alert('Supported formats: md, rtf, html, txt'); return; }
+        window.open(`/api/entry/${id}/export?format=${fmt}`, '_blank');
+    }, []);
+
+    // Context-menu "Paste": native paste preserves formatting (works in Electron
+    // and supporting browsers); fall back to the async clipboard as plain text.
+    const ctxPaste = useCallback(async () => {
+        if (!editor) return;
+        try { if (document.execCommand('paste')) return; } catch { /* gated */ }
+        try { const t = await navigator.clipboard.readText(); if (t) editor.chain().focus().insertContent(t).run(); } catch { /* no permission */ }
     }, [editor]);
 
     const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
@@ -1135,7 +1304,7 @@ function PluginLoadedEditor({
                 .tiptap-container { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
             `}</style>
 
-            {entryId && !isDistractionFree && (
+            {entryId && !isDistractionFree && !statusBarHidden && (
                 <div className="h-10 border-b border-border-primary flex items-center justify-between px-4 bg-bg-sidebar">
                     <div className="flex-1 overflow-hidden">
                         <Breadcrumbs
@@ -1153,6 +1322,14 @@ function PluginLoadedEditor({
                                 {readingTimeMinutesFromWords(wordCount)} min read
                             </span>
                         )}
+
+                        <button
+                            onClick={() => window.dispatchEvent(new Event('trigger-entry-properties'))}
+                            className="p-1 rounded hover:bg-bg-hover text-text-muted transition-colors"
+                            title="Entry properties"
+                        >
+                            <Info className="w-3.5 h-3.5" />
+                        </button>
 
                         {/* Mood picker */}
                         <div className="relative">
@@ -1288,27 +1465,63 @@ function PluginLoadedEditor({
             )}
 
             {contextMenu && (
-                <div className="fixed z-[300] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[220px]" style={{ top: contextMenu.y, left: contextMenu.x }} onClick={() => setContextMenu(null)}>
-                    {onOpenSearch && (
-                        <button className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm flex items-center justify-between" onClick={() => onOpenSearch()}>
-                            <span>Search…</span><kbd className="text-[10px] text-text-muted border border-border-primary rounded px-1.5 py-0.5">Ctrl+F</kbd>
-                        </button>
-                    )}
-                    <div className="mx-3 my-1 border-t border-border-primary" />
-                    <button className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm flex items-center justify-between" onClick={() => setIsFloatingToolbar(!isFloatingToolbar)}>
-                        <span>{isFloatingToolbar ? 'Pin Toolbar' : 'Float Toolbar'}</span>
-                    </button>
-                    <button className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm flex items-center justify-between" onClick={() => setShowTemplatePicker(true)}>
-                        <span>Templates…</span><kbd className="text-[10px] text-text-muted border border-border-primary rounded px-1.5 py-0.5">Ctrl+Shift+T</kbd>
-                    </button>
-                    <button className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm flex items-center justify-between" onClick={() => setIsDistractionFree(true)}>
-                        <span>Focus Mode</span><kbd className="text-[10px] text-text-muted border border-border-primary rounded px-1.5 py-0.5">F11</kbd>
-                    </button>
-                    {onToggleSplitMode && (
-                        <button className="w-full text-left px-4 py-2 hover:bg-bg-hover text-sm flex items-center justify-between" onClick={() => onToggleSplitMode()}>
-                            <span>Split View</span><kbd className="text-[10px] text-text-muted border border-border-primary rounded px-1.5 py-0.5">Ctrl+\</kbd>
-                        </button>
-                    )}
+                <div
+                    className="fixed z-[300] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[240px] text-sm"
+                    style={{ top: contextMenu.y, left: contextMenu.x }}
+                    onClick={e => e.stopPropagation()}
+                >
+                    {(() => {
+                        const run = (fn: () => void) => () => { fn(); setContextMenu(null); };
+                        const dispatch = (evt: string) => () => { window.dispatchEvent(new Event(evt)); setContextMenu(null); };
+                        const Item = CtxItem;
+                        const Sep = CtxSep;
+                        const insertItems: [string, string][] = [
+                            ['File Attachment…', 'trigger-attachment'],
+                            ['Image / Photo…', 'trigger-image-upload'],
+                            ['Hyperlink…', 'trigger-link'],
+                            ['Table…', 'trigger-insert-table'],
+                            ['Horizontal Line', 'trigger-hr'],
+                            ['Special Character…', 'trigger-special-char'],
+                            ['Bookmark…', 'trigger-bookmark'],
+                        ];
+                        return (
+                            <>
+                                <Item label="Cut" kbd="Ctrl+X" onClick={run(() => document.execCommand('cut'))} />
+                                <Item label="Copy" kbd="Ctrl+C" onClick={run(() => document.execCommand('copy'))} />
+                                <Item label="Paste" kbd="Ctrl+V" onClick={run(() => { void ctxPaste(); })} />
+                                <Item label="Paste as Text" kbd="Ctrl+Shift+V" onClick={dispatch('trigger-paste-special')} />
+                                <Item label="Select All" kbd="Ctrl+A" onClick={run(() => editor?.chain().focus().selectAll().run())} />
+                                <Sep />
+                                <Item label="Format Painter" onClick={dispatch('trigger-format-painter')} />
+                                <Item label="Highlighter" onClick={run(() => editor?.chain().focus().toggleHighlight().run())} />
+                                <Sep />
+                                <Item label="Font…" onClick={run(() => setShowFontDialog(true))} />
+                                <Item label="Paragraph…" onClick={run(() => setShowParagraphDialog(true))} />
+                                <Item label="Background Color" onClick={run(() => bgColorInputRef.current?.click())} />
+                                <Item label="Background Image" onClick={run(setBackgroundImage)} />
+                                <Sep />
+                                <Item label="Tag Entry with Topic…" kbd="Ctrl+Shift+G" onClick={dispatch('trigger-assign-topics')} />
+                                <div
+                                    className="relative"
+                                    onMouseEnter={() => setCtxInsertOpen(true)}
+                                    onMouseLeave={() => setCtxInsertOpen(false)}
+                                >
+                                    <div className="w-full text-left px-4 py-1.5 hover:bg-accent-primary hover:text-white flex items-center justify-between gap-8 text-text-primary cursor-default">
+                                        <span>Insert</span><span className="opacity-60">›</span>
+                                    </div>
+                                    {ctxInsertOpen && (
+                                        <div className="absolute left-full top-0 -mt-1 bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[200px]">
+                                            {insertItems.map(([label, evt]) => <Item key={evt} label={label} onClick={dispatch(evt)} />)}
+                                        </div>
+                                    )}
+                                </div>
+                                <Item label="Insert Template" onClick={run(() => setShowTemplatePicker(true))} />
+                                <Sep />
+                                <Item label="Save Entry As…" kbd="F12" onClick={run(saveEntryAs)} />
+                                <Item label="Entry Information & Statistics" onClick={dispatch('trigger-entry-properties')} />
+                            </>
+                        );
+                    })()}
                 </div>
             )}
             {contextMenu && <div className="fixed inset-0 z-[150]" onClick={() => setContextMenu(null)} />}
@@ -1321,8 +1534,91 @@ function PluginLoadedEditor({
                 </div>
             )}
 
-            {!isFloatingToolbar && !isDistractionFree && <TipTapToolbar editor={editor} />}
-            {isFloatingToolbar && editor && !isDistractionFree && (
+            <input
+                ref={textColorInputRef}
+                type="color"
+                className="hidden"
+                onChange={(e) => editor?.chain().focus().setColor(e.target.value).run()}
+            />
+            <input
+                ref={bgColorInputRef}
+                type="color"
+                className="hidden"
+                onChange={(e) => editor?.chain().focus().setHighlight({ color: e.target.value }).run()}
+            />
+
+            {showFontDialog && editor && (
+                <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40" onClick={() => setShowFontDialog(false)}>
+                    <div className="bg-bg-card border border-border-primary rounded-lg shadow-2xl p-5 w-[320px] space-y-3" onClick={e => e.stopPropagation()}>
+                        <div className="text-sm font-semibold text-text-primary">Font Properties</div>
+                        <div>
+                            <label className="block text-xs text-text-muted mb-1">Font family</label>
+                            <select value={editor.getAttributes('textStyle').fontFamily || ''}
+                                onChange={e => { const v = e.target.value; v ? editor.chain().focus().setFontFamily(v).run() : editor.chain().focus().unsetFontFamily().run(); }}
+                                className="w-full p-2 text-sm bg-bg-app border border-border-primary rounded text-text-primary">
+                                <option value="">Default</option>
+                                <option value="Inter, sans-serif">Inter</option>
+                                <option value="Arial, sans-serif">Arial</option>
+                                <option value="Georgia, serif">Georgia</option>
+                                <option value="'Times New Roman', serif">Times Roman</option>
+                                <option value="'Courier New', monospace">Courier New</option>
+                                <option value="Verdana, sans-serif">Verdana</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs text-text-muted mb-1">Size</label>
+                            <select value={editor.getAttributes('textStyle').fontSize || ''}
+                                onChange={e => { const v = e.target.value; v ? editor.chain().focus().setFontSize(v).run() : editor.chain().focus().unsetFontSize().run(); }}
+                                className="w-full p-2 text-sm bg-bg-app border border-border-primary rounded text-text-primary">
+                                <option value="">Default</option>
+                                {['12px','14px','16px','18px','20px','24px','28px','32px','36px'].map(s => <option key={s} value={s}>{s.replace('px','')}</option>)}
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <label className="text-xs text-text-muted">Text color</label>
+                            <input type="color" onChange={e => editor.chain().focus().setColor(e.target.value).run()} className="h-7 w-12 bg-transparent" />
+                        </div>
+                        <div className="flex justify-end"><button onClick={() => setShowFontDialog(false)} className="px-3 py-1.5 text-sm rounded bg-accent-primary text-white hover:opacity-90">Done</button></div>
+                    </div>
+                </div>
+            )}
+
+            {showParagraphDialog && editor && (
+                <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40" onClick={() => setShowParagraphDialog(false)}>
+                    <div className="bg-bg-card border border-border-primary rounded-lg shadow-2xl p-5 w-[320px] space-y-3" onClick={e => e.stopPropagation()}>
+                        <div className="text-sm font-semibold text-text-primary">Paragraph Adjustments</div>
+                        <div>
+                            <label className="block text-xs text-text-muted mb-1">Alignment</label>
+                            <div className="flex gap-1">
+                                {(['left','center','right','justify'] as const).map(a => (
+                                    <button key={a} onClick={() => editor.chain().focus().setTextAlign(a).run()}
+                                        className={`flex-1 px-2 py-1 text-xs rounded border border-border-primary ${editor.isActive({ textAlign: a }) ? 'bg-accent-primary text-white' : 'text-text-primary hover:bg-bg-hover'}`}>{a}</button>
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs text-text-muted mb-1">Line spacing</label>
+                            <select value={editor.getAttributes('paragraph').lineHeight || editor.getAttributes('heading').lineHeight || ''}
+                                onChange={e => { const v = e.target.value; v ? editor.chain().focus().setLineHeight(v).run() : editor.chain().focus().unsetLineHeight().run(); }}
+                                className="w-full p-2 text-sm bg-bg-app border border-border-primary rounded text-text-primary">
+                                <option value="">Default</option>
+                                {['1','1.15','1.5','2'].map(h => <option key={h} value={h}>{h}×</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs text-text-muted mb-1">Indent</label>
+                            <div className="flex gap-2">
+                                <button onClick={() => editor.chain().focus().outdentBlock().run()} className="flex-1 px-2 py-1 text-xs rounded border border-border-primary text-text-primary hover:bg-bg-hover">Decrease</button>
+                                <button onClick={() => editor.chain().focus().indentBlock().run()} className="flex-1 px-2 py-1 text-xs rounded border border-border-primary text-text-primary hover:bg-bg-hover">Increase</button>
+                            </div>
+                        </div>
+                        <div className="flex justify-end"><button onClick={() => setShowParagraphDialog(false)} className="px-3 py-1.5 text-sm rounded bg-accent-primary text-white hover:opacity-90">Done</button></div>
+                    </div>
+                </div>
+            )}
+
+            {!toolbarHidden && !isFloatingToolbar && !isDistractionFree && <TipTapToolbar editor={editor} />}
+            {!toolbarHidden && isFloatingToolbar && editor && !isDistractionFree && (
                 <div className="fixed top-20 right-8 z-[200] bg-bg-card rounded shadow-xl overflow-hidden border border-border-primary">
                     <TipTapToolbar editor={editor} />
                 </div>
@@ -1449,6 +1745,40 @@ function PluginLoadedEditor({
                 />
             )}
 
+            {/* Entry Properties Modal (David RM) */}
+            {showProperties && (() => {
+                const stats = computeEntryStats(contentRef.current);
+                const fmt = (s?: string) => s ? new Date(s).toLocaleString() : '—';
+                const rows: [string, string][] = [
+                    ['Title', propsMeta.title || 'Untitled'],
+                    ['Entry ID', String(entryId ?? '—')],
+                    ['Created', fmt(propsMeta.created)],
+                    ['Modified', fmt(propsMeta.modified)],
+                    ['Words', stats.words.toLocaleString()],
+                    ['Characters', stats.characters.toLocaleString()],
+                    ['Characters (no spaces)', stats.charactersNoSpaces.toLocaleString()],
+                    ['Reading time', `${readingTimeMinutesFromWords(stats.words)} min`],
+                ];
+                return (
+                    <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40" onClick={() => setShowProperties(false)}>
+                        <div className="bg-bg-card border border-border-primary rounded-lg shadow-2xl p-5 w-[360px]" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="text-sm font-semibold text-text-primary">Entry Properties</div>
+                                <button onClick={() => setShowProperties(false)} className="p-1 rounded hover:bg-bg-hover text-text-muted"><X className="w-4 h-4" /></button>
+                            </div>
+                            <dl className="space-y-1.5">
+                                {rows.map(([k, v]) => (
+                                    <div key={k} className="flex justify-between gap-4 text-xs">
+                                        <dt className="text-text-muted flex-shrink-0">{k}</dt>
+                                        <dd className="text-text-primary text-right break-words">{v}</dd>
+                                    </div>
+                                ))}
+                            </dl>
+                        </div>
+                    </div>
+                );
+            })()}
+
             {/* Image Crop Modal */}
             {cropImageSrc && (
                 <ImageCropModal
@@ -1516,7 +1846,13 @@ function PluginLoadedEditor({
                     setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 232), y: Math.min(e.clientY, window.innerHeight - 150) });
                 }}
             >
-                <div style={{ height: isSplitMode ? `${splitRatio}%` : '100%' }} className="flex flex-col min-h-0 tiptap-container">
+                <div
+                    style={{
+                        height: isSplitMode ? `${splitRatio}%` : '100%',
+                        ...(bgImage ? { backgroundImage: `url("${bgImage}")`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'local' } : {}),
+                    }}
+                    className="flex flex-col min-h-0 tiptap-container"
+                >
                     <EditorContent editor={editor} className="flex-1" />
                 </div>
 

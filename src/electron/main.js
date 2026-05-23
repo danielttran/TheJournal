@@ -22,9 +22,18 @@ function getDatabasePath() {
     if (currentSettings.dbPath && currentSettings.dbPath !== 'default') {
         return currentSettings.dbPath;
     }
-    return dev 
-        ? path.join(dir, 'journal.tjdb') 
+    return dev
+        ? path.join(dir, 'journal.tjdb')
         : path.join(app.getPath('userData'), 'journal.tjdb');
+}
+
+// Switch the active journal volume: persist the new path and relaunch so the
+// embedded Next server (and its DBManager) re-open against it. Used by both
+// "New Journal Volume" and "Open Another Journal".
+function switchJournalVolume(filePath) {
+    settingsManager.saveSettings({ dbPath: filePath });
+    app.relaunch();
+    app.exit(0);
 }
 
 // ─── Backup Logic ─────────────────────────────────────────────────────────────
@@ -374,295 +383,105 @@ function createWindow(url) {
 }
 
 function createMenu() {
-    const { dialog, shell } = require('electron');
+    const { dialog, shell } = require("electron");
+    const { J8_MENUS } = require("../lib/menuSpec");
+
     const sendViewAction = (action) => {
-        if (mainWindow) mainWindow.webContents.send('view-action', action);
+        console.log('[TJ action] electron menu → renderer:', action);
+        if (mainWindow) mainWindow.webContents.send("view-action", action);
     };
 
-    const template = [
-        {
-            label: 'File',
-            submenu: [
-                {
-                    label: 'Import DB...',
-                    click: () => {
-                        if (mainWindow) {
-                            dialog.showOpenDialog(mainWindow, {
-                                properties: ['openFile'],
-                                filters: [{ name: 'Database', extensions: ['db', 'sqlite', 'tjdb'] }]
-                            }).then(result => {
-                                if (!result.canceled && result.filePaths.length > 0) {
-                                    mainWindow.webContents.send('import-db', result.filePaths[0]);
-                                }
-                            });
-                        }
+    // Native (main-process) menu actions that cannot be a renderer view-action
+    // (filesystem dialogs, relaunch, plugins, updates, external links).
+    const handleMenuAction = async (action) => {
+        console.log('[TJ action] electron menu (native):', action);
+        switch (action) {
+            case "new-journal-volume": {
+                if (!mainWindow) return;
+                const r = await dialog.showSaveDialog(mainWindow, { title: "New Journal Volume", defaultPath: "journal.tjdb", filters: [{ name: "TheJournal database", extensions: ["tjdb"] }] });
+                if (r.canceled || !r.filePath) return;
+                let t = r.filePath; if (!t.toLowerCase().endsWith(".tjdb")) t += ".tjdb";
+                switchJournalVolume(t);
+                return;
+            }
+            case "open-journal-volume": {
+                if (!mainWindow) return;
+                const r = await dialog.showOpenDialog(mainWindow, { properties: ["openFile"], filters: [{ name: "TheJournal database", extensions: ["tjdb"] }], title: "Open Journal" });
+                if (!r.canceled && r.filePaths.length > 0) switchJournalVolume(r.filePaths[0]);
+                return;
+            }
+            case "backup-db":
+                if (mainWindow) mainWindow.webContents.send("export-db");
+                return;
+            case "restore-db": {
+                if (!mainWindow) return;
+                const r = await dialog.showOpenDialog(mainWindow, { properties: ["openFile"], filters: [{ name: "Database", extensions: ["db", "sqlite", "tjdb"] }] });
+                if (!r.canceled && r.filePaths.length > 0) mainWindow.webContents.send("import-db", r.filePaths[0]);
+                return;
+            }
+            case "print-entries":
+            case "print-setup":
+            case "print-preview":
+                if (mainWindow) mainWindow.webContents.send("print-current-entry");
+                return;
+            case "install-plugin": {
+                if (!mainWindow) return;
+                const r = await dialog.showOpenDialog(mainWindow, { title: "Install Plugin", properties: ["openDirectory"] });
+                if (!r.canceled && r.filePaths.length > 0) await installPluginFromFolder(r.filePaths[0], dialog);
+                return;
+            }
+            case "open-plugins-folder":
+                try { await shell.openPath(ensurePluginDir()); } catch (e) { console.error("[Electron] open plugins folder:", e); }
+                return;
+            case "help-docs":
+                try { await shell.openExternal("https://github.com/danielttran/TheJournal#readme"); } catch (e) { console.error(e); }
+                return;
+            case "help-plugin-api":
+                try { await shell.openExternal("https://github.com/danielttran/TheJournal/blob/main/docs/plugins.md"); } catch (e) { console.error(e); }
+                return;
+            case "report-issue":
+                try { await shell.openExternal("https://github.com/danielttran/TheJournal/issues/new"); } catch (e) { console.error(e); }
+                return;
+            case "help-shortcuts":
+                if (mainWindow) mainWindow.webContents.send("open-settings");
+                return;
+            case "check-updates": {
+                const { dialog: upDialog } = require("electron");
+                try {
+                    const result = await autoUpdater.checkForUpdates();
+                    if (!result || !result.updateInfo || result.updateInfo.version === app.getVersion()) {
+                        await upDialog.showMessageBox(mainWindow ?? undefined, { type: "info", title: "No updates", message: "You are on the latest version (" + app.getVersion() + ").", buttons: ["OK"] });
                     }
-                },
-                {
-                    label: 'Export DB',
-                    click: () => {
-                        if (mainWindow) {
-                            mainWindow.webContents.send('export-db');
-                        }
-                    }
-                },
-                { type: 'separator' },
-                {
-                    label: 'Logout',
-                    click: () => {
-                        if (mainWindow) {
-                            mainWindow.webContents.send('logout-request');
-                        }
-                    }
-                },
-                {
-                    label: 'Settings',
-                    click: () => {
-                        if (mainWindow) {
-                            mainWindow.webContents.send('open-settings');
-                        }
-                    }
-                },
-                { type: 'separator' },
-                {
-                    label: 'Print Entry...',
-                    accelerator: process.platform === 'darwin' ? 'Cmd+P' : 'Ctrl+P',
-                    click: () => {
-                        // The renderer owns the "currently open entry" state.
-                        // Asking it to print keeps print-target selection in one place.
-                        if (mainWindow) {
-                            mainWindow.webContents.send('print-current-entry');
-                        }
-                    }
-                },
-                {
-                    label: 'Export Entry to PDF...',
-                    click: () => {
-                        if (mainWindow) {
-                            mainWindow.webContents.send('export-current-entry-pdf');
-                        }
-                    }
-                },
-                { type: 'separator' },
-                {
-                    label: 'Open Another Journal...',
-                    click: async () => {
-                        if (!mainWindow) return;
-                        const result = await dialog.showOpenDialog(mainWindow, {
-                            properties: ['openFile'],
-                            filters: [{ name: 'TheJournal database', extensions: ['tjdb'] }],
-                            title: 'Open Journal',
-                        });
-                        if (!result.canceled && result.filePaths.length > 0) {
-                            mainWindow.webContents.send('open-journal', result.filePaths[0]);
-                        }
-                    }
-                },
-                { type: 'separator' },
-                { role: 'quit' }
-            ]
-        },
-        {
-            label: 'Edit',
-            submenu: [
-                { role: 'undo' },
-                { role: 'redo' },
-                { type: 'separator' },
-                { role: 'cut' },
-                { role: 'copy' },
-                { role: 'paste' }
-            ]
-        },
-        {
-            label: 'Plugins',
-            submenu: [
-                {
-                    label: 'Install Plugin...',
-                    click: async () => {
-                        if (!mainWindow) return;
-
-                        const result = await dialog.showOpenDialog(mainWindow, {
-                            title: 'Install Plugin',
-                            properties: ['openDirectory'],
-                        });
-
-                        if (!result.canceled && result.filePaths.length > 0) {
-                            await installPluginFromFolder(result.filePaths[0], dialog);
-                        }
-                    }
-                },
-                {
-                    label: 'Open Plugins Folder',
-                    click: async () => {
-                        try {
-                            await shell.openPath(ensurePluginDir());
-                        } catch (err) {
-                            console.error('[Electron] Failed to open plugins folder:', err);
-                        }
-                    }
+                } catch (err) {
+                    await upDialog.showMessageBox(mainWindow ?? undefined, { type: "warning", title: "Update check failed", message: "Could not check for updates.", detail: err && err.message ? err.message : String(err), buttons: ["OK"] });
                 }
-            ]
-        },
-        {
-            label: 'Help',
-            submenu: [
-                {
-                    label: 'Documentation',
-                    click: async () => {
-                        try { await shell.openExternal('https://github.com/danielttran/TheJournal#readme'); }
-                        catch (err) { console.error('[Electron] Failed to open docs:', err); }
-                    }
-                },
-                {
-                    label: 'Keyboard Shortcuts',
-                    click: () => {
-                        // Routes the renderer to the Settings → Keyboard Shortcuts panel.
-                        if (mainWindow) mainWindow.webContents.send('open-settings');
-                    }
-                },
-                {
-                    label: 'Plugin API Reference',
-                    click: async () => {
-                        try { await shell.openExternal('https://github.com/danielttran/TheJournal/blob/main/docs/plugins.md'); }
-                        catch (err) { console.error('[Electron] Failed to open plugin docs:', err); }
-                    }
-                },
-                { type: 'separator' },
-                {
-                    label: 'Check for Updates…',
-                    click: async () => {
-                        const { dialog: upDialog } = require('electron');
-                        try {
-                            const result = await autoUpdater.checkForUpdates();
-                            if (!result || !result.updateInfo || result.updateInfo.version === app.getVersion()) {
-                                await upDialog.showMessageBox(mainWindow ?? undefined, {
-                                    type: 'info',
-                                    title: 'No updates',
-                                    message: `You're on the latest version (${app.getVersion()}).`,
-                                    buttons: ['OK'],
-                                });
-                            }
-                            // If a newer version IS available, autoUpdater
-                            // emits 'update-downloaded' when it's ready;
-                            // the existing listener pops the restart prompt.
-                        } catch (err) {
-                            await upDialog.showMessageBox(mainWindow ?? undefined, {
-                                type: 'warning',
-                                title: 'Update check failed',
-                                message: 'Could not check for updates.',
-                                detail: err && err.message ? err.message : String(err),
-                                buttons: ['OK'],
-                            });
-                        }
-                    }
-                },
-                { type: 'separator' },
-                {
-                    label: 'Report an Issue',
-                    click: async () => {
-                        try { await shell.openExternal('https://github.com/danielttran/TheJournal/issues/new'); }
-                        catch (err) { console.error('[Electron] Failed to open issues:', err); }
-                    }
-                },
-                { type: 'separator' },
-                {
-                    label: 'About TheJournal',
-                    click: () => {
-                        const { dialog: aboutDialog, app: aboutApp } = require('electron');
-                        aboutDialog.showMessageBox(mainWindow ?? undefined, {
-                            type: 'info',
-                            title: 'About TheJournal',
-                            message: 'TheJournal',
-                            detail: `Version ${aboutApp.getVersion()}\n\nA local-first encrypted journaling app with DavidRM "The Journal" parity.\n\nPlugins and keyboard shortcuts are configurable from the Settings menu.`,
-                            buttons: ['OK'],
-                        });
-                    }
-                }
-            ]
-        },
-        {
-            label: 'View',
-            submenu: [
-                { role: 'reload' },
-                { role: 'toggleDevTools' },
-                { type: 'separator' },
-                {
-                    label: 'Search…',
-                    accelerator: 'CmdOrCtrl+F',
-                    click: () => sendViewAction('search')
-                },
-                {
-                    label: 'Templates…',
-                    accelerator: 'CmdOrCtrl+Shift+T',
-                    click: () => sendViewAction('templates')
-                },
-                {
-                    label: 'Writing Prompts…',
-                    accelerator: 'CmdOrCtrl+Shift+P',
-                    click: () => sendViewAction('prompts')
-                },
-                {
-                    label: 'Focus Mode',
-                    accelerator: 'F11',
-                    click: () => sendViewAction('focus')
-                },
-                {
-                    label: 'Toggle Split',
-                    accelerator: 'CmdOrCtrl+\\',
-                    click: () => sendViewAction('split')
-                },
-                { type: 'separator' },
-                {
-                    // No accelerator — Ctrl+Z is owned by Edit > Undo (role: 'undo').
-                    // TipTap also handles Ctrl+Z natively inside the editor.
-                    // This item lets users trigger editor undo from the menu by mouse.
-                    label: 'Undo',
-                    click: () => sendViewAction('undo')
-                },
-                {
-                    label: 'Redo',
-                    click: () => sendViewAction('redo')
-                },
-                {
-                    label: 'Inline Code',
-                    accelerator: 'CmdOrCtrl+E',
-                    click: () => sendViewAction('inline-code')
-                },
-                {
-                    label: 'Checklist',
-                    click: () => sendViewAction('checklist')
-                },
-                {
-                    label: 'Highlight',
-                    click: () => sendViewAction('highlight')
-                },
-                {
-                    label: 'Horizontal Rule',
-                    click: () => sendViewAction('hr')
-                },
-                {
-                    label: 'Upload Image from PC…',
-                    accelerator: 'CmdOrCtrl+Shift+I',
-                    click: () => sendViewAction('image-upload')
-                },
-                { type: 'separator' },
-                {
-                    label: 'Toggle Theme',
-                    accelerator: 'CmdOrCtrl+T',
-                    click: () => {
-                        if (mainWindow) {
-                            console.log('Sending toggle-theme event');
-                            mainWindow.webContents.send('toggle-theme');
-                        }
-                    }
-                }
-            ]
+                return;
+            }
+            case "about": {
+                const { dialog: aboutDialog, app: aboutApp } = require("electron");
+                aboutDialog.showMessageBox(mainWindow ?? undefined, { type: "info", title: "About TheJournal", message: "TheJournal", detail: "Version " + aboutApp.getVersion() + String.fromCharCode(10,10) + "A local-first encrypted journaling app with DavidRM The Journal 8 parity.", buttons: ["OK"] });
+                return;
+            }
+            default:
+                sendViewAction(action);
         }
-    ];
+    };
 
+    const toTemplate = (nodes) => nodes.map((n) => {
+        if (n.separator) return { type: "separator" };
+        const item = { label: n.label };
+        if (n.accel) item.accelerator = n.accel;
+        if (n.submenu) { item.submenu = toTemplate(n.submenu); return item; }
+        if (n.role) { item.role = n.role; return item; }
+        item.click = () => handleMenuAction(n.action);
+        return item;
+    });
+
+    const template = J8_MENUS.map((m) => ({ label: m.label, submenu: toTemplate(m.submenu) }));
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
 }
+
 
 app.whenReady().then(async () => {
     try {

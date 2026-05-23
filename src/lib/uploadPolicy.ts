@@ -32,3 +32,22 @@ export function classifyMedia(input: { type: string; size: number }): ClassifyRe
     if (ALLOWED_VIDEO_MIMES.has(input.type)) return { ok: true, kind: 'video' };
     return { ok: false, reason: `Unsupported MIME type: ${input.type || '(unknown)'}` };
 }
+
+export type FileVerdict = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Gate for the generic "File Attachment" feature (David RM): any file type is
+ * allowed (the self-host operator is the only uploader — same trust model as
+ * plugins), bounded only by the size ceiling and a non-empty payload. The
+ * download route serves these with an attachment disposition, never executing
+ * them, so an arbitrary MIME is not an execution risk.
+ */
+export function classifyFile(input: { size: number }): FileVerdict {
+    if (!Number.isFinite(input.size) || input.size <= 0) {
+        return { ok: false, reason: 'Empty file' };
+    }
+    if (input.size > MAX_UPLOAD_SIZE_BYTES) {
+        return { ok: false, reason: `File too large (size ${input.size} > limit ${MAX_UPLOAD_SIZE_BYTES})` };
+    }
+    return { ok: true };
+}

@@ -159,6 +159,12 @@ export default function PluginsSection() {
                 <code className="mx-1 px-1 rounded bg-bg-active border border-border-primary">main.js</code>
                 to install. Reload the app after install or remove to apply changes.
             </p>
+            <p className="text-xs text-text-muted mb-3">
+                <strong>How to use a plugin:</strong> after it loads, it adds a button to the
+                editor toolbar under the <span className="text-text-secondary">&ldquo;Plugins&rdquo;</span> group.
+                The built-in <em>Draw.io Diagrams</em> and <em>Sentence Diagrammer</em> plugins are bundled and
+                always available.
+            </p>
 
             <div className="flex items-center gap-2 mb-3">
                 <button

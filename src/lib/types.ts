@@ -72,7 +72,6 @@ declare global {
             onLockApp?: (callback: (payload: { reason?: string }) => void) => () => void;
             onPrintCurrentEntry?: (callback: () => void) => () => void;
             onExportCurrentEntryPdf?: (callback: () => void) => () => void;
-            onOpenJournal?: (callback: (filePath: string) => void) => () => void;
         };
     }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LoadingProvider } from '@/contexts/LoadingContext';
 import Sidebar from '@/components/journal/Sidebar';
@@ -55,9 +55,106 @@ export default function JournalView({
     const [showSearch, setShowSearch] = useState(false);
     const [showSmartbookSettings, setShowSmartbookSettings] = useState(false);
 
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [datePickerValue, setDatePickerValue] = useState('');
+    const [sidebarHidden, setSidebarHidden] = useState(false);
+    const [sidebarSide, setSidebarSide] = useState<'left' | 'right'>('left');
+
+    // David RM "Sidebar Layout" — persisted show/hide + left/right position.
+    useEffect(() => {
+        try {
+            setSidebarHidden(localStorage.getItem('sidebarHidden') === '1');
+            setSidebarSide(localStorage.getItem('sidebarSide') === 'right' ? 'right' : 'left');
+        } catch { /* ignore */ }
+        const onToggle = () => setSidebarHidden(v => {
+            const next = !v;
+            try { localStorage.setItem('sidebarHidden', next ? '1' : '0'); } catch { /* ignore */ }
+            return next;
+        });
+        const onSide = () => setSidebarSide(v => {
+            const next = v === 'left' ? 'right' : 'left';
+            try { localStorage.setItem('sidebarSide', next); } catch { /* ignore */ }
+            return next;
+        });
+        const setSide = (side: 'left' | 'right') => {
+            setSidebarHidden(false);
+            setSidebarSide(side);
+            try { localStorage.setItem('sidebarHidden', '0'); localStorage.setItem('sidebarSide', side); } catch { /* ignore */ }
+        };
+        const onLeft = () => setSide('left');
+        const onRight = () => setSide('right');
+        const onHidden = () => { setSidebarHidden(true); try { localStorage.setItem('sidebarHidden', '1'); } catch { /* ignore */ } };
+        const onRefresh = () => window.location.reload();
+        const setCategoryType = async (type: 'Journal' | 'Notebook') => {
+            try {
+                await fetch(`/api/category/${categoryId}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type }),
+                });
+                router.refresh();
+            } catch { /* ignore */ }
+        };
+        const onCalendar = () => setCategoryType('Journal');
+        const onLooseleaf = () => setCategoryType('Notebook');
+        window.addEventListener('trigger-toggle-sidebar', onToggle);
+        window.addEventListener('trigger-sidebar-side', onSide);
+        window.addEventListener('trigger-sidebar-left', onLeft);
+        window.addEventListener('trigger-sidebar-right', onRight);
+        window.addEventListener('trigger-sidebar-hidden', onHidden);
+        window.addEventListener('trigger-refresh', onRefresh);
+        window.addEventListener('trigger-category-calendar', onCalendar);
+        window.addEventListener('trigger-category-looseleaf', onLooseleaf);
+        return () => {
+            window.removeEventListener('trigger-toggle-sidebar', onToggle);
+            window.removeEventListener('trigger-sidebar-side', onSide);
+            window.removeEventListener('trigger-sidebar-left', onLeft);
+            window.removeEventListener('trigger-sidebar-right', onRight);
+            window.removeEventListener('trigger-sidebar-hidden', onHidden);
+            window.removeEventListener('trigger-refresh', onRefresh);
+            window.removeEventListener('trigger-category-calendar', onCalendar);
+            window.removeEventListener('trigger-category-looseleaf', onLooseleaf);
+        };
+    }, [categoryId, router]);
+
     const toggleSplitMode = useCallback(() => setIsSplitMode(v => !v), []);
     const openSearch = useCallback(() => setShowSearch(true), []);
     const closeSearch = useCallback(() => setShowSearch(false), []);
+
+    const localToday = useCallback(() => {
+        const d = new Date();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${d.getFullYear()}-${m}-${day}`;
+    }, []);
+
+    // David RM "Go" menu: today / go-to-date / browser-style back & forward.
+    // Triggered by keyboard (CommandDispatcher) or the Electron Go menu, both
+    // of which dispatch the same trigger-* window events.
+    useEffect(() => {
+        const goToday = () => router.push(`/journal/${categoryId}?date=${localToday()}`);
+        const openDate = () => { setDatePickerValue(searchParams.get('date') || localToday()); setShowDatePicker(true); };
+        const back = () => window.history.back();
+        const forward = () => window.history.forward();
+        // The app's "find" surface is the global search panel; F3 opens it.
+        const findNext = () => setShowSearch(true);
+        window.addEventListener('trigger-go-today', goToday);
+        window.addEventListener('trigger-go-to-date', openDate);
+        window.addEventListener('trigger-history-back', back);
+        window.addEventListener('trigger-history-forward', forward);
+        window.addEventListener('trigger-find-next', findNext);
+        return () => {
+            window.removeEventListener('trigger-go-today', goToday);
+            window.removeEventListener('trigger-go-to-date', openDate);
+            window.removeEventListener('trigger-history-back', back);
+            window.removeEventListener('trigger-history-forward', forward);
+            window.removeEventListener('trigger-find-next', findNext);
+        };
+    }, [router, categoryId, searchParams, localToday]);
+
+    const submitDate = useCallback(() => {
+        if (datePickerValue) router.push(`/journal/${categoryId}?date=${datePickerValue}`);
+        setShowDatePicker(false);
+    }, [datePickerValue, router, categoryId]);
 
     const handleSearchNavigate = useCallback((targetCategoryId: number, entryId: number, _categoryType: string) => {
         router.push(`/journal/${targetCategoryId}?entry=${entryId}`);
@@ -95,13 +192,15 @@ export default function JournalView({
     return (
         <LoadingProvider>
             <div className="flex h-full bg-bg-app text-text-primary overflow-hidden font-sans transition-colors duration-200">
-                <Sidebar
-                    categoryId={categoryId}
-                    userId={userId}
-                    title={categoryName}
-                    type={categoryType}
-                    viewSettings={viewSettings}
-                />
+                {!sidebarHidden && sidebarSide === 'left' && (
+                    <Sidebar
+                        categoryId={categoryId}
+                        userId={userId}
+                        title={categoryName}
+                        type={categoryType}
+                        viewSettings={viewSettings}
+                    />
+                )}
                 <main className="flex-1 flex flex-col h-full min-w-0">
                     {/* Breadcrumb bar — shown in grid views (editor view manages its own inside its header) */}
                     {isGridView && (
@@ -154,6 +253,16 @@ export default function JournalView({
                     )}
                 </main>
 
+                {!sidebarHidden && sidebarSide === 'right' && (
+                    <Sidebar
+                        categoryId={categoryId}
+                        userId={userId}
+                        title={categoryName}
+                        type={categoryType}
+                        viewSettings={viewSettings}
+                    />
+                )}
+
                 {showSearch && (
                     <ErrorBoundary
                         fallback={
@@ -169,6 +278,32 @@ export default function JournalView({
                             onNavigate={handleSearchNavigate}
                         />
                     </ErrorBoundary>
+                )}
+
+                {showDatePicker && (
+                    <div
+                        className="fixed inset-0 z-[400] flex items-center justify-center bg-black/40"
+                        onClick={() => setShowDatePicker(false)}
+                    >
+                        <div
+                            className="bg-bg-card border border-border-primary rounded-lg shadow-2xl p-4 w-[280px]"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="text-sm font-medium text-text-primary mb-2">Go to date</div>
+                            <input
+                                type="date"
+                                value={datePickerValue}
+                                autoFocus
+                                onChange={e => setDatePickerValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') submitDate(); if (e.key === 'Escape') setShowDatePicker(false); }}
+                                className="w-full p-2 text-sm bg-bg-app border border-border-primary rounded text-text-primary outline-none focus:ring-1 focus:ring-[color:var(--color-accent-primary)]"
+                            />
+                            <div className="flex justify-end gap-2 mt-3">
+                                <button onClick={() => setShowDatePicker(false)} className="px-3 py-1.5 text-sm rounded text-text-muted hover:bg-bg-hover">Cancel</button>
+                                <button onClick={submitDate} className="px-3 py-1.5 text-sm rounded bg-accent-primary text-white hover:opacity-90">Go</button>
+                            </div>
+                        </div>
+                    </div>
                 )}
             </div>
         </LoadingProvider>

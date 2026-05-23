@@ -5,7 +5,7 @@
  * a malicious payload must not write outside the plugins root.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import {
@@ -203,7 +203,9 @@ describe('getPluginDir', () => {
         const prev = process.env.JOURNAL_PLUGINS_DIR;
         process.env.JOURNAL_PLUGINS_DIR = '/var/lib/thejournal/plugins';
         try {
-            expect(getPluginDir()).toBe('/var/lib/thejournal/plugins');
+            // path.resolve normalises per-platform (drive-prefixed + backslashes
+            // on Windows); compare against the resolved form, not a POSIX literal.
+            expect(getPluginDir()).toBe(resolve('/var/lib/thejournal/plugins'));
         } finally {
             if (prev === undefined) delete process.env.JOURNAL_PLUGINS_DIR;
             else process.env.JOURNAL_PLUGINS_DIR = prev;

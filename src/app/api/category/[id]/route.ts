@@ -11,6 +11,10 @@ const SORT_MODES = [
 
 const UpdateCategorySchema = z.object({
     name: z.string().min(1).max(200).optional(),
+    // David RM "View Category as Calendar / Loose-leaf" — switch the category's
+    // view mode. Journal = date calendar, Notebook = loose-leaf tree. Purely a
+    // view concern; entries are untouched.
+    type: z.enum(['Journal', 'Notebook']).optional(),
     icon: z.string().max(64).nullable().optional(),
     color: z.string().regex(/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/, 'Invalid color format').optional(),
     sortMode: z.enum(SORT_MODES).optional(),
@@ -102,7 +106,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         if (!parsed.success) {
             return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
         }
-        const { name, icon, color, viewSettings, lastSelectedEntryId,
+        const { name, type, icon, color, viewSettings, lastSelectedEntryId,
             sortMode, autoTemplateId, entryFrequency, isSmartbook, smartbookQuery } = parsed.data;
 
         // Construct dynamic update
@@ -110,6 +114,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const simpleValues: (string | number | null)[] = [];
 
         if (name !== undefined) { simpleUpdates.push("Name = ?"); simpleValues.push(name); }
+        if (type !== undefined) { simpleUpdates.push("Type = ?"); simpleValues.push(type); }
         if (icon !== undefined) { simpleUpdates.push("Icon = ?"); simpleValues.push(icon ?? null); }
         if (color !== undefined) { simpleUpdates.push("Color = ?"); simpleValues.push(color); }
         if (sortMode !== undefined) { simpleUpdates.push("SortMode = ?"); simpleValues.push(sortMode); }

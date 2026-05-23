@@ -88,7 +88,7 @@ class AsyncMutex {
 
 export class DBManager {
     public instance: Database | null = null;
-    private dbPath: string;
+    public readonly dbPath: string;
     public currentKey: string | null = null;
     private mutex = new AsyncMutex();
 

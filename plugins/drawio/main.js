@@ -380,7 +380,7 @@
   if (typeof window.TheJournalAPI.registerToolbarButton === 'function') {
     window.TheJournalAPI.registerToolbarButton({
       id: 'drawio',
-      label: 'Diagram',
+      label: 'Draw.io',
       title: 'Insert draw.io diagram',
       icon: 'git-merge',
       onClick(editor) {

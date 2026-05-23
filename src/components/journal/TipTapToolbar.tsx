@@ -5,13 +5,19 @@ import {
     Quote, Highlighter,
     Image as ImageIcon, Link as LinkIcon, RemoveFormatting,
     Undo, Redo, Minus, Upload, Table as TableIcon, Sparkles, ChevronDown,
-    CalendarClock, Bookmark as BookmarkIcon, Paintbrush, PenTool, Network, GitMerge
+    CalendarClock, Bookmark as BookmarkIcon, Paintbrush, PenTool, Network, GitMerge,
+    AlignLeft, AlignCenter, AlignRight, AlignJustify,
+    Subscript as SubscriptIcon, Superscript as SuperscriptIcon,
+    Indent, Outdent, Omega, Paperclip
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { TheJournalAPI } from '@/lib/pluginApi';
+import { SPECIAL_CHAR_GROUPS } from '@/lib/specialChars';
+import { LINE_HEIGHTS } from '@/lib/paragraphStyle';
 
 export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const attachInputRef = useRef<HTMLInputElement>(null);
     const [pluginToolbarButtons, setPluginToolbarButtons] = useState(() => [...TheJournalAPI.registeredToolbarButtons]);
     const [isUploading, setIsUploading] = useState(false);
     const [lastTextColor, setLastTextColor] = useState('#ffffff');
@@ -25,6 +31,10 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const [tableHover, setTableHover] = useState({ r: 0, c: 0 });
     const [gridSize, setGridSize] = useState({ r: 10, c: 10 });
     const tableMenuRef = useRef<HTMLDivElement>(null);
+    const [showSpecialChars, setShowSpecialChars] = useState(false);
+    const specialCharsRef = useRef<HTMLDivElement>(null);
+    const [showBookmarkJump, setShowBookmarkJump] = useState(false);
+    const bookmarkJumpRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!showTableMenu) return;
@@ -36,6 +46,16 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, [showTableMenu]);
+
+    useEffect(() => {
+        if (!showSpecialChars && !showBookmarkJump) return;
+        const handler = (e: MouseEvent) => {
+            if (specialCharsRef.current && !specialCharsRef.current.contains(e.target as Node)) setShowSpecialChars(false);
+            if (bookmarkJumpRef.current && !bookmarkJumpRef.current.contains(e.target as Node)) setShowBookmarkJump(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [showSpecialChars, showBookmarkJump]);
 
     useEffect(() => TheJournalAPI.subscribeToolbarButtons(setPluginToolbarButtons), []);
 
@@ -97,6 +117,26 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         }
     }, [editor]);
 
+    const uploadFileAttachment = useCallback(async (file: File) => {
+        if (!editor) return;
+        setIsUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await fetch('/api/upload/file', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
+            editor.chain().focus().setFileAttachment({
+                href: data.url, filename: data.filename, size: data.size,
+            }).run();
+        } catch (error) {
+            console.error('File attachment upload failed', error);
+            window.alert('File attachment upload failed. Please try again.');
+        } finally {
+            setIsUploading(false);
+        }
+    }, [editor]);
+
     const setLink = useCallback(() => {
         if (!editor) return;
 
@@ -140,6 +180,67 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         if (!name) return;
         editor.chain().focus().extendMarkRange('link')
             .setLink({ href: `#${name}` }).run();
+    }, [editor]);
+
+    const insertSpecialChar = useCallback((ch: string) => {
+        if (!editor) return;
+        editor.chain().focus().insertContent(ch).run();
+    }, [editor]);
+
+    // Collect every named bookmark anchor present in the document so the user
+    // can jump to one (David RM "Bookmark…" navigation).
+    const collectBookmarks = useCallback((): string[] => {
+        if (!editor) return [];
+        const names: string[] = [];
+        editor.state.doc.descendants((node) => {
+            if (node.type.name === 'bookmark') {
+                const n = String(node.attrs.name ?? '').trim();
+                if (n) names.push(n);
+            }
+        });
+        return [...new Set(names)];
+    }, [editor]);
+
+    const jumpToBookmark = useCallback((name: string) => {
+        if (!editor) return;
+        let target = -1;
+        editor.state.doc.descendants((node, pos) => {
+            if (target === -1 && node.type.name === 'bookmark' && String(node.attrs.name ?? '').trim() === name) {
+                target = pos;
+            }
+        });
+        if (target >= 0) {
+            editor.chain().focus().setTextSelection(target).scrollIntoView().run();
+        }
+    }, [editor]);
+
+    // Paste Special — insert clipboard text with all formatting stripped.
+    const pasteSpecial = useCallback(async () => {
+        if (!editor) return;
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text) editor.chain().focus().insertContent(text).run();
+        } catch {
+            window.alert('Plain-text paste needs clipboard permission. Use Ctrl+Shift+V again after allowing access, or paste normally then clear formatting.');
+        }
+    }, [editor]);
+
+    // Indent / outdent: inside a list, sink/lift the list item; otherwise
+    // apply block-level paragraph indentation (ParagraphStyle extension).
+    const indent = useCallback(() => {
+        if (!editor) return;
+        const chain = editor.chain().focus();
+        if (editor.isActive('taskItem')) chain.sinkListItem('taskItem').run();
+        else if (editor.isActive('listItem')) chain.sinkListItem('listItem').run();
+        else chain.indentBlock().run();
+    }, [editor]);
+
+    const outdent = useCallback(() => {
+        if (!editor) return;
+        const chain = editor.chain().focus();
+        if (editor.isActive('taskItem')) chain.liftListItem('taskItem').run();
+        else if (editor.isActive('listItem')) chain.liftListItem('listItem').run();
+        else chain.outdentBlock().run();
     }, [editor]);
 
     const applyCapturedFormat = useCallback((fmt: NonNullable<typeof capturedFormat>) => {
@@ -206,6 +307,33 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         return () => window.removeEventListener('trigger-image-upload', handleExternalUploadTrigger);
     }, []);
 
+    // Keyboard-command bridges from CommandDispatcher (Ctrl+K, Ctrl+Shift+V, …).
+    useEffect(() => {
+        const onLink = () => setLink();
+        const onPasteSpecial = () => { void pasteSpecial(); };
+        const onBookmark = () => addBookmark();
+        const onDateTime = () => insertDateTime();
+        const onSpecialChar = () => setShowSpecialChars(v => !v);
+        const onAttachment = () => attachInputRef.current?.click();
+        const onFormatPainter = () => toggleFormatPainter();
+        window.addEventListener('trigger-link', onLink);
+        window.addEventListener('trigger-paste-special', onPasteSpecial);
+        window.addEventListener('trigger-bookmark', onBookmark);
+        window.addEventListener('trigger-datetime', onDateTime);
+        window.addEventListener('trigger-special-char', onSpecialChar);
+        window.addEventListener('trigger-attachment', onAttachment);
+        window.addEventListener('trigger-format-painter', onFormatPainter);
+        return () => {
+            window.removeEventListener('trigger-link', onLink);
+            window.removeEventListener('trigger-paste-special', onPasteSpecial);
+            window.removeEventListener('trigger-bookmark', onBookmark);
+            window.removeEventListener('trigger-datetime', onDateTime);
+            window.removeEventListener('trigger-special-char', onSpecialChar);
+            window.removeEventListener('trigger-attachment', onAttachment);
+            window.removeEventListener('trigger-format-painter', onFormatPainter);
+        };
+    }, [setLink, pasteSpecial, addBookmark, insertDateTime, toggleFormatPainter]);
+
     if (!editor) {
         return null;
     }
@@ -245,6 +373,27 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         editor.chain().focus().deleteSelection().run();
     };
 
+    const currentStyle = editor.isActive('heading', { level: 1 }) ? 'h1'
+        : editor.isActive('heading', { level: 2 }) ? 'h2'
+        : editor.isActive('heading', { level: 3 }) ? 'h3'
+        : editor.isActive('blockquote') ? 'blockquote'
+        : editor.isActive('codeBlock') ? 'codeBlock'
+        : 'paragraph';
+
+    const applyStyle = (val: string) => {
+        const chain = editor.chain().focus();
+        switch (val) {
+            case 'h1': chain.setHeading({ level: 1 }).run(); break;
+            case 'h2': chain.setHeading({ level: 2 }).run(); break;
+            case 'h3': chain.setHeading({ level: 3 }).run(); break;
+            case 'blockquote': chain.setBlockquote().run(); break;
+            case 'codeBlock': chain.setCodeBlock().run(); break;
+            default: chain.setParagraph().run();
+        }
+    };
+
+    const bookmarks = collectBookmarks();
+
     return (
         <div className="flex flex-wrap items-center gap-1 p-2 border-b border-border-primary bg-bg-sidebar">
             <input
@@ -253,6 +402,16 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 className="hidden"
                 accept="image/*,video/*"
                 onChange={handleFileChange}
+            />
+            <input
+                ref={attachInputRef}
+                type="file"
+                className="hidden"
+                onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (f) await uploadFileAttachment(f);
+                    e.target.value = '';
+                }}
             />
 
             <select
@@ -373,30 +532,36 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <Strikethrough className="w-4 h-4" />
             </button>
+            <button
+                onClick={() => editor.chain().focus().toggleSubscript().run()}
+                className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive('subscript') ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
+                title="Subscript"
+            >
+                <SubscriptIcon className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => editor.chain().focus().toggleSuperscript().run()}
+                className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive('superscript') ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
+                title="Superscript"
+            >
+                <SuperscriptIcon className="w-4 h-4" />
+            </button>
 
             <div className="w-px h-4 bg-border-primary mx-1" />
 
-            <button
-                onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-                className={`p-1.5 rounded hover:bg-bg-hover font-bold text-xs ${editor.isActive('heading', { level: 1 }) ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
-                title="Heading 1"
+            <select
+                value={currentStyle}
+                onChange={(e) => applyStyle(e.target.value)}
+                className="p-1 px-1.5 text-xs bg-transparent border border-border-primary rounded hover:bg-bg-hover text-text-primary outline-none focus:ring-1 focus:ring-[color:var(--color-accent-primary)]"
+                title="Paragraph style"
             >
-                H1
-            </button>
-            <button
-                onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-                className={`p-1.5 rounded hover:bg-bg-hover font-bold text-xs ${editor.isActive('heading', { level: 2 }) ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
-                title="Heading 2"
-            >
-                H2
-            </button>
-            <button
-                onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-                className={`p-1.5 rounded hover:bg-bg-hover font-bold text-xs ${editor.isActive('heading', { level: 3 }) ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
-                title="Heading 3"
-            >
-                H3
-            </button>
+                <option value="paragraph">Normal</option>
+                <option value="h1">Heading 1</option>
+                <option value="h2">Heading 2</option>
+                <option value="h3">Heading 3</option>
+                <option value="blockquote">Quote</option>
+                <option value="codeBlock">Code block</option>
+            </select>
 
             <div className="w-px h-4 bg-border-primary mx-1" />
 
@@ -421,6 +586,56 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <CheckSquare className="w-4 h-4" />
             </button>
+            <button onClick={outdent} className="p-1.5 rounded hover:bg-bg-hover text-text-muted" title="Decrease indent">
+                <Outdent className="w-4 h-4" />
+            </button>
+            <button onClick={indent} className="p-1.5 rounded hover:bg-bg-hover text-text-muted" title="Increase indent">
+                <Indent className="w-4 h-4" />
+            </button>
+
+            <div className="w-px h-4 bg-border-primary mx-1" />
+
+            <button
+                onClick={() => editor.chain().focus().setTextAlign('left').run()}
+                className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive({ textAlign: 'left' }) ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
+                title="Align left"
+            >
+                <AlignLeft className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => editor.chain().focus().setTextAlign('center').run()}
+                className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive({ textAlign: 'center' }) ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
+                title="Align center"
+            >
+                <AlignCenter className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => editor.chain().focus().setTextAlign('right').run()}
+                className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive({ textAlign: 'right' }) ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
+                title="Align right"
+            >
+                <AlignRight className="w-4 h-4" />
+            </button>
+            <button
+                onClick={() => editor.chain().focus().setTextAlign('justify').run()}
+                className={`p-1.5 rounded hover:bg-bg-hover ${editor.isActive({ textAlign: 'justify' }) ? 'bg-bg-active text-text-primary' : 'text-text-muted'}`}
+                title="Justify"
+            >
+                <AlignJustify className="w-4 h-4" />
+            </button>
+            <select
+                onChange={(e) => {
+                    const v = e.target.value;
+                    if (v) editor.chain().focus().setLineHeight(v).run();
+                    else editor.chain().focus().unsetLineHeight().run();
+                }}
+                value={editor.getAttributes('paragraph').lineHeight || editor.getAttributes('heading').lineHeight || ''}
+                className="p-1 px-1.5 text-xs bg-transparent border border-border-primary rounded hover:bg-bg-hover text-text-primary outline-none focus:ring-1 focus:ring-[color:var(--color-accent-primary)]"
+                title="Line spacing"
+            >
+                <option value="">Spacing</option>
+                {LINE_HEIGHTS.map(h => <option key={h} value={h}>{h}&times;</option>)}
+            </select>
 
             <div className="w-px h-4 bg-border-primary mx-1" />
 
@@ -548,6 +763,14 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <LinkIcon className="w-4 h-4" />
             </button>
+            <button
+                onClick={() => attachInputRef.current?.click()}
+                disabled={isUploading}
+                className="p-1.5 rounded hover:bg-bg-hover text-text-muted disabled:opacity-50"
+                title="Attach file"
+            >
+                <Paperclip className="w-4 h-4" />
+            </button>
 
             {editor.isActive('image') && (
                 <>
@@ -630,6 +853,61 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 #
             </button>
+            <div className="relative" ref={bookmarkJumpRef}>
+                <button
+                    onClick={() => setShowBookmarkJump(v => !v)}
+                    className="p-1.5 rounded hover:bg-bg-hover text-text-muted flex items-center"
+                    title="Go to bookmark"
+                >
+                    <BookmarkIcon className="w-4 h-4" />
+                    <ChevronDown className="w-3 h-3" />
+                </button>
+                {showBookmarkJump && (
+                    <div className="absolute top-full left-0 mt-1 z-[300] bg-bg-card border border-border-primary rounded-lg shadow-xl py-1 min-w-[180px] max-h-72 overflow-y-auto">
+                        {bookmarks.length === 0 ? (
+                            <div className="px-3 py-2 text-xs text-text-muted">No bookmarks in this entry</div>
+                        ) : bookmarks.map(name => (
+                            <button
+                                key={name}
+                                onClick={() => { jumpToBookmark(name); setShowBookmarkJump(false); }}
+                                className="w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover text-text-primary truncate"
+                            >
+                                {name}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+            <div className="relative" ref={specialCharsRef}>
+                <button
+                    onClick={() => setShowSpecialChars(v => !v)}
+                    className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                    title="Insert special character"
+                >
+                    <Omega className="w-4 h-4" />
+                </button>
+                {showSpecialChars && (
+                    <div className="absolute top-full left-0 mt-1 z-[300] bg-bg-card border border-border-primary rounded-lg shadow-xl p-2 w-[260px] max-h-72 overflow-y-auto">
+                        {SPECIAL_CHAR_GROUPS.map(g => (
+                            <div key={g.label} className="mb-2">
+                                <div className="text-[10px] uppercase tracking-wide text-text-muted mb-1 px-0.5">{g.label}</div>
+                                <div className="grid grid-cols-8 gap-0.5">
+                                    {g.chars.map(ch => (
+                                        <button
+                                            key={ch}
+                                            onClick={() => { insertSpecialChar(ch); setShowSpecialChars(false); }}
+                                            className="w-7 h-7 flex items-center justify-center rounded hover:bg-bg-hover text-text-primary text-base"
+                                            title={ch}
+                                        >
+                                            {ch}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
             <button
                 onClick={toggleFormatPainter}
                 className={`p-1.5 rounded hover:bg-bg-hover ${capturedFormat ? 'bg-bg-active text-text-primary ring-1 ring-[color:var(--color-accent-primary)]' : 'text-text-muted'}`}
@@ -641,16 +919,18 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             {pluginToolbarButtons.length > 0 && (
                 <>
                     <div className="w-px h-4 bg-border-primary mx-1" />
+                    <span className="text-[10px] uppercase tracking-wide text-text-muted select-none mr-0.5" title="Buttons added by installed plugins">Plugins</span>
                     {pluginToolbarButtons.map(button => {
                         const Icon = button.icon === 'git-merge' ? GitMerge : Network;
                         return (
                             <button
                                 key={button.id}
                                 onClick={() => button.onClick(editor)}
-                                className="p-1.5 rounded hover:bg-bg-hover text-text-muted"
+                                className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary"
                                 title={button.title || button.label}
                             >
                                 <Icon className="w-4 h-4" />
+                                <span className="text-xs max-w-[120px] truncate">{button.label}</span>
                             </button>
                         );
                     })}

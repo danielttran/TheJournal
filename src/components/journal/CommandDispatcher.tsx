@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { COMMANDS, eventMatchesBinding, resolveBindingForCommand } from '@/lib/commands';
+import { logAction } from '@/lib/actionLog';
 
 type CommandRunner = (commandId: string) => void;
 
@@ -22,6 +23,14 @@ function runCommand(commandId: string) {
     const triggerMap: Record<string, string> = {
         'edit.undo': 'trigger-undo',
         'edit.redo': 'trigger-redo',
+        'edit.find-next': 'trigger-find-next',
+        'edit.replace': 'trigger-replace',
+        'edit.paste-special': 'trigger-paste-special',
+        'insert.link': 'trigger-link',
+        'insert.bookmark': 'trigger-bookmark',
+        'insert.datetime': 'trigger-datetime',
+        'insert.special-char': 'trigger-special-char',
+        'insert.attachment': 'trigger-attachment',
         'format.highlight': 'trigger-highlight',
         'format.code': 'trigger-inline-code',
         'insert.image-upload': 'trigger-image-upload',
@@ -33,12 +42,26 @@ function runCommand(commandId: string) {
         'view.search': 'trigger-search',
         'view.focus-mode': 'trigger-focus',
         'view.split': 'trigger-split',
+        'view.toggle-sidebar': 'trigger-toggle-sidebar',
+        'view.sidebar-side': 'trigger-sidebar-side',
+        'view.toggle-toolbar': 'trigger-toggle-toolbar',
+        'nav.today': 'trigger-go-today',
+        'nav.go-to-date': 'trigger-go-to-date',
+        'nav.prev-entry': 'trigger-nav-prev',
+        'nav.next-entry': 'trigger-nav-next',
+        'nav.back': 'trigger-history-back',
+        'nav.forward': 'trigger-history-forward',
+        'entry.save': 'trigger-save',
+        'entry.properties': 'trigger-entry-properties',
+        'entry.new-subentry': 'trigger-new-subentry',
     };
     const ev = triggerMap[commandId];
     if (ev) {
+        logAction('keyboard', commandId, { event: ev });
         window.dispatchEvent(new Event(ev));
         return;
     }
+    logAction('keyboard', commandId, { event: 'tj-command' });
     window.dispatchEvent(new CustomEvent('tj-command', { detail: { commandId } }));
 }
 

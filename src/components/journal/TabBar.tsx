@@ -284,12 +284,15 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
     const [settingsCategoryId, setSettingsCategoryId] = useState<number | null>(null);
     const [isClient, setIsClient] = useState(false);
+    const [mainToolbarHidden, setMainToolbarHidden] = useState(false);
+    const [tabsPosition, setTabsPosition] = useState<'top' | 'bottom' | 'vertical'>('top');
     useEffect(() => setIsClient(true), []);
 
     // Refs for clicking outside
     const fileInputRef = useRef<HTMLInputElement>(null);
     const fileMenuRef = useRef<HTMLDivElement>(null);
     const viewMenuRef = useRef<HTMLDivElement>(null);
+    const importEntriesInputRef = useRef<HTMLInputElement>(null);
 
     const handleLogout = useCallback(async () => {
         if (window.electron) {
@@ -324,6 +327,13 @@ export default function TabBar({ userId }: { userId: string }) {
         return () => {
             isMounted = false;
         };
+    }, []);
+
+    // Open the Find & Replace panel on Ctrl+H (David RM Replace).
+    useEffect(() => {
+        const onReplace = () => setIsReplaceOpen(true);
+        window.addEventListener('trigger-replace', onReplace);
+        return () => window.removeEventListener('trigger-replace', onReplace);
     }, []);
 
     // Click away handlers using custom hook
@@ -468,13 +478,67 @@ export default function TabBar({ userId }: { userId: string }) {
 
     const activeId = pathname.split('/')[2];
 
+    // Menu actions owned by the TabBar (Tools panels + Categories ops + main
+    // toolbar visibility). Dispatched by the MenuBar / Electron native menu.
+    useEffect(() => {
+        try {
+            const tp = localStorage.getItem('tabsPosition');
+            if (tp === 'top' || tp === 'bottom' || tp === 'vertical') setTabsPosition(tp);
+        } catch { /* ignore */ }
+        const num = activeId ? Number(activeId) : null;
+        const handlers: Record<string, () => void> = {
+            'trigger-reminders': () => setIsRemindersOpen(true),
+            'trigger-wordcloud': () => setIsWordCloudOpen(true),
+            'trigger-stats': () => setIsStatsOpen(true),
+            'trigger-goals': () => setIsGoalsOpen(true),
+            'trigger-snippets': () => setIsSnippetsOpen(true),
+            'trigger-trash': () => setIsTrashOpen(true),
+            'trigger-on-this-day': () => setIsOnThisDayOpen(true),
+            'trigger-new-category': () => setIsAddMenuOpen(true),
+            'trigger-category-properties': () => { if (num) setSettingsCategoryId(num); },
+            'trigger-delete-category': () => { if (num) deleteTab(num); },
+            'trigger-import-entries': () => importEntriesInputRef.current?.click(),
+            'trigger-export-entries': () => { if (activeId) window.open(`/api/category/${activeId}/export?format=html`, '_blank'); },
+            'trigger-sync-category': () => window.alert('External category sync is not available in this build. Smartbook categories auto-collect matching entries; use Backup/Restore to move data between volumes.'),
+            'trigger-toggle-main-toolbar': () => setMainToolbarHidden(v => !v),
+            'trigger-tabs-top': () => { setTabsPosition('top'); try { localStorage.setItem('tabsPosition', 'top'); } catch { /* */ } },
+            'trigger-tabs-bottom': () => { setTabsPosition('bottom'); try { localStorage.setItem('tabsPosition', 'bottom'); } catch { /* */ } },
+            'trigger-tabs-vertical': () => { setTabsPosition('vertical'); try { localStorage.setItem('tabsPosition', 'vertical'); } catch { /* */ } },
+        };
+        for (const [evt, fn] of Object.entries(handlers)) window.addEventListener(evt, fn);
+        return () => { for (const [evt, fn] of Object.entries(handlers)) window.removeEventListener(evt, fn); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- setters are stable; activeId captured fresh via re-subscribe
+    }, [activeId]);
+
+    const handleImportEntries = async (files: FileList | null) => {
+        if (!files || files.length === 0 || !activeId) return;
+        const fd = new FormData();
+        for (const f of Array.from(files)) fd.append('file', f);
+        try {
+            const res = await fetch(`/api/category/${activeId}/import`, { method: 'POST', body: fd });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                alert(`Imported ${data.imported ?? 0} ${data.imported === 1 ? 'entry' : 'entries'}.`);
+                window.location.reload();
+            } else {
+                alert(`Import failed: ${data.error || res.statusText}`);
+            }
+        } catch {
+            alert('Import failed. See console for details.');
+        }
+    };
+
     return (
-        <div className="flex flex-col w-full bg-bg-sidebar transition-colors duration-200">
+        <div
+            className="flex flex-col w-full bg-bg-sidebar transition-colors duration-200"
+            style={tabsPosition === 'bottom' ? { order: 2 } : undefined}
+        >
             {/* Hidden file input for imports */}
             <input type="file" ref={fileInputRef} className="hidden" accept=".db,.sqlite,.tjdb" onChange={handleFileChange} />
 
-            {/* FILE MENU & HEADER - Show in web, but hide in Electron to avoid duplicate menu */}
-            {isClient && typeof window !== 'undefined' && !window.electron && (
+            {/* Legacy web File/View dropdowns — replaced by the J8 MenuBar (rendered
+                in journal/layout). Disabled to avoid a duplicate menu on web. */}
+            {false && isClient && typeof window !== 'undefined' && !window.electron && (
                 <div className="flex items-center px-4 py-1 space-x-4 bg-bg-card text-xs text-text-secondary select-none relative transition-colors duration-200">
                     <div className="w-6 h-6 bg-accent-primary rounded flex items-center justify-center font-bold text-white mr-2">J</div>
 
@@ -527,6 +591,10 @@ export default function TabBar({ userId }: { userId: string }) {
                                             <Replace size={14} className="mr-2" />
                                             Find &amp; Replace...
                                         </button>
+                                        <button onClick={() => { importEntriesInputRef.current?.click(); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                            <FileText size={14} className="mr-2" />
+                                            Import entries (TXT/HTML/RTF)...
+                                        </button>
                                         {([
                                             ['md', 'Markdown'],
                                             ['rtf', 'RTF (Word)'],
@@ -565,6 +633,24 @@ export default function TabBar({ userId }: { userId: string }) {
                                 <button onClick={() => { window.dispatchEvent(new Event('trigger-settings')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
                                     <Settings size={14} className="mr-2" />
                                     Settings...
+                                </button>
+                                <div className="border-t border-border-primary my-1"></div>
+                                {/* Database & account maintenance — mirrors the Electron File menu. */}
+                                <button onClick={() => { window.dispatchEvent(new Event('trigger-change-password')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Settings size={14} className="mr-2" />
+                                    Change Password...
+                                </button>
+                                <button onClick={() => { window.dispatchEvent(new Event('trigger-switch-user')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <LogOut size={14} className="mr-2" />
+                                    Switch User...
+                                </button>
+                                <button onClick={() => { window.dispatchEvent(new Event('trigger-check-integrity')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Bug size={14} className="mr-2" />
+                                    Check Integrity &amp; Repair...
+                                </button>
+                                <button onClick={() => { window.dispatchEvent(new Event('trigger-optimize-db')); setIsFileMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center">
+                                    <Wand2 size={14} className="mr-2" />
+                                    Optimize Database...
                                 </button>
                                 <div className="border-t border-border-primary my-1"></div>
                                 {/* Help — mirrors the Electron Help submenu so the web build has parity. */}
@@ -642,6 +728,15 @@ export default function TabBar({ userId }: { userId: string }) {
                                     <span>Toggle Split</span>
                                     <kbd className="text-[10px] opacity-70 font-sans">Ctrl+\\</kbd>
                                 </button>
+                                <button
+                                    onClick={() => { dispatchViewAction('toggle-sidebar'); setIsViewMenuOpen(false); }}
+                                    className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
+                                >
+                                    <span>Show / Hide Sidebar</span>
+                                    <kbd className="text-[10px] opacity-70 font-sans">Ctrl+Shift+B</kbd>
+                                </button>
+                                <button onClick={() => { dispatchViewAction('sidebar-side'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Move Sidebar Left / Right</button>
+                                <button onClick={() => { dispatchViewAction('toggle-toolbar'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Show / Hide Formatting Toolbar</button>
                                 <div className="border-t border-border-primary my-1"></div>
                                 <button onClick={() => { dispatchViewAction('undo'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Undo</button>
                                 <button onClick={() => { dispatchViewAction('redo'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Redo</button>
@@ -666,8 +761,13 @@ export default function TabBar({ userId }: { userId: string }) {
                 </div>
             )}
 
-            {/* TAB STRIP (Sortable) */}
-            <div className="flex items-center px-2 pt-1 space-x-1 bg-bg-sidebar">
+            {/* TAB STRIP (Sortable) — the "Main Toolbar" (View › Toolbars).
+                Position follows View › Category Tabs Navigation (top/bottom/vertical). */}
+            <div className={
+                mainToolbarHidden ? 'hidden'
+                : tabsPosition === 'vertical' ? 'flex flex-col items-stretch px-2 py-1 gap-1 bg-bg-sidebar max-h-40 overflow-y-auto'
+                : 'flex items-center px-2 pt-1 space-x-1 bg-bg-sidebar'
+            }>
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <SortableContext items={tabs.map(c => c.CategoryID)} strategy={horizontalListSortingStrategy}>
                         {tabs.map((tab) => (
@@ -730,6 +830,15 @@ export default function TabBar({ userId }: { userId: string }) {
             {isRemindersOpen && (
                 <RemindersPanel onClose={() => setIsRemindersOpen(false)} />
             )}
+
+            <input
+                ref={importEntriesInputRef}
+                type="file"
+                multiple
+                accept=".txt,.text,.htm,.html,.rtf"
+                className="hidden"
+                onChange={(e) => { handleImportEntries(e.target.files); e.target.value = ''; }}
+            />
 
             {isGoalsOpen && (
                 <GoalsPanel onClose={() => setIsGoalsOpen(false)} />

@@ -3,11 +3,19 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import SettingsModal from './SettingsModal';
+import ManageUsersModal from './ManageUsersModal';
+import ManageTopicsModal from './ManageTopicsModal';
+import JournalVolumesModal from './JournalVolumesModal';
 import { logout } from '@/app/actions';
+import { logAction } from '@/lib/actionLog';
 
 export default function GlobalIPCManager() {
     const { setTheme } = useTheme();
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [showManageUsers, setShowManageUsers] = useState(false);
+    const [showManageTopics, setShowManageTopics] = useState(false);
+    const [showVolumes, setShowVolumes] = useState(false);
+    const restoreInputRef = useRef<HTMLInputElement>(null);
 
     const handleExportClick = useCallback(async () => {
         if (window.electron) {
@@ -56,7 +64,107 @@ export default function GlobalIPCManager() {
         await logout();
     }, []);
 
+    // David RM database/admin actions. Triggered by the Electron File menu
+    // (view-action → trigger-*) or by web menu buttons; both dispatch the same
+    // window events so the logic lives in one place and works on both targets.
+    useEffect(() => {
+        const onCheckIntegrity = async () => {
+            try {
+                const data = await (await fetch('/api/db/integrity')).json();
+                if (data.ok) alert('Integrity check passed — no problems found.');
+                else alert('Integrity issues found:\n' + (data.messages || []).join('\n'));
+            } catch { alert('Integrity check failed. See console for details.'); }
+        };
+        const onOptimize = async () => {
+            if (!confirm('Optimize and defragment the database now? This may take a moment.')) return;
+            try {
+                const data = await (await fetch('/api/db/optimize', { method: 'POST' })).json();
+                if (data.ok) {
+                    const mb = typeof data.bytesReclaimed === 'number'
+                        ? ` Reclaimed ${(data.bytesReclaimed / 1024 / 1024).toFixed(2)} MB.` : '';
+                    alert('Database optimized.' + mb);
+                } else alert('Optimize failed.');
+            } catch { alert('Optimize failed. See console for details.'); }
+        };
+        const onChangePassword = async () => {
+            const oldPassword = prompt('Current password:');
+            if (oldPassword == null) return;
+            const newPassword = prompt('New password (at least 8 characters):');
+            if (newPassword == null) return;
+            try {
+                const res = await fetch('/api/user/password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ oldPassword, newPassword }),
+                });
+                if (res.ok) { alert('Password changed.'); return; }
+                const d = await res.json().catch(() => ({}));
+                alert(d.reason === 'wrong-password' ? 'Current password is incorrect.'
+                    : d.reason === 'weak' ? 'New password must be at least 8 characters.'
+                    : 'Could not change password.');
+            } catch { alert('Could not change password. See console for details.'); }
+        };
+        const onSwitchUser = async () => {
+            if (!confirm('Log out and switch to a different user?')) return;
+            await handleLogout();
+        };
+        const onManageUsers = () => setShowManageUsers(true);
+        const onManageTopics = () => setShowManageTopics(true);
+        const onToggleTheme = () => setTheme((cur) => (cur === 'dark' ? 'light' : 'dark'));
+        const onAutoLogin = () => setIsSettingsOpen(true);
+        const onRestoreDb = () => restoreInputRef.current?.click();
+        const onVolumes = () => setShowVolumes(true);
+        const onLogout = () => { void handleLogout(); };
+        const onCheckUpdates = async () => {
+            try {
+                const health = await (await fetch('/api/health')).json().catch(() => ({}));
+                const current = health.version ?? 'unknown';
+                let latest = '';
+                try {
+                    const rel = await (await fetch('https://api.github.com/repos/danielttran/TheJournal/releases/latest')).json();
+                    latest = rel?.tag_name ?? '';
+                } catch { /* offline / rate-limited */ }
+                alert(latest
+                    ? `Installed version: ${current}\nLatest release: ${latest}\n\n${latest.replace(/^v/, '') === String(current).replace(/^v/, '') ? "You're up to date." : 'A newer version is available; redeploy to update.'}`
+                    : `Installed version: ${current}\n\nThe web app updates when the server is redeployed.`);
+            } catch { alert('Could not check for updates.'); }
+        };
+        window.addEventListener('trigger-manage-topics', onManageTopics);
+        window.addEventListener('trigger-toggle-theme', onToggleTheme);
+        window.addEventListener('trigger-journal-volumes', onVolumes);
+        window.addEventListener('trigger-logout', onLogout);
+        window.addEventListener('trigger-check-updates', onCheckUpdates);
+        window.addEventListener('trigger-check-integrity', onCheckIntegrity);
+        window.addEventListener('trigger-optimize-db', onOptimize);
+        window.addEventListener('trigger-change-password', onChangePassword);
+        window.addEventListener('trigger-switch-user', onSwitchUser);
+        window.addEventListener('trigger-manage-users', onManageUsers);
+        window.addEventListener('trigger-auto-login', onAutoLogin);
+        window.addEventListener('trigger-restore-db', onRestoreDb);
+        return () => {
+            window.removeEventListener('trigger-check-integrity', onCheckIntegrity);
+            window.removeEventListener('trigger-optimize-db', onOptimize);
+            window.removeEventListener('trigger-change-password', onChangePassword);
+            window.removeEventListener('trigger-switch-user', onSwitchUser);
+            window.removeEventListener('trigger-manage-users', onManageUsers);
+            window.removeEventListener('trigger-manage-topics', onManageTopics);
+            window.removeEventListener('trigger-toggle-theme', onToggleTheme);
+            window.removeEventListener('trigger-journal-volumes', onVolumes);
+            window.removeEventListener('trigger-logout', onLogout);
+            window.removeEventListener('trigger-check-updates', onCheckUpdates);
+            window.removeEventListener('trigger-auto-login', onAutoLogin);
+            window.removeEventListener('trigger-restore-db', onRestoreDb);
+        };
+    }, [handleLogout, setTheme]);
+
     const dispatchViewAction = useCallback((action: string) => {
+        logAction('electron menu', action);
+        // run-plugin-<id> carries the plugin id in a CustomEvent detail so the
+        // editor can invoke that plugin's registered action (Electron path).
+        if (action.startsWith('run-plugin-')) {
+            window.dispatchEvent(new CustomEvent('trigger-run-plugin', { detail: { id: action.slice('run-plugin-'.length) } }));
+            return;
+        }
         window.dispatchEvent(new CustomEvent(`trigger-${action}`));
     }, []);
 
@@ -143,6 +251,26 @@ export default function GlobalIPCManager() {
     return (
         <>
             <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+            {showManageUsers && <ManageUsersModal onClose={() => setShowManageUsers(false)} />}
+            {showManageTopics && <ManageTopicsModal onClose={() => setShowManageTopics(false)} />}
+            {showVolumes && <JournalVolumesModal onClose={() => setShowVolumes(false)} />}
+            <input
+                ref={restoreInputRef}
+                type="file"
+                accept=".db,.sqlite,.tjdb"
+                className="hidden"
+                onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!f) return;
+                    if (!confirm('Restore this backup? It overwrites your current journal volume.')) return;
+                    const fd = new FormData();
+                    fd.append('file', f);
+                    const res = await fetch('/api/backup/import', { method: 'POST', body: fd });
+                    if (res.ok) window.location.reload();
+                    else { const d = await res.json().catch(() => ({})); alert(`Restore failed: ${d.error || res.statusText}`); }
+                }}
+            />
         </>
     );
 }

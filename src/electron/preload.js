@@ -30,7 +30,6 @@ contextBridge.exposeInMainWorld('electron', {
     // asking main to write the rendered HTML to a chosen PDF path.
     onPrintCurrentEntry:     (cb) => subscribe('print-current-entry', cb),
     onExportCurrentEntryPdf: (cb) => subscribe('export-current-entry-pdf', cb),
-    onOpenJournal:           (cb) => subscribe('open-journal', cb, (_event, filePath) => [filePath]),
     saveEntryPdf:            (entryHtml, suggestedName) =>
         ipcRenderer.invoke('save-entry-pdf', entryHtml, suggestedName),
 

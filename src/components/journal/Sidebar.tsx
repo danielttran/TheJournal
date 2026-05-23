@@ -2,6 +2,7 @@
 
 import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen, Star, Hash, Pin, ArrowUpDown } from 'lucide-react';
 import { sortEntries, type SortMode } from '@/lib/sort';
+import { adjacentEntryId } from '@/lib/navOrder';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -722,6 +723,67 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         }
     };
 
+    // David RM "New Sub-Entry" (Ctrl+Shift+Enter) — child page under the
+    // currently-open entry. A ref keeps the latest closure without
+    // re-subscribing the window listener on every render.
+    const newSubEntryRef = useRef<() => void>(() => {});
+    useEffect(() => {
+        newSubEntryRef.current = () => { if (urlEntryId) onCreateEntry(urlEntryId, 'Page'); };
+    });
+    useEffect(() => {
+        const h = () => newSubEntryRef.current();
+        window.addEventListener('trigger-new-subentry', h);
+        return () => window.removeEventListener('trigger-new-subentry', h);
+    }, []);
+
+    // David RM Entries menu actions (new/delete/sort/topics/move). A ref holds
+    // the latest closures so the window listeners subscribe once.
+    const assignTopicsFlow = async (entryId: number) => {
+        const res = await fetch('/api/topic');
+        const topics = res.ok ? await res.json() : [];
+        if (!Array.isArray(topics) || topics.length === 0) {
+            window.alert('No topics defined yet. Create topics before assigning them.');
+            return;
+        }
+        const nameOf = (t: { Name?: string; name?: string }) => t.Name ?? t.name ?? '';
+        const pick = window.prompt('Assign which topic?\nAvailable: ' + topics.map(nameOf).join(', '));
+        if (!pick) return;
+        const t = topics.find((x: { Name?: string; name?: string }) => nameOf(x).toLowerCase() === pick.trim().toLowerCase());
+        if (!t) { window.alert(`No topic named "${pick}".`); return; }
+        const topicId = (t as { TopicID?: number; id?: number }).TopicID ?? (t as { id?: number }).id;
+        const r = await fetch(`/api/entry/${entryId}/topic`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topicId }) });
+        window.alert(r.ok ? 'Topic assigned.' : 'Could not assign topic.');
+    };
+    const moveEntryFlow = async (entryId: number) => {
+        const res = await fetch('/api/category');
+        const cats = res.ok ? await res.json() : [];
+        if (!Array.isArray(cats) || cats.length === 0) return;
+        const list = cats.map((c: { CategoryID: number; Name: string }) => `${c.CategoryID}: ${c.Name}`).join('\n');
+        const pick = window.prompt('Move entry to which category? Enter the category ID:\n' + list);
+        if (!pick) return;
+        const cid = parseInt(pick, 10);
+        if (!Number.isFinite(cid)) return;
+        const r = await fetch(`/api/entry/${entryId}/move-category`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryId: cid }) });
+        if (r.ok) { router.push(`/journal/${cid}?entry=${entryId}`); }
+        else { const d = await r.json().catch(() => ({})); window.alert('Move failed: ' + (d.error || r.status)); }
+    };
+
+    const entryActionsRef = useRef<Record<string, () => void>>({});
+    useEffect(() => {
+        entryActionsRef.current = {
+            'trigger-new-entry': () => onCreateEntry(null, 'Page'),
+            'trigger-delete-entry': () => { if (urlEntryId) handleDelete(urlEntryId); },
+            'trigger-sort-subentries': () => setShowSortMenu(true),
+            'trigger-assign-topics': () => { if (urlEntryId) void assignTopicsFlow(urlEntryId); },
+            'trigger-move-entry': () => { if (urlEntryId) void moveEntryFlow(urlEntryId); },
+        };
+    });
+    useEffect(() => {
+        const events = ['trigger-new-entry', 'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry'];
+        const subs = events.map(e => { const h = () => entryActionsRef.current[e]?.(); window.addEventListener(e, h); return [e, h] as const; });
+        return () => subs.forEach(([e, h]) => window.removeEventListener(e, h));
+    }, []);
+
     // M5: Drag a media file onto the sidebar to create an entry pre-populated
     // with the embedded image / video. The upload endpoint enforces the MIME
     // allowlist; we silently skip files of any other type rather than
@@ -834,6 +896,28 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
     }, [pages, matchedEntryIds, activeTags, entryHasAllTags, sortMode]);
 
     const rootIds = useMemo(() => filteredPages.map(p => p.EntryID), [filteredPages]);
+
+    // David RM "Previous / Next entry" — navigate the visible list in order.
+    // Notebook categories use the sorted page roots; journal/calendar
+    // categories fall back to the date-ordered entry list.
+    useEffect(() => {
+        const navigate = (dir: 'prev' | 'next') => {
+            const ordered = rootIds.length
+                ? rootIds
+                : journalEntries.filter(e => e.EntryType !== 'Folder').map(e => e.EntryID);
+            const target = adjacentEntryId(ordered, urlEntryId ?? null, dir);
+            if (target != null) router.push(`?entry=${target}`, { scroll: false });
+        };
+        const onPrev = () => navigate('prev');
+        const onNext = () => navigate('next');
+        window.addEventListener('trigger-nav-prev', onPrev);
+        window.addEventListener('trigger-nav-next', onNext);
+        return () => {
+            window.removeEventListener('trigger-nav-prev', onPrev);
+            window.removeEventListener('trigger-nav-next', onNext);
+        };
+    }, [rootIds, journalEntries, urlEntryId, router]);
+
     const dropAnimation: DropAnimation = { sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0.5' } } }) };
 
     // Calendar

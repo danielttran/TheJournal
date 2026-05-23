@@ -46,6 +46,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
     const [allCategories, setAllCategories] = useState<Category[]>([]);
 
     // Edited values
+    const [viewType, setViewType] = useState<'Journal' | 'Notebook'>('Notebook');
     const [autoTemplateId, setAutoTemplateId] = useState<number>(0);
     const [entryFrequency, setEntryFrequency] = useState<'daily' | 'weekly' | 'hourly'>('daily');
     const [sortMode, setSortMode] = useState<SortMode>('manual');
@@ -81,6 +82,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
                 setTemplates(tmpls);
                 setAllCategories(cats);
 
+                setViewType((cat.Type ?? 'Notebook') as 'Journal' | 'Notebook');
                 setAutoTemplateId(Number(cat.AutoTemplateID ?? 0));
                 setEntryFrequency((cat.EntryFrequency ?? 'daily') as 'daily' | 'weekly' | 'hourly');
                 setSortMode((cat.SortMode ?? 'manual') as SortMode);
@@ -109,6 +111,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
         setSaving(true);
         setError(null);
         const body: Record<string, unknown> = {
+            type: viewType,
             sortMode,
             autoTemplateId: autoTemplateId || 0,
             entryFrequency,
@@ -127,6 +130,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const next: Partial<Category> = {
+                Type: viewType,
                 SortMode: sortMode,
                 AutoTemplateID: autoTemplateId || null,
                 EntryFrequency: entryFrequency,
@@ -247,6 +251,21 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
                             </select>
                             <p className="text-text-muted text-xs mt-1">
                                 New entries in this category will be pre-filled with the chosen template.
+                            </p>
+                        </section>
+
+                        <section>
+                            <label className="block text-text-muted text-xs uppercase tracking-wider mb-1">View mode</label>
+                            <select
+                                value={viewType}
+                                onChange={e => setViewType(e.target.value as 'Journal' | 'Notebook')}
+                                className="w-full bg-bg-sidebar border border-border-primary rounded p-2 text-text-primary"
+                            >
+                                <option value="Journal">Calendar (date-based journal)</option>
+                                <option value="Notebook">Loose-leaf (tree of pages)</option>
+                            </select>
+                            <p className="text-text-muted text-xs mt-1">
+                                Calendar shows entries on a month grid by date; loose-leaf shows a page tree. Entries are not changed.
                             </p>
                         </section>
 

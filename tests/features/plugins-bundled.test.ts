@@ -193,7 +193,7 @@ describe('bundled plugin: drawio — registration', () => {
         const btn = captured.toolbarButtons.find(b => b.id === 'drawio');
         expect(btn, 'drawio toolbar button not registered').toBeDefined();
         expect(btn!.icon).toBe('git-merge');
-        expect(btn!.label).toBe('Diagram');
+        expect(btn!.label).toBe('Draw.io');
         expect(typeof btn!.onClick).toBe('function');
     });
 
