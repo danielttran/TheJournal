@@ -1,5 +1,5 @@
 import { db, dbManager } from "@/lib/db";
-import { cookies } from "next/headers";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 import { compileSafeRegex, matchEntryAgainstRegex, SafeRegexError } from "@/lib/regexSearch";
 import { loadEntryHtmlForRead } from "@/lib/entryEncryption";
@@ -80,13 +80,8 @@ function buildFtsMatchQuery(query: string, searchIn: string, wholeWord: boolean)
 
 export async function GET(req: NextRequest) {
     try {
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get('userId');
-        if (!userIdCookie?.value) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-        const userId = Number.parseInt(userIdCookie.value, 10);
-        if (Number.isNaN(userId)) {
+        const userId = getUserIdFromRequest(req);
+        if (!userId) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 

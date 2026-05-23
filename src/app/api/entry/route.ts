@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 
 export const dynamic = 'force-dynamic';
 
@@ -37,11 +38,8 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         // Verify category ownership
         const category = await db.prepare('SELECT 1 FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);

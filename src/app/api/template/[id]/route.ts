@@ -1,14 +1,7 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { cookies } from "next/headers";
-
-async function getUserId(): Promise<number | null> {
-    const cookieStore = await cookies();
-    const userIdCookie = cookieStore.get("userId");
-    if (!userIdCookie) return null;
-    return parseInt(userIdCookie.value, 10);
-}
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 
 const UpdateSchema = z.object({
     name: z.string().min(1).max(100).optional(),
@@ -19,7 +12,7 @@ const UpdateSchema = z.object({
 // PUT /api/template/[id] — rename or update content of a template
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
-        const userId = await getUserId();
+        const userId = getUserIdFromRequest(req);
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const { id } = await params;
@@ -62,7 +55,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 // DELETE /api/template/[id] — delete a template
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
-        const userId = await getUserId();
+        const userId = getUserIdFromRequest(req);
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const { id } = await params;

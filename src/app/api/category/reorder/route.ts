@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { z } from "zod";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 
 const ReorderSchema = z.object({
     updates: z.array(z.object({
@@ -11,11 +12,8 @@ const ReorderSchema = z.object({
 
 export async function PUT(req: NextRequest) {
     try {
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const body = await req.json();
         const { updates } = ReorderSchema.parse(body);

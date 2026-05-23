@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { cookies } from "next/headers";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = 'force-dynamic';
@@ -10,11 +10,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const attachmentId = parseInt(id, 10);
         if (isNaN(attachmentId)) return new NextResponse(null, { status: 400 });
 
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return new NextResponse(null, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
-        if (isNaN(userId)) return new NextResponse(null, { status: 401 });
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return new NextResponse(null, { status: 401 });
 
         const row = await db.prepare(`
             SELECT Data, MimeType, Filename
@@ -45,11 +42,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         const attachmentId = parseInt(id, 10);
         if (isNaN(attachmentId)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
 
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
-        if (isNaN(userId)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const result = await db.prepare(
             'DELETE FROM Attachment WHERE AttachmentID = ? AND UserID = ?'

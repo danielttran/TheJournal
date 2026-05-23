@@ -164,3 +164,4 @@ Adds a toolbar button after the built-in editor tools. Supported icon keys are `
 The repository includes installable example plugins under `plugins/`:
 
 - `plugins/sentence-diagrammer` - interactive Reed-Kellogg sentence diagrams with draggable word tokens and relationship-based AST storage.
+- `plugins/drawio` - embed editable draw.io diagrams inline in an entry. Click to open a full-screen [embed.diagrams.net](https://embed.diagrams.net) iframe; the diagram XML and an SVG preview are stored on the node. **Network dependency**: editing requires the diagrams.net domain to be reachable from the renderer (the embed UI is hosted by JGraph). Viewing the saved SVG preview is fully offline.

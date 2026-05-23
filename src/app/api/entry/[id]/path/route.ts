@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
@@ -11,9 +11,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
         }
 
-        // Auth check
-        const cookieStore = await cookies();
-        const userId = cookieStore.get("userId")?.value;
+        const userId = getUserIdFromRequest(req);
         if (!userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
@@ -23,7 +21,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
             SELECT 1 FROM Entry e
             JOIN Category c ON e.CategoryID = c.CategoryID
             WHERE e.EntryID = ? AND c.UserID = ?
-        `).get(entryId, parseInt(userId, 10));
+        `).get(entryId, userId);
 
         if (!ownerCheck) {
             return NextResponse.json({ error: "Entry not found" }, { status: 404 });

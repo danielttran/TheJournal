@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 
 const MoveEntrySchema = z.object({
     entryId: z.number(),
@@ -13,11 +14,8 @@ export async function PUT(req: NextRequest) {
         const body = await req.json();
         const { entryId, parentId, sortOrder } = MoveEntrySchema.parse(body);
 
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         // Self-parent guard — moving an entry under itself corrupts the tree
         if (parentId !== null && parentId === entryId) {

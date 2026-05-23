@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 
 const SORT_MODES = [
     'manual', 'title-asc', 'title-desc',
@@ -26,11 +27,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         const { id } = await params;
         const categoryId = parseInt(id, 10);
 
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const category = await db.prepare('SELECT * FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId);
 
@@ -51,11 +49,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
         const { id } = await params;
         const categoryId = parseInt(id, 10);
 
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         // Verify ownership
         const category = await db.prepare('SELECT Name FROM Category WHERE CategoryID = ? AND UserID = ?').get(categoryId, userId) as { Name: string } | undefined;
@@ -99,11 +94,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         const categoryId = parseInt(id, 10);
 
         // Auth check FIRST — before any DB access
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const rawBody = await req.json();
         const parsed = UpdateCategorySchema.safeParse(rawBody);

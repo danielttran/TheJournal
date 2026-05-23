@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getUserIdFromRequest } from "@/lib/route-helpers";
 
 const CreateCategorySchema = z.object({
     name: z.string().min(1),
@@ -13,16 +14,9 @@ const CreateCategorySchema = z.object({
 });
 
 // GET: List all categories for user
-export async function GET(_req: NextRequest) {
-    const { cookies } = await import("next/headers");
-    const cookieStore = await cookies();
-    const userIdCookie = cookieStore.get("userId");
-
-    if (!userIdCookie) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const userId = parseInt(userIdCookie.value, 10);
-    if (isNaN(userId)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(req: NextRequest) {
+    const userId = getUserIdFromRequest(req);
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     try {
         const categories = await db.prepare('SELECT * FROM Category WHERE UserID = ? ORDER BY SortOrder ASC').all(userId);
@@ -37,12 +31,8 @@ export async function GET(_req: NextRequest) {
 export async function POST(req: NextRequest) {
     try {
         // userId is always read from the session cookie — never from the request body.
-        const { cookies } = await import("next/headers");
-        const cookieStore = await cookies();
-        const userIdCookie = cookieStore.get("userId");
-        if (!userIdCookie) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-        const userId = parseInt(userIdCookie.value, 10);
-        if (isNaN(userId)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        const userId = getUserIdFromRequest(req);
+        if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const body = await req.json();
         const { name, type, color, isPrivate, isSmartbook, smartbookQuery, entryFrequency } =

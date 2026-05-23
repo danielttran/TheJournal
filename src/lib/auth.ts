@@ -1,6 +1,5 @@
 import argon2 from 'argon2';
 import { createHash } from 'crypto';
-import { cookies } from "next/headers";
 
 // ─── DB Encryption Key ────────────────────────────────────────────────────────
 // The database encryption key is FIXED per-installation (not per-user).
@@ -82,13 +81,4 @@ export async function verifyPassword(hash: string, password: string): Promise<bo
     } catch {
         return false;
     }
-}
-
-// ─── Session ──────────────────────────────────────────────────────────────────
-
-export async function getSessionUserId(): Promise<number | null> {
-    const cookieStore = await cookies();
-    const userIdCookie = cookieStore.get("userId");
-    if (!userIdCookie) return null;
-    return parseInt(userIdCookie.value, 10);
 }
