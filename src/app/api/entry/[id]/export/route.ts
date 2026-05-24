@@ -1,6 +1,6 @@
 import { db, dbManager } from "@/lib/db";
 import { exportEntry } from "@/lib/markdown";
-import { exportEntryAsHTML, exportEntryAsRTF, htmlToPlainText, exportEntriesAsATOM } from "@/lib/export-formats";
+import { exportEntryAsHTML, exportEntryAsRTF, htmlToPlainText, exportEntriesAsATOM, inlineDiagramPreviews } from "@/lib/export-formats";
 import { loadEntryHtmlForRead } from "@/lib/entryEncryption";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
@@ -48,7 +48,8 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/entry/[id]/exp
         tags,
         mood: row.Mood ?? null,
     };
-    const html = decrypted;
+    // Inline any legacy sentence-diagram previews so they aren't blank boxes.
+    const html = inlineDiagramPreviews(decrypted);
     const safeTitle = (row.Title || 'entry').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60);
 
     if (format === 'html') {

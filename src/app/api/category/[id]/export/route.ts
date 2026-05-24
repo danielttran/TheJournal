@@ -1,6 +1,6 @@
 import { db, dbManager } from "@/lib/db";
 import { exportCategory, type FrontmatterInput } from "@/lib/markdown";
-import { exportEntriesAsATOM, htmlToPlainText, exportEntryAsHTML, exportEntryAsRTF } from "@/lib/export-formats";
+import { exportEntriesAsATOM, htmlToPlainText, exportEntryAsHTML, exportEntryAsRTF, inlineDiagramPreviews } from "@/lib/export-formats";
 import { loadEntryHtmlForRead } from "@/lib/entryEncryption";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
@@ -44,7 +44,7 @@ export const GET = authedHandler<[NextRequest, Params]>('GET /api/category/[id]/
                 { status: 423 },
             );
         }
-        rows.push({ ...r, HtmlContent: decrypted });
+        rows.push({ ...r, HtmlContent: inlineDiagramPreviews(decrypted) });
     }
 
     const safeName = cat.Name.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60);

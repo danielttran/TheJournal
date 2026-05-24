@@ -14,6 +14,32 @@ function decodeEntities(s: string): string {
     return s.replace(/&(nbsp|amp|lt|gt|quot|apos|#39);/gi, (m) => ENTITY_MAP[m.toLowerCase()] ?? m);
 }
 
+/**
+ * Older sentence-diagram nodes serialized to an *empty* <div> with the rendered
+ * SVG stashed in a `data-preview` attribute, so static exports/prints showed a
+ * blank box. Newer nodes inline the <svg> directly. This upgrades the legacy
+ * form on the fly: when a sentence-diagram div carries `data-preview` but has no
+ * inline <svg>, move the decoded SVG inside the div. Idempotent — a no-op on
+ * already-inlined diagrams and on HTML without any.
+ */
+export function inlineDiagramPreviews(html: string | null | undefined): string {
+    if (!html) return '';
+    // The attribute soup contains '>' inside the quoted data-preview value, so
+    // the tag matcher skips whole quoted spans rather than stopping at the first
+    // '>'. Literal quotes only ever delimit attributes (any '"' in the SVG is
+    // serialized as &quot;), which keeps "[^"]*" reliable.
+    const emptyDiagramDiv = /<div\b((?:[^>"]|"[^"]*")*)\bdata-type="sentence-diagram"((?:[^>"]|"[^"]*")*)>\s*<\/div>/g;
+    return html.replace(emptyDiagramDiv, (whole, pre: string, post: string) => {
+        const attrs = pre + post;
+        const m = /\bdata-preview="([^"]*)"/.exec(attrs);
+        if (!m) return whole;
+        const svg = decodeEntities(m[1]);
+        if (!/^\s*<svg[\s>]/i.test(svg)) return whole; // only inline a real SVG
+        const cleaned = attrs.replace(/\s*\bdata-preview="[^"]*"/, '');
+        return `<div${cleaned} data-type="sentence-diagram">${svg}</div>`;
+    });
+}
+
 export function htmlToPlainText(html: string | null | undefined): string {
     if (!html) return '';
     return decodeEntities(

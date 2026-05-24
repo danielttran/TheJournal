@@ -1,6 +1,6 @@
 import { db, dbManager } from '@/lib/db';
 import { authedHandler } from '@/lib/route-helpers';
-import { exportEntryAsRTF, htmlToPlainText } from '@/lib/export-formats';
+import { exportEntryAsRTF, htmlToPlainText, inlineDiagramPreviews } from '@/lib/export-formats';
 import { loadEntryHtmlForRead } from '@/lib/entryEncryption';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -81,7 +81,7 @@ export const GET = authedHandler<[NextRequest]>('GET /api/report', async (userId
                 { status: 423 },
             );
         }
-        rows[i] = { ...rows[i], HtmlContent: decrypted };
+        rows[i] = { ...rows[i], HtmlContent: inlineDiagramPreviews(decrypted) };
     }
 
     const totalWords = rows.reduce((s, r) => s + wordCount(r.HtmlContent), 0);

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sentence Studio — preview harness</title>
+  <style>
+    html, body { margin: 0; height: 100%; font: 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .launch { display: grid; place-items: center; height: 100%; gap: 16px; background: #F7F2FA; }
+    .launch button { padding: 12px 22px; border: 0; border-radius: 999px; background: #6750A4; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    .launch p { color: #49454F; max-width: 520px; text-align: center; }
+  </style>
+</head>
+<body>
+  <!--
+    Standalone harness to eyeball the redesigned Sentence Studio plugin without
+    running all of TheJournal. It stubs window.TheJournalAPI just enough for the
+    plugin to register, then opens the full-screen Studio overlay.
+    Open this file directly in a browser (Chromium recommended).
+  -->
+  <div class="launch">
+    <h1>Sentence Studio</h1>
+    <p>This is a dev harness for the redesigned sentence-diagrammer plugin. Click below to open the full editor overlay. Try the style toggle (Reed-Kellogg / Tree / Dependency), type a new sentence and Parse, toggle color coding & clause labels, and use Edit mode.</p>
+    <button id="open">Open Sentence Studio</button>
+  </div>
+
+  <script>
+    // Minimal TheJournalAPI stub: capture the toolbar button + extension so the
+    // plugin's registration calls succeed, then expose __sentenceStudio.
+    window.TheJournalAPI = {
+      _ext: null, _btn: null,
+      registerTiptapExtension(ext) { this._ext = ext; },
+      registerToolbarButton(btn) { this._btn = btn; },
+    };
+  </script>
+  <script src="./main.js"></script>
+  <script>
+    document.getElementById('open').addEventListener('click', function () {
+      window.__sentenceStudio.openStudio(null, function (result) {
+        console.log('saved diagram state:', result.state);
+      });
+    });
+  </script>
+</body>
+</html>

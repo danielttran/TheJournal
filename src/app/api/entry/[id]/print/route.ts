@@ -1,5 +1,6 @@
 import { dbManager } from "@/lib/db";
 import { renderEntryForPrint } from "@/lib/printRender";
+import { inlineDiagramPreviews } from "@/lib/export-formats";
 import { loadEntryHtmlForRead } from "@/lib/entryEncryption";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
@@ -67,7 +68,7 @@ export const GET = authedHandler<[NextRequest, { params: Promise<{ id: string }>
 
         const html = renderEntryForPrint({
             title: row.Title,
-            htmlContent: decrypted,
+            htmlContent: inlineDiagramPreviews(decrypted),
             createdDate: row.CreatedDate,
             modifiedDate: row.ModifiedDate,
             categoryName: row.CategoryName,

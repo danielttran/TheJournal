@@ -1,6 +1,6 @@
 {
   "id": "sentence-diagrammer",
   "name": "Sentence Diagrammer",
-  "version": "1.0.0",
-  "description": "Interactive Reed-Kellogg sentence diagramming for TheJournal"
+  "version": "2.0.0",
+  "description": "Sentence Studio — diagram sentences in Reed-Kellogg, constituency tree, or dependency-arc styles with a local parser, color-coded parts of speech, and a per-style edit palette"
 }
