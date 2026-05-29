@@ -42,6 +42,19 @@ export default function CategoryTree({
         });
     };
 
+    // Adding a sub-category to a collapsed parent would hide the new child;
+    // expand the parent first so the result is visible.
+    const expandThenAddSub = (id: number) => {
+        setCollapsed(prev => {
+            if (!prev.has(id)) return prev;
+            const next = new Set(prev);
+            next.delete(id);
+            try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+            return next;
+        });
+        onAddSub(id);
+    };
+
     const tree = buildCategoryTree(categories);
     const rows = flattenTree(tree, collapsed);
 
@@ -80,7 +93,7 @@ export default function CategoryTree({
                         <span className="flex-1 truncate">{c.Icon ? `${c.Icon} ` : ''}{c.Name}</span>
 
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-                            <button onClick={e => { e.stopPropagation(); onAddSub(c.CategoryID); }}
+                            <button onClick={e => { e.stopPropagation(); expandThenAddSub(c.CategoryID); }}
                                 className="p-0.5 text-text-muted hover:text-text-primary" title="Add sub-category">
                                 <Plus size={13} />
                             </button>

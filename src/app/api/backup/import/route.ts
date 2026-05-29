@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
         interface ImportedCategoryRow {
             CategoryID: number; Name: string; Color: string | null; IsPrivate: number;
             Type: string | null; Icon: string | null; ViewSettings: string | null;
-            SortOrder: number | null;
+            SortOrder: number | null; ParentCategoryID: number | null;
         }
         interface ImportedEntryRow {
             EntryID: number; CategoryID: number; Title: string; PreviewText: string | null;
@@ -120,6 +120,18 @@ export async function POST(req: NextRequest) {
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 `).run(userId, cat.Name, cat.Color, cat.IsPrivate, cat.Type || 'Journal', cat.Icon, cat.ViewSettings, cat.SortOrder || 0);
                 catIdMap.set(cat.CategoryID, r.lastInsertRowid as number);
+            }
+            // Re-link the category hierarchy in a second pass: parents may have
+            // been inserted after their children, so the new parent id is only
+            // known once every category has a row. Dangling refs stay null.
+            for (const cat of importedCats) {
+                if (cat.ParentCategoryID == null) continue;
+                const newId = catIdMap.get(cat.CategoryID);
+                const newParentId = catIdMap.get(cat.ParentCategoryID);
+                if (newId && newParentId) {
+                    await db.prepare('UPDATE main.Category SET ParentCategoryID = ? WHERE CategoryID = ?')
+                        .run(newParentId, newId);
+                }
             }
 
             // C. Remap Entries

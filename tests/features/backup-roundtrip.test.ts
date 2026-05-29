@@ -27,6 +27,9 @@ async function seedSource() {
     await source.prepare('INSERT INTO User (UserID, Username) VALUES (?, ?)').run(1, 'src');
     const cat = await source.prepare('INSERT INTO Category (UserID, Name, Type) VALUES (?, ?, ?)').run(1, 'Travel', 'Journal');
     const catId = cat.lastInsertRowid;
+    // A nested child category — its parent ref must survive the round-trip.
+    await source.prepare('INSERT INTO Category (UserID, Name, Type, ParentCategoryID) VALUES (?, ?, ?, ?)')
+        .run(1, 'Trips 2026', 'Journal', catId);
 
     // Entries with all interesting flags
     const e1 = await source.prepare(
@@ -70,6 +73,16 @@ async function runImport(destDb: DBManager, sourcePath: string, destUserId: numb
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
                 ).run(destUserId, c.Name, c.Type, c.Color ?? '#6366f1', c.IsPrivate ?? 0, c.ViewSettings ?? null, c.SortOrder ?? 0, c.Icon ?? null);
                 catIdMap.set(c.CategoryID, r.lastInsertRowid as number);
+            }
+            // Second pass: re-link parents now that every category has a new id.
+            for (const c of cats) {
+                if (c.ParentCategoryID == null) continue;
+                const newId = catIdMap.get(c.CategoryID);
+                const newParentId = catIdMap.get(c.ParentCategoryID);
+                if (newId && newParentId) {
+                    await destDb.prepare('UPDATE main.Category SET ParentCategoryID = ? WHERE CategoryID = ?')
+                        .run(newParentId, newId);
+                }
             }
 
             const entries = await destDb.prepare(`SELECT * FROM imported.Entry`).all() as any[];
@@ -158,11 +171,15 @@ describe('Backup round-trip', () => {
 
         // Verify categories
         const cats = await dest.prepare('SELECT * FROM Category WHERE UserID = ?').all(99) as any[];
-        expect(cats.length).toBe(1);
-        expect(cats[0].Name).toBe('Travel');
+        expect(cats.length).toBe(2);
+        const travel = cats.find(c => c.Name === 'Travel');
+        const child = cats.find(c => c.Name === 'Trips 2026');
+        expect(travel).toBeDefined();
+        // The child's parent ref was remapped to the parent's NEW id, not lost.
+        expect(child.ParentCategoryID).toBe(travel.CategoryID);
 
         // Verify entries (both regular and soft-deleted)
-        const allEntries = await dest.prepare('SELECT * FROM Entry WHERE CategoryID = ?').all(cats[0].CategoryID) as any[];
+        const allEntries = await dest.prepare('SELECT * FROM Entry WHERE CategoryID = ?').all(travel.CategoryID) as any[];
         expect(allEntries.length).toBe(2);
 
         const pinned = allEntries.find(e => e.Title === 'Pinned entry');
@@ -190,7 +207,7 @@ describe('Backup round-trip', () => {
         const goals = await dest.prepare('SELECT * FROM WordGoal WHERE UserID = ?').all(99) as any[];
         expect(goals.length).toBe(1);
         expect(goals[0].Type).toBe('total');
-        expect(goals[0].CategoryID).toBe(cats[0].CategoryID);
+        expect(goals[0].CategoryID).toBe(travel.CategoryID);
 
         // Verify saved search
         const saved = await dest.prepare('SELECT * FROM SavedSearch WHERE UserID = ?').all(99) as any[];

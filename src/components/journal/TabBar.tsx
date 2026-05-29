@@ -464,7 +464,9 @@ export default function TabBar({ userId }: { userId: string }) {
             }
             // Success — update UI
             setTabs(tabs.filter(t => t.CategoryID !== id));
-            if (pathname.includes(String(id))) router.push('/dashboard');
+            // Exact segment compare — pathname.includes(id) misfires when one id
+            // is a substring of another (deleting 2 while viewing /journal/20).
+            if (pathname.split('/')[2] === String(id)) router.push('/dashboard');
         } catch {
             alert("Failed to delete category. Your data is safe.");
         }
