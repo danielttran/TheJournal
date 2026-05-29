@@ -127,6 +127,16 @@
 }
 .tj-bookmark:hover { opacity: 1; }
 
+/* In-entry find highlighting (J8 Ctrl+F / F3 parity) */
+.search-match {
+  background-color: rgba(250, 204, 21, 0.4);
+  border-radius: 2px;
+}
+.search-match-active {
+  background-color: rgba(249, 115, 22, 0.7);
+  color: #fff;
+}
+
 /* Per-entry background image */
 .ProseMirror.tj-has-bg {
   background-size: cover;

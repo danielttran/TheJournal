@@ -178,6 +178,10 @@ shipping to production.
   standalone build, Caddy, electron-updater, GitHub Actions.
 - **Production-readiness audit**: standalone-bundle data leak fix,
   `JOURNAL_DB_SECRET` startup guard, `start:web` cwd fix.
+- **J8 gap closure + audit (2026-05-29)**: in-entry Find bar with
+  highlight/cycle (`inEntryFind.ts` + `SearchHighlight.ts` PM-decoration
+  extension + `FindBar.tsx`), side-by-side split orientation, styled
+  hyperlink dialog (`linkUrl.ts`). See `docs/j8-gap-analysis.md` top section.
 
 ## What's intentionally NOT done
 
@@ -193,7 +197,7 @@ shipping to production.
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 729 tests as of the last commit.
+# Baseline: 848 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

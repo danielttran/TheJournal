@@ -1,5 +1,54 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Final gap closure + full audit — 2026-05-29
+
+Closed the last set of "honest remaining gaps" the prior audit had flagged as
+design differences / minor, and re-ran the whole verification gate. The only
+items still open are the ones CLAUDE.md keeps **intentionally deferred** by owner
+decision (hierarchical category tree / vertical tabs, multi-user admin panel,
+external Category Sync, macOS/Linux Electron targets).
+
+**Gaps closed this pass (web + Electron, both targets share the codebase):**
+
+1. **In-entry Find with highlight + cycle (the flagship gap).** J8's Ctrl+F finds
+   within the open entry and F3 cycles matches; this app kept Ctrl+F for the
+   broader global cross-entry search, so in-entry find is now its own find bar:
+   - `src/lib/inEntryFind.ts` — pure, unit-tested match maths (literal / regex /
+     whole-word / case toggles, zero-width-safe scan, wrap-around index).
+   - `src/components/journal/extensions/SearchHighlight.ts` — a ProseMirror
+     decoration plugin that highlights every match and marks the active one; it
+     reuses the pure lib per text node and maps offsets to doc positions.
+   - `src/components/journal/FindBar.tsx` — the overlay bar: "n of m" readout,
+     Aa / whole-word / regex toggles, Enter / F3 next, Shift+(Enter/F3) prev,
+     Esc to close, scrolls the active match into view without stealing input focus.
+   - Wiring: F3 and the new **Search ▸ Find in Entry…** menu item open the bar
+     (`trigger-find-in-entry` / `trigger-find-next`, handled in `Editor.tsx`).
+     `JournalView` no longer hijacks F3 to the global panel; Ctrl+F stays global.
+2. **Side-by-side split screen.** The split editor now toggles between stacked
+   (top/bottom) and side-by-side (left/right) via **View ▸ Split Orientation**
+   (`trigger-split-orientation`, persisted in `localStorage.splitHorizontal`).
+   The drag divider switches axis (row/col-resize) accordingly.
+3. **Styled hyperlink dialog.** `TipTapToolbar` replaces the old `window.prompt`
+   with an in-app modal (URL field, "open in new tab", inline validation, Remove
+   button), backed by the new tested `src/lib/linkUrl.ts` `normalizeLinkUrl`
+   (promotes bare hosts to https, allows root-relative / journal:// / mailto:,
+   rejects javascript:/data:/file:/protocol-relative).
+
+**Confirmed already-present (earlier docs left ambiguous):** separate Main-toolbar
+and Status-bar toggles both exist (`TabBar` `mainToolbarHidden`, `Editor`
+`statusBarHidden`). Print Preview remains routed through the OS/browser print
+preview (no separate window) — left as a deliberate minor difference.
+
+**Audit gate (all green):** `npx tsc --noEmit` clean · `npx eslint .` 0 errors ·
+`npx vitest run` **848/848** (was 828; +20 from `in-entry-find` and `link-url`) ·
+`npm run build` standalone bundle clean. New trigger events
+(`trigger-find-in-entry`, `trigger-split-orientation`) are in
+`HANDLED_WEB_EVENTS`, so `menu-actions.test.ts` / `menu-bar.test.tsx` still prove
+no menu item is dead on web, and the Electron `view-action → trigger-${action}`
+bridge (`GlobalIPCManager.dispatchViewAction`) routes them identically.
+
+---
+
 ## Menu reorder + runtime verification — 2026-05-24b
 
 Owner-specified menu order implemented (13 menus), driven by the shared

@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { TheJournalAPI } from '@/lib/pluginApi';
 import { SPECIAL_CHAR_GROUPS } from '@/lib/specialChars';
 import { LINE_HEIGHTS } from '@/lib/paragraphStyle';
+import { normalizeLinkUrl } from '@/lib/linkUrl';
 
 export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +36,10 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const specialCharsRef = useRef<HTMLDivElement>(null);
     const [showBookmarkJump, setShowBookmarkJump] = useState(false);
     const bookmarkJumpRef = useRef<HTMLDivElement>(null);
+    // Styled in-app hyperlink dialog (J8 "Insert Hyperlink" parity) — replaces
+    // the old window.prompt so we can offer "open in new tab" + inline errors.
+    const [linkDialog, setLinkDialog] = useState<{ url: string; newTab: boolean; error: string } | null>(null);
+    const linkInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (!showTableMenu) return;
@@ -139,23 +144,30 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
 
     const setLink = useCallback(() => {
         if (!editor) return;
+        const attrs = editor.getAttributes('link');
+        setLinkDialog({
+            url: (attrs.href as string | undefined) ?? '',
+            newTab: attrs.target === '_blank',
+            error: '',
+        });
+    }, [editor]);
 
-        const previousUrl = editor.getAttributes('link').href;
-        const url = window.prompt('URL:', previousUrl);
-
-        if (url === null) return;
-        if (url === '') {
+    const applyLink = useCallback((url: string, newTab: boolean) => {
+        if (!editor) return;
+        if (url.trim() === '') {
             editor.chain().focus().extendMarkRange('link').unsetLink().run();
+            setLinkDialog(null);
             return;
         }
-
-        const trimmed = url.trim();
-        if (!isSafeUrl(trimmed)) {
-            window.alert('Only http:// and https:// URLs are allowed.');
+        const res = normalizeLinkUrl(url);
+        if (!res.ok) {
+            setLinkDialog(d => (d ? { ...d, error: res.reason } : d));
             return;
         }
-
-        editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run();
+        editor.chain().focus().extendMarkRange('link')
+            .setLink({ href: res.href, target: newTab ? '_blank' : null })
+            .run();
+        setLinkDialog(null);
     }, [editor]);
 
     const insertDateTime = useCallback(() => {
@@ -306,6 +318,10 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         window.addEventListener('trigger-image-upload', handleExternalUploadTrigger);
         return () => window.removeEventListener('trigger-image-upload', handleExternalUploadTrigger);
     }, []);
+
+    useEffect(() => {
+        if (linkDialog) { linkInputRef.current?.focus(); linkInputRef.current?.select(); }
+    }, [linkDialog]);
 
     // Keyboard-command bridges from CommandDispatcher (Ctrl+K, Ctrl+Shift+V, …).
     useEffect(() => {
@@ -972,6 +988,61 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <RemoveFormatting className="w-4 h-4" />
             </button>
+
+            {linkDialog && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+                    onMouseDown={() => setLinkDialog(null)}
+                >
+                    <div
+                        className="w-[26rem] max-w-[90vw] rounded-lg border border-border-primary bg-bg-secondary p-4 shadow-xl"
+                        onMouseDown={e => e.stopPropagation()}
+                    >
+                        <h3 className="mb-3 text-sm font-semibold text-text-primary">Insert / edit hyperlink</h3>
+                        <input
+                            ref={linkInputRef}
+                            value={linkDialog.url}
+                            onChange={e => setLinkDialog(d => (d ? { ...d, url: e.target.value, error: '' } : d))}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); applyLink(linkDialog.url, linkDialog.newTab); }
+                                else if (e.key === 'Escape') { e.preventDefault(); setLinkDialog(null); }
+                            }}
+                            placeholder="https://example.com"
+                            className="w-full rounded border border-border-primary bg-bg-app px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent-primary"
+                        />
+                        {linkDialog.error && <p className="mt-1 text-xs text-red-400">{linkDialog.error}</p>}
+                        <label className="mt-3 flex items-center gap-2 text-sm text-text-primary">
+                            <input
+                                type="checkbox"
+                                checked={linkDialog.newTab}
+                                onChange={e => setLinkDialog(d => (d ? { ...d, newTab: e.target.checked } : d))}
+                            />
+                            Open in new tab
+                        </label>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                onClick={() => applyLink('', false)}
+                                className="rounded px-3 py-1.5 text-sm text-text-muted hover:bg-bg-app"
+                                title="Remove the link from the selection"
+                            >
+                                Remove
+                            </button>
+                            <button
+                                onClick={() => setLinkDialog(null)}
+                                className="rounded px-3 py-1.5 text-sm text-text-muted hover:bg-bg-app"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => applyLink(linkDialog.url, linkDialog.newTab)}
+                                className="rounded bg-accent-primary px-3 py-1.5 text-sm text-white hover:opacity-90"
+                            >
+                                Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -13,6 +13,7 @@ import type { CanvasPath } from 'react-sketch-canvas';
 import { type WritingPrompt } from '@/lib/prompts';
 import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
+import FindBar from './FindBar';
 
 import { useEditor, EditorContent, type Editor as TipTapEditor, type JSONContent } from '@tiptap/react';
 import type { AnyExtension } from '@tiptap/core';
@@ -33,6 +34,7 @@ import { FontSize } from './extensions/FontSize';
 import { Bookmark } from './extensions/Bookmark';
 import { FileAttachment } from './extensions/FileAttachment';
 import { ParagraphStyle } from './extensions/ParagraphStyle';
+import { SearchHighlight } from './extensions/SearchHighlight';
 import { VideoBlock } from './extensions/VideoBlock';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
@@ -205,6 +207,7 @@ function PluginLoadedEditor({
     const [propsMeta, setPropsMeta] = useState<{ created?: string; modified?: string; title?: string }>({});
     const [toolbarHidden, setToolbarHidden] = useState(false);
     const [statusBarHidden, setStatusBarHidden] = useState(false);
+    const [showFindBar, setShowFindBar] = useState(false);
     const [showFontDialog, setShowFontDialog] = useState(false);
     const [showParagraphDialog, setShowParagraphDialog] = useState(false);
     const [ctxInsertOpen, setCtxInsertOpen] = useState(false);
@@ -242,6 +245,8 @@ function PluginLoadedEditor({
     const renderAbortRef = useRef<AbortController | null>(null);
     const splitContainerRef = useRef<HTMLDivElement>(null);
     const [splitRatio, setSplitRatio] = useState(50);
+    // J8 offers stacked (top/bottom) and side-by-side (left/right) split layouts.
+    const [splitHorizontal, setSplitHorizontal] = useState(false);
 
     // TipTap Extensions
     const extensions = useMemo(() => [
@@ -261,6 +266,7 @@ function PluginLoadedEditor({
         Bookmark,
         FileAttachment,
         ParagraphStyle,
+        SearchHighlight,
         VideoBlock,
         Table.configure({ resizable: false }),
         TableRow,
@@ -451,9 +457,18 @@ function PluginLoadedEditor({
         window.addEventListener('keydown', handler);
 
         const handleSearch = () => onOpenSearch?.();
+        // In-entry find bar (J8 Ctrl+F / F3 parity). Ctrl+F stays the global
+        // cross-entry search; F3 / "Find Next" / "Find in Entry" open this bar.
+        const handleFindInEntry = () => setShowFindBar(true);
         const handleTemplates = () => setShowTemplatePicker(true);
         const handleFocus = () => setIsDistractionFree(true);
         const handleSplit = () => onToggleSplitMode?.();
+        const handleSplitOrientation = () => setSplitHorizontal(v => {
+            const next = !v;
+            try { localStorage.setItem('splitHorizontal', next ? '1' : '0'); } catch { /* ignore */ }
+            return next;
+        });
+        try { setSplitHorizontal(localStorage.getItem('splitHorizontal') === '1'); } catch { /* ignore */ }
         const handleUndo = () => editor?.chain().focus().undo().run();
         const handleRedo = () => editor?.chain().focus().redo().run();
         const handleInlineCode = () => editor?.chain().focus().toggleCode().run();
@@ -463,9 +478,12 @@ function PluginLoadedEditor({
         const handlePrompts = () => setShowWritingPrompts(true);
 
         window.addEventListener('trigger-search', handleSearch);
+        window.addEventListener('trigger-find-in-entry', handleFindInEntry);
+        window.addEventListener('trigger-find-next', handleFindInEntry);
         window.addEventListener('trigger-templates', handleTemplates);
         window.addEventListener('trigger-focus', handleFocus);
         window.addEventListener('trigger-split', handleSplit);
+        window.addEventListener('trigger-split-orientation', handleSplitOrientation);
         window.addEventListener('trigger-undo', handleUndo);
         window.addEventListener('trigger-redo', handleRedo);
         window.addEventListener('trigger-inline-code', handleInlineCode);
@@ -477,9 +495,12 @@ function PluginLoadedEditor({
         return () => {
             window.removeEventListener('keydown', handler);
             window.removeEventListener('trigger-search', handleSearch);
+            window.removeEventListener('trigger-find-in-entry', handleFindInEntry);
+            window.removeEventListener('trigger-find-next', handleFindInEntry);
             window.removeEventListener('trigger-templates', handleTemplates);
             window.removeEventListener('trigger-focus', handleFocus);
             window.removeEventListener('trigger-split', handleSplit);
+            window.removeEventListener('trigger-split-orientation', handleSplitOrientation);
             window.removeEventListener('trigger-undo', handleUndo);
             window.removeEventListener('trigger-redo', handleRedo);
             window.removeEventListener('trigger-inline-code', handleInlineCode);
@@ -814,7 +835,9 @@ function PluginLoadedEditor({
         const onMouseMove = (ev: MouseEvent) => {
             if (!splitContainerRef.current) return;
             const rect = splitContainerRef.current.getBoundingClientRect();
-            const ratio = ((ev.clientY - rect.top) / rect.height) * 100;
+            const ratio = splitHorizontal
+                ? ((ev.clientX - rect.left) / rect.width) * 100
+                : ((ev.clientY - rect.top) / rect.height) * 100;
             setSplitRatio(Math.max(20, Math.min(80, ratio)));
         };
         const onMouseUp = () => {
@@ -823,11 +846,11 @@ function PluginLoadedEditor({
             document.body.style.removeProperty('cursor');
             document.body.style.removeProperty('user-select');
         };
-        document.body.style.cursor = 'row-resize';
+        document.body.style.cursor = splitHorizontal ? 'col-resize' : 'row-resize';
         document.body.style.userSelect = 'none';
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
-    }, []);
+    }, [splitHorizontal]);
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -1817,7 +1840,7 @@ function PluginLoadedEditor({
 
             <div
                 ref={splitContainerRef}
-                className={`flex-1 relative flex flex-col min-h-0 ${isDistractionFree ? 'max-w-4xl mx-auto w-full mt-10' : ''}`}
+                className={`flex-1 relative flex min-h-0 ${isSplitMode && splitHorizontal ? 'flex-row' : 'flex-col'} ${isDistractionFree ? 'max-w-4xl mx-auto w-full mt-10' : ''}`}
                 onDragOver={e => {
                     // Only intercept if the drag payload contains image files
                     if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) {
@@ -1846,20 +1869,31 @@ function PluginLoadedEditor({
                     setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 232), y: Math.min(e.clientY, window.innerHeight - 150) });
                 }}
             >
+                {showFindBar && <FindBar editor={editor} onClose={() => setShowFindBar(false)} />}
                 <div
                     style={{
-                        height: isSplitMode ? `${splitRatio}%` : '100%',
+                        ...(isSplitMode
+                            ? (splitHorizontal ? { width: `${splitRatio}%` } : { height: `${splitRatio}%` })
+                            : { height: '100%' }),
                         ...(bgImage ? { backgroundImage: `url("${bgImage}")`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'local' } : {}),
                     }}
-                    className="flex flex-col min-h-0 tiptap-container"
+                    className="flex flex-col min-h-0 min-w-0 tiptap-container"
                 >
                     <EditorContent editor={editor} className="flex-1" />
                 </div>
 
                 {isSplitMode && (
                     <>
-                        <div onMouseDown={handleDividerMouseDown} className="h-1 bg-border-primary hover:bg-accent-primary cursor-row-resize relative flex-shrink-0"><div className="absolute inset-x-0 -top-1 -bottom-1" /></div>
-                        <div style={{ height: `${100 - splitRatio}%` }} className="flex flex-col min-h-0 tiptap-container border-t-2 border-border-primary">
+                        <div
+                            onMouseDown={handleDividerMouseDown}
+                            className={`bg-border-primary hover:bg-accent-primary relative flex-shrink-0 ${splitHorizontal ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'}`}
+                        >
+                            <div className={splitHorizontal ? 'absolute inset-y-0 -left-1 -right-1' : 'absolute inset-x-0 -top-1 -bottom-1'} />
+                        </div>
+                        <div
+                            style={splitHorizontal ? { width: `${100 - splitRatio}%` } : { height: `${100 - splitRatio}%` }}
+                            className={`flex flex-col min-h-0 min-w-0 tiptap-container ${splitHorizontal ? 'border-l-2' : 'border-t-2'} border-border-primary`}
+                        >
                             <EditorContent editor={editor2} className="flex-1" />
                         </div>
                     </>

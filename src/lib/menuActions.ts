@@ -33,13 +33,14 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
     'trigger-link', 'trigger-paste-special', 'trigger-bookmark', 'trigger-datetime', 'trigger-special-char',
     'trigger-attachment', 'trigger-highlight', 'trigger-inline-code', 'trigger-checklist', 'trigger-hr',
     'trigger-image-upload', 'trigger-undo', 'trigger-redo', 'trigger-search', 'trigger-focus', 'trigger-split',
+    'trigger-split-orientation',
     'trigger-prompts', 'trigger-templates', 'trigger-run-plugin', 'trigger-insert-drawing',
     // Sidebar (entry tree)
     'trigger-nav-prev', 'trigger-nav-next', 'trigger-new-subentry', 'trigger-new-entry',
     'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry',
     // JournalView (navigation / layout / category view-mode)
     'trigger-go-today', 'trigger-go-to-date', 'trigger-history-back', 'trigger-history-forward',
-    'trigger-find-next', 'trigger-toggle-sidebar', 'trigger-sidebar-side', 'trigger-sidebar-left',
+    'trigger-find-next', 'trigger-find-in-entry', 'trigger-toggle-sidebar', 'trigger-sidebar-side', 'trigger-sidebar-left',
     'trigger-sidebar-right', 'trigger-sidebar-hidden', 'trigger-refresh', 'trigger-category-calendar',
     'trigger-category-looseleaf',
     // TabBar (panels / categories / tabs)
