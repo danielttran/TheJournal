@@ -1,5 +1,39 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Remaining in-app gaps closed — 2026-05-29c
+
+Closed the "remaining minor" items the dialog audit had flagged, plus the two
+find/print parity edges:
+
+- **Styled prompt dialogs** — new reusable `src/components/journal/PromptModal.tsx`
+  (text / password / single-select, backdrop + Escape dismiss, inline validation,
+  Enter to submit) replaces the native `window.prompt` for: entry **lock/unlock
+  password** (inline "wrong password" error instead of a blocking alert),
+  **background image URL**, **Save Entry As…** (now a format dropdown, not a typed
+  string), and **Insert image by URL**. Adjacent error `window.alert`s in those
+  flows now route to the existing toast system (`useToast`).
+- **In-entry Find now spans the split view** — when split mode is open, the find
+  bar drives both panes' `SearchHighlight` (highlights + active cycling stay in
+  sync), not just pane 1.
+- **Print Preview is a real in-app modal** — "Print Preview" now opens a sandboxed
+  iframe preview of the rendered entry with its own Print… button, distinct from
+  firing the OS print dialog directly (Print Entries / Ctrl+P still do that). Wired
+  on both targets: web via `trigger-print-preview`, Electron via the menu
+  `view-action` bridge.
+
+**Still intentionally deferred (owner-decided non-goals; unchanged):** hierarchical
+CATEGORY tree / vertical category tabs (a core-navigation redesign), customizable
+Electron menus, drag-to-reorder toolbar, block-level tagging, external Category
+Sync, Outlook integration, Penzu/Diaro/WordPress importers, and macOS/Linux
+Electron build targets + code signing (cannot be built or validated in this
+environment). A couple of `confirm()` decision dialogs (delete/overwrite) remain
+native by design — they are blocking yes/no prompts, not data entry.
+
+**Audit gate (all green):** `tsc` clean · `eslint .` 0 errors · `vitest run`
+848/848 · `npm run build` clean.
+
+---
+
 ## Dialog / pop-up UX audit — 2026-05-29b
 
 Audited all ~20 modal/popup surfaces for whether they are logical, organized,

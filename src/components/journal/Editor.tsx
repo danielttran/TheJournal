@@ -14,6 +14,8 @@ import { type WritingPrompt } from '@/lib/prompts';
 import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
 import FindBar from './FindBar';
+import PromptModal, { type PromptConfig } from './PromptModal';
+import { useToast } from '@/components/Toast';
 
 import { useEditor, EditorContent, type Editor as TipTapEditor, type JSONContent } from '@tiptap/react';
 import type { AnyExtension } from '@tiptap/core';
@@ -208,6 +210,8 @@ function PluginLoadedEditor({
     const [toolbarHidden, setToolbarHidden] = useState(false);
     const [statusBarHidden, setStatusBarHidden] = useState(false);
     const [showFindBar, setShowFindBar] = useState(false);
+    const [prompt, setPrompt] = useState<PromptConfig | null>(null);
+    const { showToast } = useToast();
     const [showFontDialog, setShowFontDialog] = useState(false);
     const [showParagraphDialog, setShowParagraphDialog] = useState(false);
     const [ctxInsertOpen, setCtxInsertOpen] = useState(false);
@@ -759,20 +763,35 @@ function PluginLoadedEditor({
             'trigger-font-properties': () => setShowFontDialog(true),
             'trigger-paragraph-properties': () => setShowParagraphDialog(true),
         };
-        const onLock = async () => {
+        const onLock = () => {
             const id = entryIdRef.current;
             if (!id) return;
             if (isLocked) {
-                const pw = window.prompt('Enter password to unlock this entry:');
-                if (pw == null) return;
-                const res = await fetch(`/api/entry/${id}/lock`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-                if (res.ok) window.location.reload(); else window.alert('Wrong password or unlock failed.');
+                setPrompt({
+                    title: 'Unlock entry',
+                    message: 'Enter the password to unlock and decrypt this entry.',
+                    inputType: 'password',
+                    confirmLabel: 'Unlock',
+                    onConfirm: async (pw) => {
+                        const res = await fetch(`/api/entry/${id}/lock`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+                        if (res.ok) { window.location.reload(); return null; }
+                        return 'Wrong password or unlock failed.';
+                    },
+                });
             } else {
-                const pw = window.prompt('Set a password to lock this entry (encrypts its content):');
-                if (!pw) return;
-                await flushPendingSave();
-                const res = await fetch(`/api/entry/${id}/lock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-                if (res.ok) window.location.reload(); else window.alert('Lock failed.');
+                setPrompt({
+                    title: 'Lock entry',
+                    message: 'Set a password to lock this entry. Its content is encrypted at rest; there is no recovery if you forget it.',
+                    inputType: 'password',
+                    confirmLabel: 'Lock',
+                    onConfirm: async (pw) => {
+                        if (!pw) return 'Enter a password.';
+                        await flushPendingSave();
+                        const res = await fetch(`/api/entry/${id}/lock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+                        if (res.ok) { window.location.reload(); return null; }
+                        return 'Lock failed.';
+                    },
+                });
             }
         };
         // Run a plugin's registered action by id (from the Plugins menu).
@@ -782,7 +801,7 @@ function PluginLoadedEditor({
             const btn = TheJournalAPI.registeredToolbarButtons.find(b => b.id === id);
             logAction('plugin', `run-plugin:${id}`, { found: !!btn });
             if (btn) btn.onClick(editor);
-            else window.alert(`Plugin "${id}" is not loaded.`);
+            else showToast(`Plugin "${id}" is not loaded.`, 'error');
         };
         for (const [evt, fn] of Object.entries(handlers)) window.addEventListener(evt, fn);
         window.addEventListener('trigger-lock-entry', onLock);
@@ -792,7 +811,7 @@ function PluginLoadedEditor({
             window.removeEventListener('trigger-lock-entry', onLock);
             window.removeEventListener('trigger-run-plugin', onRunPlugin);
         };
-    }, [editor, isLocked, flushPendingSave]);
+    }, [editor, isLocked, flushPendingSave, showToast]);
 
     // Per-entry background image (David RM context-menu "Background Image").
     // Persisted in localStorage keyed by entry so it survives reloads.
@@ -805,23 +824,40 @@ function PluginLoadedEditor({
         const id = entryIdRef.current;
         if (!id) return;
         const current = (() => { try { return localStorage.getItem(`entryBg-${id}`) ?? ''; } catch { return ''; } })();
-        const url = window.prompt('Background image URL (leave blank to clear):', current);
-        if (url === null) return;
-        const trimmed = url.trim();
-        try {
-            if (trimmed) localStorage.setItem(`entryBg-${id}`, trimmed);
-            else localStorage.removeItem(`entryBg-${id}`);
-        } catch { /* ignore */ }
-        setBgImage(trimmed || null);
+        setPrompt({
+            title: 'Background image',
+            message: 'Image URL to show behind this entry. Leave blank to clear.',
+            initialValue: current,
+            placeholder: 'https://…',
+            allowEmpty: true,
+            confirmLabel: 'Apply',
+            onConfirm: (url) => {
+                const trimmed = url.trim();
+                try {
+                    if (trimmed) localStorage.setItem(`entryBg-${id}`, trimmed);
+                    else localStorage.removeItem(`entryBg-${id}`);
+                } catch { /* ignore */ }
+                setBgImage(trimmed || null);
+            },
+        });
     }, []);
 
     const saveEntryAs = useCallback(() => {
         const id = entryIdRef.current;
         if (!id) return;
-        const fmt = (window.prompt('Save entry as (md, rtf, html, txt):', 'html') || '').trim().toLowerCase();
-        if (!fmt) return;
-        if (!['md', 'rtf', 'html', 'txt'].includes(fmt)) { window.alert('Supported formats: md, rtf, html, txt'); return; }
-        window.open(`/api/entry/${id}/export?format=${fmt}`, '_blank');
+        setPrompt({
+            title: 'Save entry as',
+            message: 'Choose a format to export this entry.',
+            options: [
+                { value: 'html', label: 'HTML (.html)' },
+                { value: 'md', label: 'Markdown (.md)' },
+                { value: 'rtf', label: 'Rich Text (.rtf)' },
+                { value: 'txt', label: 'Plain text (.txt)' },
+            ],
+            initialValue: 'html',
+            confirmLabel: 'Export',
+            onConfirm: (fmt) => { window.open(`/api/entry/${id}/export?format=${fmt}`, '_blank'); },
+        });
     }, []);
 
     // Context-menu "Paste": native paste preserves formatting (works in Electron
@@ -1245,18 +1281,18 @@ function PluginLoadedEditor({
                 const svg = await res.text();
                 const paths = extractDrawingPaths(svg);
                 if (!paths) {
-                    window.alert('This image is not an editable drawing.');
+                    showToast('This image is not an editable drawing.', 'error');
                     return;
                 }
                 setDrawingState({ mode: 'edit', initialPaths: paths });
             } catch (err) {
                 console.error('[Editor] failed to load drawing for edit:', err);
-                window.alert('Could not load this drawing for editing.');
+                showToast('Could not load this drawing for editing.', 'error');
             }
         };
         window.addEventListener('trigger-edit-drawing', handler);
         return () => window.removeEventListener('trigger-edit-drawing', handler);
-    }, [editor]);
+    }, [editor, showToast]);
 
     const applyPrompt = useCallback((prompt: WritingPrompt) => {
         if (!editor) return;
@@ -1871,7 +1907,8 @@ function PluginLoadedEditor({
                     setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 232), y: Math.min(e.clientY, window.innerHeight - 150) });
                 }}
             >
-                {showFindBar && <FindBar editor={editor} onClose={() => setShowFindBar(false)} />}
+                {showFindBar && <FindBar editor={editor} secondaryEditor={isSplitMode ? editor2 : null} onClose={() => setShowFindBar(false)} />}
+                {prompt && <PromptModal config={prompt} onClose={() => setPrompt(null)} />}
                 <div
                     style={{
                         ...(isSplitMode

@@ -421,8 +421,11 @@ function createMenu() {
             }
             case "print-entries":
             case "print-setup":
-            case "print-preview":
                 if (mainWindow) mainWindow.webContents.send("print-current-entry");
+                return;
+            case "print-preview":
+                // Opens the in-app preview modal (renderer handles trigger-print-preview).
+                sendViewAction(action);
                 return;
             case "install-plugin": {
                 if (!mainWindow) return;

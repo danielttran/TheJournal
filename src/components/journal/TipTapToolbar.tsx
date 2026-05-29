@@ -15,6 +15,7 @@ import { TheJournalAPI } from '@/lib/pluginApi';
 import { SPECIAL_CHAR_GROUPS } from '@/lib/specialChars';
 import { LINE_HEIGHTS } from '@/lib/paragraphStyle';
 import { normalizeLinkUrl } from '@/lib/linkUrl';
+import PromptModal from './PromptModal';
 
 export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -40,6 +41,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     // the old window.prompt so we can offer "open in new tab" + inline errors.
     const [linkDialog, setLinkDialog] = useState<{ url: string; newTab: boolean; error: string } | null>(null);
     const linkInputRef = useRef<HTMLInputElement>(null);
+    const [showImageUrl, setShowImageUrl] = useState(false);
 
     useEffect(() => {
         if (!showTableMenu) return;
@@ -76,15 +78,16 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
 
     const addImageFromUrl = useCallback(() => {
         if (!editor) return;
+        setShowImageUrl(true);
+    }, [editor]);
 
-        const url = (window.prompt('Image URL:') || '').trim();
-        if (!url) return;
-        if (!isSafeUrl(url)) {
-            window.alert('Only http:// and https:// URLs are allowed.');
-            return;
-        }
+    const insertImageUrl = useCallback((raw: string): string | null => {
+        if (!editor) return null;
+        const url = raw.trim();
+        if (!isSafeUrl(url)) return 'Only http:// and https:// URLs are allowed.';
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ResizableImage adds `width` but its type isn't merged into TipTap's command map
         editor.chain().focus().setImage({ src: url, width: '100%' } as any).run();
+        return null;
     }, [editor]);
 
     const uploadImage = useCallback(async (file: File) => {
@@ -992,6 +995,19 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <RemoveFormatting className="w-4 h-4" />
             </button>
+
+            {showImageUrl && (
+                <PromptModal
+                    config={{
+                        title: 'Insert image by URL',
+                        message: 'Paste an http(s) image URL.',
+                        placeholder: 'https://…/image.png',
+                        confirmLabel: 'Insert',
+                        onConfirm: insertImageUrl,
+                    }}
+                    onClose={() => setShowImageUrl(false)}
+                />
+            )}
 
             {linkDialog && (
                 <div

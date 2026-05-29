@@ -55,7 +55,7 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
     'trigger-restore-db', 'trigger-logout', 'trigger-check-updates', 'trigger-journal-volumes',
     'trigger-toggle-theme',
     // EntryPrintBridge
-    'trigger-print-entry', 'trigger-export-pdf',
+    'trigger-print-entry', 'trigger-print-preview', 'trigger-export-pdf',
 ]);
 
 const WEB_URL: Record<string, string> = {
@@ -70,7 +70,9 @@ const WEB_URL: Record<string, string> = {
 const WEB_EVENT: Record<string, string> = {
     'print-entries': 'trigger-print-entry',
     'print-setup': 'trigger-print-entry',
-    'print-preview': 'trigger-print-entry',
+    // Print Preview opens an in-app preview modal (distinct from firing the OS
+    // print dialog directly); the modal has its own Print button.
+    'print-preview': 'trigger-print-preview',
     'help-shortcuts': 'trigger-settings',
     // Web plugin management lives in Settings → Plugins (PluginsSection).
     'install-plugin': 'trigger-settings',

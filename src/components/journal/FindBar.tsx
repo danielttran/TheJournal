@@ -11,7 +11,12 @@ import { stepIndex, type FindOptions } from '@/lib/inEntryFind';
  * open entry and cycles through them; the global cross-entry SearchPanel keeps
  * Ctrl+F, so this bar opens on its own command and lives inside the editor.
  */
-export default function FindBar({ editor, onClose }: { editor: TipTapEditor | null; onClose: () => void }) {
+export default function FindBar({ editor, secondaryEditor, onClose }: {
+    editor: TipTapEditor | null;
+    /** The split-view pane, when open — kept highlighted in sync with pane 1. */
+    secondaryEditor?: TipTapEditor | null;
+    onClose: () => void;
+}) {
     const [query, setQuery] = useState('');
     const [opts, setOpts] = useState<FindOptions>({});
     const [count, setCount] = useState(0);
@@ -38,11 +43,12 @@ export default function FindBar({ editor, onClose }: { editor: TipTapEditor | nu
     const runSearch = useCallback((q: string, o: FindOptions) => {
         if (!editor) return;
         editor.commands.setSearchTerm(q, o);
+        secondaryEditor?.commands.setSearchTerm(q, o);
         const s = readState();
         setCount(s.count);
         setActive(s.active);
         if (s.count > 0) scrollActiveIntoView();
-    }, [editor, readState, scrollActiveIntoView]);
+    }, [editor, secondaryEditor, readState, scrollActiveIntoView]);
 
     // Keep the readout + Prev/Next in sync when the document is edited while the
     // bar is open: the plugin recomputes matches on every doc change, so re-read
@@ -60,8 +66,8 @@ export default function FindBar({ editor, onClose }: { editor: TipTapEditor | nu
 
     // Clear the highlight when the bar unmounts.
     useEffect(() => {
-        return () => { editor?.commands.clearSearch(); };
-    }, [editor]);
+        return () => { editor?.commands.clearSearch(); secondaryEditor?.commands.clearSearch(); };
+    }, [editor, secondaryEditor]);
 
     useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
 
@@ -76,9 +82,10 @@ export default function FindBar({ editor, onClose }: { editor: TipTapEditor | nu
         if (!editor || count === 0) return;
         const next = stepIndex(count, active, dir);
         editor.commands.setSearchActive(next);
+        secondaryEditor?.commands.setSearchActive(next);
         setActive(next);
         scrollActiveIntoView();
-    }, [editor, count, active, scrollActiveIntoView]);
+    }, [editor, secondaryEditor, count, active, scrollActiveIntoView]);
 
     const onKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') { e.preventDefault(); go(e.shiftKey ? -1 : 1); }

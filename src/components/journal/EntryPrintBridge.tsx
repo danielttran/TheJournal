@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 /**
  * Bridges the File-menu "Print Entry" and "Export Entry to PDF" actions to
@@ -96,6 +97,8 @@ function printHtmlInIframe(html: string) {
 
 export default function EntryPrintBridge() {
     const searchParams = useSearchParams();
+    const [preview, setPreview] = useState<{ html: string; title: string } | null>(null);
+    useEscapeToClose(() => setPreview(null), !!preview);
 
     const resolveEntryId = useCallback((): number | null => {
         const entry = searchParams.get('entry');
@@ -124,6 +127,15 @@ export default function EntryPrintBridge() {
             return;
         }
         printHtmlInIframe(data.html);
+    }, [resolveEntryId]);
+
+    const runPreview = useCallback(async () => {
+        const id = resolveEntryId();
+        if (id == null) return;
+        const data = await fetchEntryHtml(id);
+        if (!data) { window.alert('Could not load entry for preview.'); return; }
+        if ('locked' in data) { window.alert('This entry’s category is locked. Unlock it before printing.'); return; }
+        setPreview({ html: data.html, title: data.title });
     }, [resolveEntryId]);
 
     const runExportPdf = useCallback(async () => {
@@ -168,13 +180,34 @@ export default function EntryPrintBridge() {
         // Web / in-app triggers — Editor's Print + PDF buttons dispatch these.
         const onPrint = () => runPrint();
         const onExport = () => runExportPdf();
+        const onPreview = () => runPreview();
         window.addEventListener('trigger-print-entry', onPrint);
+        window.addEventListener('trigger-print-preview', onPreview);
         window.addEventListener('trigger-export-pdf', onExport);
         return () => {
             window.removeEventListener('trigger-print-entry', onPrint);
+            window.removeEventListener('trigger-print-preview', onPreview);
             window.removeEventListener('trigger-export-pdf', onExport);
         };
-    }, [runPrint, runExportPdf]);
+    }, [runPrint, runExportPdf, runPreview]);
 
-    return null;
+    if (!preview) return null;
+    return (
+        <div className="fixed inset-0 z-[700] flex items-center justify-center bg-black/50 p-6" onMouseDown={() => setPreview(null)}>
+            <div
+                className="flex h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-primary bg-bg-card shadow-2xl"
+                onMouseDown={e => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between border-b border-border-primary px-4 py-3">
+                    <h3 className="truncate text-sm font-semibold text-text-primary">Print preview — {preview.title}</h3>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => printHtmlInIframe(preview.html)} className="rounded bg-accent-primary px-3 py-1.5 text-sm text-white hover:opacity-90">Print…</button>
+                        <button onClick={() => setPreview(null)} className="rounded px-3 py-1.5 text-sm text-text-muted hover:bg-bg-app">Close</button>
+                    </div>
+                </div>
+                {/* Sandbox without allow-scripts: shows user-authored HTML, no JS. */}
+                <iframe title="Print preview" sandbox="allow-same-origin" srcDoc={preview.html} className="w-full flex-1 bg-white" />
+            </div>
+        </div>
+    );
 }
