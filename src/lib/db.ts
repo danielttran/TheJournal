@@ -388,6 +388,11 @@ export class DBManager {
             `ALTER TABLE Category ADD COLUMN PasswordWrappedKey TEXT`,
             // M6.17: hierarchical topics — Topic gains a nullable parent ref.
             `ALTER TABLE Topic ADD COLUMN ParentTopicID INTEGER REFERENCES Topic(TopicID) ON DELETE SET NULL`,
+            // Hierarchical categories — Category gains a nullable self-ref parent.
+            // ON DELETE SET NULL so deleting a parent promotes its children to
+            // roots rather than cascading (no surprise data loss).
+            `ALTER TABLE Category ADD COLUMN ParentCategoryID INTEGER REFERENCES Category(CategoryID) ON DELETE SET NULL`,
+            `CREATE INDEX IF NOT EXISTS "Idx_Category_Parent" ON "Category" ("UserID", "ParentCategoryID")`,
         ];
 
         for (const migration of migrations) {

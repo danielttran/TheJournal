@@ -182,22 +182,28 @@ shipping to production.
   highlight/cycle (`inEntryFind.ts` + `SearchHighlight.ts` PM-decoration
   extension + `FindBar.tsx`), side-by-side split orientation, styled
   hyperlink dialog (`linkUrl.ts`). See `docs/j8-gap-analysis.md` top section.
+- **Dialog UX + remaining gaps (2026-05-29)**: `useEscapeToClose` across
+  modals, reusable `PromptModal` replacing window.prompt, in-app Print
+  Preview, and the **hierarchical category tree** (`categoryTree.ts` +
+  `CategoryTree.tsx`, `ParentCategoryID` column, parent dropdown in
+  Category Properties, vertical-tabs tree view).
 
 ## What's intentionally NOT done
 
-- Hierarchical CATEGORY tree (only Entry hierarchy works) — TabBar is
-  horizontal; nesting needs a vertical redesign.
-- Outlook integration, Penzu/Diaro/WordPress importers,
+- Outlook integration, Penzu/Diaro/WordPress importers, Category Sync,
   customizable Electron menus, drag-to-reorder toolbar, block-level
   tagging — explicitly deferred per user choice.
 - macOS / Linux Electron targets, code signing, auto-minimize-idle.
+- Drag-to-NEST categories in the tree: nesting is set via Category
+  Properties (parent dropdown) or the tree's per-row "+"; the horizontal
+  strip still drag-REORDERS siblings.
 
 ## Running tests / type checks
 
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 848 tests as of the last commit.
+# Baseline: 861 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

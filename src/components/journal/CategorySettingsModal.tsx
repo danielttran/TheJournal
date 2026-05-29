@@ -5,6 +5,7 @@ import { X, Lock } from 'lucide-react';
 import type { Template } from './TemplatePicker';
 import type { Category } from '@/lib/types';
 import { useEscapeToClose } from '@/hooks/useEscapeToClose';
+import { eligibleParentIds } from '@/lib/categoryTree';
 
 type SortMode =
     | 'manual'
@@ -52,6 +53,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
     const [autoTemplateId, setAutoTemplateId] = useState<number>(0);
     const [entryFrequency, setEntryFrequency] = useState<'daily' | 'weekly' | 'hourly'>('daily');
     const [sortMode, setSortMode] = useState<SortMode>('manual');
+    const [parentId, setParentId] = useState<number | null>(null);
     const [isSmartbook, setIsSmartbook] = useState(false);
     const [smartbookQuery, setSmartbookQuery] = useState<SmartbookQueryShape>({});
 
@@ -88,6 +90,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
                 setAutoTemplateId(Number(cat.AutoTemplateID ?? 0));
                 setEntryFrequency((cat.EntryFrequency ?? 'daily') as 'daily' | 'weekly' | 'hourly');
                 setSortMode((cat.SortMode ?? 'manual') as SortMode);
+                setParentId(cat.ParentCategoryID ?? null);
                 setIsSmartbook(!!cat.IsSmartbook);
                 if (cat.SmartbookQuery) {
                     try { setSmartbookQuery(JSON.parse(cat.SmartbookQuery) as SmartbookQueryShape); }
@@ -118,6 +121,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
             autoTemplateId: autoTemplateId || 0,
             entryFrequency,
             isSmartbook,
+            parentCategoryId: parentId,
         };
         if (isSmartbook) {
             body.smartbookQuery = JSON.stringify(smartbookQuery);
@@ -134,6 +138,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
             const next: Partial<Category> = {
                 Type: viewType,
                 SortMode: sortMode,
+                ParentCategoryID: parentId,
                 AutoTemplateID: autoTemplateId || null,
                 EntryFrequency: entryFrequency,
                 IsSmartbook: isSmartbook,
@@ -223,6 +228,24 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
 
                 {!loading && category && (
                     <div className="p-5 space-y-6 text-sm">
+                        <section>
+                            <label className="block text-text-muted text-xs uppercase tracking-wider mb-1">Parent category</label>
+                            <select
+                                value={parentId ?? ''}
+                                onChange={e => setParentId(e.target.value ? Number(e.target.value) : null)}
+                                className="w-full bg-bg-sidebar border border-border-primary rounded p-2 text-text-primary"
+                            >
+                                <option value="">None (top level)</option>
+                                {eligibleParentIds(allCategories, categoryId).map(pid => {
+                                    const c = allCategories.find(x => x.CategoryID === pid);
+                                    return c ? <option key={pid} value={pid}>{c.Name}</option> : null;
+                                })}
+                            </select>
+                            <p className="text-text-muted text-xs mt-1">
+                                Nest this category under another. Shown as a tree in the vertical tabs view (View › Category Tabs Navigation › Vertical).
+                            </p>
+                        </section>
+
                         <section>
                             <label className="block text-text-muted text-xs uppercase tracking-wider mb-1">Sort mode</label>
                             <select

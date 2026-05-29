@@ -11,6 +11,7 @@ const CreateCategorySchema = z.object({
     isSmartbook: z.boolean().optional().default(false),
     smartbookQuery: z.string().max(4000).optional(),
     entryFrequency: z.enum(['daily', 'weekly', 'hourly']).optional(),
+    parentCategoryId: z.number().int().positive().nullable().optional(),
 });
 
 // GET: List all categories for user
@@ -35,15 +36,24 @@ export async function POST(req: NextRequest) {
         if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
         const body = await req.json();
-        const { name, type, color, isPrivate, isSmartbook, smartbookQuery, entryFrequency } =
+        const { name, type, color, isPrivate, isSmartbook, smartbookQuery, entryFrequency, parentCategoryId } =
             CreateCategorySchema.parse(body);
 
+        // A parent, if given, must be one of this user's own categories.
+        let parentId: number | null = null;
+        if (parentCategoryId != null) {
+            const parent = await db.prepare('SELECT CategoryID FROM Category WHERE CategoryID = ? AND UserID = ?')
+                .get(parentCategoryId, userId);
+            if (!parent) return NextResponse.json({ error: "Parent category not found" }, { status: 400 });
+            parentId = parentCategoryId;
+        }
+
         const result = await db.prepare(`
-            INSERT INTO Category (UserID, Name, Type, Color, IsPrivate, IsSmartbook, SmartbookQuery, EntryFrequency)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO Category (UserID, Name, Type, Color, IsPrivate, IsSmartbook, SmartbookQuery, EntryFrequency, ParentCategoryID)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             userId, name, type, color || '#FFFFFF', isPrivate ? 1 : 0,
-            isSmartbook ? 1 : 0, smartbookQuery ?? null, entryFrequency ?? 'daily'
+            isSmartbook ? 1 : 0, smartbookQuery ?? null, entryFrequency ?? 'daily', parentId
         );
 
         return NextResponse.json({ id: result.lastInsertRowid, name, type });

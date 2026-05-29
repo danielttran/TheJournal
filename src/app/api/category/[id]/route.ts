@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getUserIdFromRequest } from "@/lib/route-helpers";
+import { wouldCreateCycle } from "@/lib/categoryTree";
 
 const SORT_MODES = [
     'manual', 'title-asc', 'title-desc',
@@ -24,6 +25,8 @@ const UpdateCategorySchema = z.object({
     smartbookQuery: z.union([z.string().max(4000), z.record(z.string(), z.unknown())]).nullable().optional(),
     viewSettings: z.record(z.string(), z.unknown()).optional(),
     lastSelectedEntryId: z.number().int().nullable().optional(),
+    // Hierarchical categories: re-parent (null = move to top level).
+    parentCategoryId: z.number().int().positive().nullable().optional(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -107,11 +110,31 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
         }
         const { name, type, icon, color, viewSettings, lastSelectedEntryId,
-            sortMode, autoTemplateId, entryFrequency, isSmartbook, smartbookQuery } = parsed.data;
+            sortMode, autoTemplateId, entryFrequency, isSmartbook, smartbookQuery,
+            parentCategoryId } = parsed.data;
 
         // Construct dynamic update
         const simpleUpdates: string[] = [];
         const simpleValues: (string | number | null)[] = [];
+
+        // Re-parenting needs validation against the user's whole category set:
+        // the new parent must be owned by the user and must not create a cycle.
+        if (parentCategoryId !== undefined) {
+            if (parentCategoryId === null) {
+                simpleUpdates.push("ParentCategoryID = ?"); simpleValues.push(null);
+            } else {
+                const cats = await db.prepare(
+                    'SELECT CategoryID, ParentCategoryID FROM Category WHERE UserID = ?'
+                ).all(userId) as { CategoryID: number; ParentCategoryID: number | null }[];
+                if (!cats.some(c => c.CategoryID === parentCategoryId)) {
+                    return NextResponse.json({ error: "Parent category not found" }, { status: 400 });
+                }
+                if (wouldCreateCycle(cats, categoryId, parentCategoryId)) {
+                    return NextResponse.json({ error: "That parent would create a cycle" }, { status: 400 });
+                }
+                simpleUpdates.push("ParentCategoryID = ?"); simpleValues.push(parentCategoryId);
+            }
+        }
 
         if (name !== undefined) { simpleUpdates.push("Name = ?"); simpleValues.push(name); }
         if (type !== undefined) { simpleUpdates.push("Type = ?"); simpleValues.push(type); }

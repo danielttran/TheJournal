@@ -1,5 +1,34 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Hierarchical category tree — 2026-05-29d
+
+The last substantial deferred feature, built on explicit owner approval. Categories
+were flat; they now nest.
+
+- **Data**: additive `ParentCategoryID` column on Category (nullable self-ref,
+  `ON DELETE SET NULL` so deleting a parent promotes its children to roots — no
+  cascade/data loss), plus an index. Idempotent ALTER migration like the rest.
+- **Logic** (`src/lib/categoryTree.ts`, unit-tested): `buildCategoryTree` (nests +
+  orders by SortOrder/id, treats missing/self/cyclic parents as roots so a corrupt
+  row can never hang the UI), `flattenTree` (collapse-aware render order),
+  `wouldCreateCycle` (API guard), `eligibleParentIds` (dropdown options).
+- **API**: `POST /api/category` accepts `parentCategoryId` (ownership-checked);
+  `PUT /api/category/[id]` accepts it with an ownership + cycle guard
+  (`wouldCreateCycle` over the user's category set).
+- **UI**: the **vertical** tabs mode (View › Category Tabs Navigation › Vertical)
+  now renders a real nested, collapsible tree (`CategoryTree.tsx`) with per-row
+  navigate / add-sub (+) / properties / delete; expand state persisted. Nesting is
+  set via **Category Properties › Parent category** (dropdown of eligible
+  non-descendant categories) or the tree's "+". The horizontal/bottom strips keep
+  their flat drag-reorder, unchanged. Re-parenting reflects live via `onSaved`.
+- Both targets (shared codebase). Drag-to-*nest* is intentionally not added
+  (reorder stays drag; nesting is explicit) — noted in CLAUDE.md.
+
+**Audit gate (all green):** `tsc` clean · `eslint .` 0 errors · `vitest run`
+861/861 (+13: category-tree + category-hierarchy) · `npm run build` clean.
+
+---
+
 ## Remaining in-app gaps closed — 2026-05-29c
 
 Closed the "remaining minor" items the dialog audit had flagged, plus the two
