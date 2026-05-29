@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { X, Lock } from 'lucide-react';
 import type { Template } from './TemplatePicker';
 import type { Category } from '@/lib/types';
+import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 type SortMode =
     | 'manual'
@@ -37,6 +38,7 @@ const SORT_OPTIONS: { value: SortMode; label: string }[] = [
 ];
 
 export default function CategorySettingsModal({ categoryId, onClose, onSaved }: Props) {
+    useEscapeToClose(onClose);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);

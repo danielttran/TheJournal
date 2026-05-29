@@ -6,6 +6,7 @@ import { useTheme } from 'next-themes';
 import { useToast } from './Toast';
 import KeybindingsSection from './KeybindingsSection';
 import PluginsSection from './PluginsSection';
+import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -50,6 +51,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     });
     const [loading, setLoading] = useState(true);
     const [isElectron, setIsElectron] = useState(false);
+
+    useEscapeToClose(onClose, isOpen);
 
     useEffect(() => {
         // Detect Electron environment safely on mount
@@ -181,26 +184,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             onChange={(e) => {
                                                 let val = parseInt(e.target.value) || 14;
                                                 if (val > 72) val = 72;
+                                                if (val < 8) val = 8;
                                                 handleSave('defaultFontSize', val);
                                             }}
                                         />
                                         <span className="text-xs text-text-muted ml-2">px</span>
                                     </div>
                                 </div>
-                                <div className="space-y-2 mt-4">
-                                    <label className="text-sm font-medium text-text-primary">Theme Palette</label>
-                                    <select
-                                        className="w-full bg-bg-app border border-border-secondary rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none"
-                                        value={settings.themePalette || 'default'}
-                                        onChange={(e) => handleSave('themePalette', e.target.value)}
-                                    >
-                                        {THEME_PALETTES.map(p => (
-                                            <option key={p.id} value={p.id}>{p.label}</option>
-                                        ))}
-                                    </select>
-                                    <p className="text-xs text-text-muted">Layered over light/dark mode. Some palettes are tuned for a specific mode.</p>
-                                </div>
                             </section>
+
+                            <div className="h-px bg-border-primary" />
+
+                            {/* Appearance Section — grouped right after editor prefs so all
+                                theme controls (mode, palette, colors) live together. */}
+                            <ThemeSettings settings={settings} onSave={handleSave} />
 
                             <div className="h-px bg-border-primary" />
 
@@ -416,11 +413,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                             {/* Plugins Section — same in Electron and web. */}
                             <PluginsSection />
-
-                            <div className="h-px bg-border-primary" />
-
-                            {/* Appearance Section */}
-                            <ThemeSettings settings={settings} onSave={handleSave} />
                         </div>
                     )}
                 </div>
@@ -501,6 +493,19 @@ function ThemeSettings({ settings, onSave }: { settings: Settings, onSave: (key:
             </div>
 
             <div className="space-y-4">
+                <div className="space-y-2">
+                    <label className="text-sm font-medium text-text-primary">Theme Palette</label>
+                    <select
+                        className="w-full bg-bg-app border border-border-secondary rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none"
+                        value={settings.themePalette || 'default'}
+                        onChange={(e) => onSave('themePalette', e.target.value)}
+                    >
+                        {THEME_PALETTES.map(p => (
+                            <option key={p.id} value={p.id}>{p.label}</option>
+                        ))}
+                    </select>
+                    <p className="text-xs text-text-muted">Layered over light/dark mode. Some palettes are tuned for a specific mode.</p>
+                </div>
                 <ColorPicker
                     label="Accent Color"
                     value={prefs.accentPrimary || (mode === 'dark' ? '#14b8a6' : '#9333ea')}

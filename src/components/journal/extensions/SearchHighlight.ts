@@ -135,7 +135,9 @@ export const SearchHighlight = Extension.create({
                         if (!recompute) return value;
 
                         const matches = computeMatches(newState.doc, query, options);
-                        if (active >= matches.length) active = matches.length > 0 ? active % matches.length : 0;
+                        // Keep the active match near where the user was rather than
+                        // wrapping: if edits shrank the match list, stay on the last.
+                        if (active >= matches.length) active = matches.length > 0 ? matches.length - 1 : 0;
                         if (active < 0) active = 0;
                         return {
                             query,

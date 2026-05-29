@@ -44,6 +44,20 @@ export default function FindBar({ editor, onClose }: { editor: TipTapEditor | nu
         if (s.count > 0) scrollActiveIntoView();
     }, [editor, readState, scrollActiveIntoView]);
 
+    // Keep the readout + Prev/Next in sync when the document is edited while the
+    // bar is open: the plugin recomputes matches on every doc change, so re-read
+    // its state on each update rather than trusting our last snapshot.
+    useEffect(() => {
+        if (!editor) return;
+        const sync = () => {
+            const s = searchHighlightKey.getState(editor.state);
+            setCount(s?.matches.length ?? 0);
+            setActive(s?.active ?? 0);
+        };
+        editor.on('update', sync);
+        return () => { editor.off('update', sync); };
+    }, [editor]);
+
     // Clear the highlight when the bar unmounts.
     useEffect(() => {
         return () => { editor?.commands.clearSearch(); };

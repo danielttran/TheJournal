@@ -164,9 +164,13 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             setLinkDialog(d => (d ? { ...d, error: res.reason } : d));
             return;
         }
-        editor.chain().focus().extendMarkRange('link')
+        const ok = editor.chain().focus().extendMarkRange('link')
             .setLink({ href: res.href, target: newTab ? '_blank' : null })
             .run();
+        if (!ok) {
+            setLinkDialog(d => (d ? { ...d, error: 'This link could not be applied.' } : d));
+            return;
+        }
         setLinkDialog(null);
     }, [editor]);
 

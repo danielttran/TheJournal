@@ -252,7 +252,9 @@ function PluginLoadedEditor({
     const extensions = useMemo(() => [
         StarterKit,
         ResizableImage,
-        Link.configure({ openOnClick: false }),
+        // `journal` is registered so internal journal://entry/<id> links the
+        // hyperlink dialog accepts actually pass TipTap's URI allowlist.
+        Link.configure({ openOnClick: false, protocols: ['journal'] }),
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
         TaskList,
         TaskItem.configure({ nested: true }),

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from 'react';
+import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 interface UserRow { UserID: number; Username: string; }
 
 export default function ManageUsersModal({ onClose }: { onClose: () => void }) {
+    useEscapeToClose(onClose);
     const [users, setUsers] = useState<UserRow[]>([]);
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');

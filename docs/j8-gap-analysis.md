@@ -1,5 +1,53 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Dialog / pop-up UX audit — 2026-05-29b
+
+Audited all ~20 modal/popup surfaces for whether they are logical, organized,
+and easy to use. Findings + fixes:
+
+**Consistency — Escape to close (was the big gap).** Every standalone modal
+already dismissed on backdrop click (with proper inner `stopPropagation`), but
+most did **not** close on Escape — the universal modal expectation. Added a
+shared `src/hooks/useEscapeToClose.ts` (capture-phase, so the modal wins the key
+over the editor's distraction-free handler) and applied it to: SettingsModal,
+ManageUsers, ManageTopics, JournalVolumes, CategorySettings, TemplatePicker.
+`WritingPromptsPicker` and `ImageCropModal` already had Escape and were left as-is.
+`DrawingModal` is **intentionally excluded** — Escape there would discard an
+in-progress drawing; it keeps explicit Cancel / Save buttons.
+
+**Organization — Settings theme controls were split.** The "Theme Palette"
+selector sat under *Editor Preferences* at the top while the light/dark toggle
+and the accent/background color pickers were in an *Appearance* section buried at
+the very bottom (below Plugins). Consolidated: all theme controls (mode, palette,
+colors) now live in one **Appearance** section placed right after Editor
+Preferences. Section order is now Editor → Appearance → Backup → Security →
+Keyboard Shortcuts → Plugins.
+
+**Logic — input clamping.** The Settings default-font-size input clamped its max
+(72) but not its min; it now clamps to 8–72.
+
+**Find bar + hyperlink dialog correctness (from the diff review):**
+- FindBar kept a stale "n of m" readout and Prev/Next target when the entry was
+  edited with the bar open; it now re-syncs from the plugin on every editor
+  `update`. The active-match re-clamp after an edit now stays on the last match
+  instead of an arbitrary modulo wrap.
+- The hyperlink dialog accepted `journal://` internal links but TipTap's URI
+  allowlist silently rejected them (link never applied, dialog closed anyway).
+  Registered `protocols: ['journal']` on the Link extension (verified:
+  `journal://entry/12` now passes, `javascript:` still rejected) and `applyLink`
+  now surfaces an error instead of closing when `setLink` reports failure.
+
+**Remaining minor (documented, not changed):** a few quick one-shot prompts still
+use the native `window.prompt`/`alert` (Save Entry As… format, per-entry
+Background Image URL, entry lock/unlock password, Insert Image by URL). They are
+functional and low-traffic; upgrading them to styled dialogs is a future polish
+pass, tracked here rather than rushed in this round.
+
+**Audit gate (all green):** `tsc` clean · `eslint .` 0 errors (1 pre-existing
+warning in `ThemeSettings`) · `vitest run` 848/848 · `npm run build` clean.
+
+---
+
 ## Final gap closure + full audit — 2026-05-29
 
 Closed the last set of "honest remaining gaps" the prior audit had flagged as

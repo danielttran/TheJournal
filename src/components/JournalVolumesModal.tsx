@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 interface VolumeRow { name: string; path: string; sizeBytes?: number; }
 
@@ -12,6 +13,7 @@ interface VolumeRow { name: string; path: string; sizeBytes?: number; }
  * "desktop only" dialog. On Electron, the native File menu does live switching.
  */
 export default function JournalVolumesModal({ onClose }: { onClose: () => void }) {
+    useEscapeToClose(onClose);
     const [dir, setDir] = useState('');
     const [volumes, setVolumes] = useState<VolumeRow[]>([]);
     const [loading, setLoading] = useState(false);
