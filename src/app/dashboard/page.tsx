@@ -4,11 +4,11 @@ import { cookies } from 'next/headers';
 import { Book, Notebook } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import ImportCard from '@/components/dashboard/ImportCard';
+import { verifySessionToken, SESSION_COOKIE } from '@/lib/session';
 
 async function getUser() {
-    const userIdCookie = (await cookies()).get("userId");
-    if (!userIdCookie) return null;
-    return userIdCookie.value;
+    const verifiedId = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+    return verifiedId === null ? null : String(verifiedId);
 }
 
 async function createInitialCategory(userId: string, type: 'Journal' | 'Notebook', name: string) {

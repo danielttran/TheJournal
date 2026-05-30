@@ -21,16 +21,28 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         if (!row) return new NextResponse(null, { status: 404 });
 
-        // ?download=1 forces a download (File Attachment); default is inline so
-        // images/PDFs still render in-page.
+        // Only render inline for media that browsers can't turn into a script
+        // host. SVG and HTML/XML can carry <script>, so they're always forced to
+        // download regardless of ?download — otherwise a stored .svg/.html
+        // attachment would execute as same-origin script when its URL is opened.
+        const mime = (row.MimeType || '').toLowerCase();
+        const inlineSafe =
+            (mime.startsWith('image/') && mime !== 'image/svg+xml') ||
+            mime.startsWith('video/') || mime.startsWith('audio/') ||
+            mime === 'application/pdf';
         const wantsDownload = new URL(req.url).searchParams.get('download') === '1';
-        const disposition = wantsDownload ? 'attachment' : 'inline';
+        const disposition = (wantsDownload || !inlineSafe) ? 'attachment' : 'inline';
 
         // Convert Buffer → Uint8Array so NextResponse accepts it as BodyInit
         return new NextResponse(new Uint8Array(row.Data), {
             headers: {
                 'Content-Type': row.MimeType,
                 'Content-Disposition': `${disposition}; filename="${encodeURIComponent(row.Filename)}"`,
+                // Defence in depth: never sniff a declared type into something
+                // executable, and forbid any script/subresource if the blob is
+                // ever rendered as a document.
+                'X-Content-Type-Options': 'nosniff',
+                'Content-Security-Policy': "default-src 'none'; sandbox; style-src 'unsafe-inline'; img-src 'self' data:",
                 // Immutable: the blob never changes once written; safe to cache indefinitely.
                 'Cache-Control': 'private, max-age=31536000, immutable',
             },

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from 'react';
+import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 interface TopicRow { TopicID: number; Name: string; }
 
 export default function ManageTopicsModal({ onClose }: { onClose: () => void }) {
+    useEscapeToClose(onClose);
     const [topics, setTopics] = useState<TopicRow[]>([]);
     const [name, setName] = useState('');
     const [color, setColor] = useState('#6366f1');

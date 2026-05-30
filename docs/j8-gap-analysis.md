@@ -1,5 +1,165 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Hierarchical category tree — 2026-05-29d
+
+The last substantial deferred feature, built on explicit owner approval. Categories
+were flat; they now nest.
+
+- **Data**: additive `ParentCategoryID` column on Category (nullable self-ref,
+  `ON DELETE SET NULL` so deleting a parent promotes its children to roots — no
+  cascade/data loss), plus an index. Idempotent ALTER migration like the rest.
+- **Logic** (`src/lib/categoryTree.ts`, unit-tested): `buildCategoryTree` (nests +
+  orders by SortOrder/id, treats missing/self/cyclic parents as roots so a corrupt
+  row can never hang the UI), `flattenTree` (collapse-aware render order),
+  `wouldCreateCycle` (API guard), `eligibleParentIds` (dropdown options).
+- **API**: `POST /api/category` accepts `parentCategoryId` (ownership-checked);
+  `PUT /api/category/[id]` accepts it with an ownership + cycle guard
+  (`wouldCreateCycle` over the user's category set).
+- **UI**: the **vertical** tabs mode (View › Category Tabs Navigation › Vertical)
+  now renders a real nested, collapsible tree (`CategoryTree.tsx`) with per-row
+  navigate / add-sub (+) / properties / delete; expand state persisted. Nesting is
+  set via **Category Properties › Parent category** (dropdown of eligible
+  non-descendant categories) or the tree's "+". The horizontal/bottom strips keep
+  their flat drag-reorder, unchanged. Re-parenting reflects live via `onSaved`.
+- Both targets (shared codebase). Drag-to-*nest* is intentionally not added
+  (reorder stays drag; nesting is explicit) — noted in CLAUDE.md.
+
+**Audit gate (all green):** `tsc` clean · `eslint .` 0 errors · `vitest run`
+861/861 (+13: category-tree + category-hierarchy) · `npm run build` clean.
+
+---
+
+## Remaining in-app gaps closed — 2026-05-29c
+
+Closed the "remaining minor" items the dialog audit had flagged, plus the two
+find/print parity edges:
+
+- **Styled prompt dialogs** — new reusable `src/components/journal/PromptModal.tsx`
+  (text / password / single-select, backdrop + Escape dismiss, inline validation,
+  Enter to submit) replaces the native `window.prompt` for: entry **lock/unlock
+  password** (inline "wrong password" error instead of a blocking alert),
+  **background image URL**, **Save Entry As…** (now a format dropdown, not a typed
+  string), and **Insert image by URL**. Adjacent error `window.alert`s in those
+  flows now route to the existing toast system (`useToast`).
+- **In-entry Find now spans the split view** — when split mode is open, the find
+  bar drives both panes' `SearchHighlight` (highlights + active cycling stay in
+  sync), not just pane 1.
+- **Print Preview is a real in-app modal** — "Print Preview" now opens a sandboxed
+  iframe preview of the rendered entry with its own Print… button, distinct from
+  firing the OS print dialog directly (Print Entries / Ctrl+P still do that). Wired
+  on both targets: web via `trigger-print-preview`, Electron via the menu
+  `view-action` bridge.
+
+**Still intentionally deferred (owner-decided non-goals; unchanged):** hierarchical
+CATEGORY tree / vertical category tabs (a core-navigation redesign), customizable
+Electron menus, drag-to-reorder toolbar, block-level tagging, external Category
+Sync, Outlook integration, Penzu/Diaro/WordPress importers, and macOS/Linux
+Electron build targets + code signing (cannot be built or validated in this
+environment). A couple of `confirm()` decision dialogs (delete/overwrite) remain
+native by design — they are blocking yes/no prompts, not data entry.
+
+**Audit gate (all green):** `tsc` clean · `eslint .` 0 errors · `vitest run`
+848/848 · `npm run build` clean.
+
+---
+
+## Dialog / pop-up UX audit — 2026-05-29b
+
+Audited all ~20 modal/popup surfaces for whether they are logical, organized,
+and easy to use. Findings + fixes:
+
+**Consistency — Escape to close (was the big gap).** Every standalone modal
+already dismissed on backdrop click (with proper inner `stopPropagation`), but
+most did **not** close on Escape — the universal modal expectation. Added a
+shared `src/hooks/useEscapeToClose.ts` (capture-phase, so the modal wins the key
+over the editor's distraction-free handler) and applied it to: SettingsModal,
+ManageUsers, ManageTopics, JournalVolumes, CategorySettings, TemplatePicker.
+`WritingPromptsPicker` and `ImageCropModal` already had Escape and were left as-is.
+`DrawingModal` is **intentionally excluded** — Escape there would discard an
+in-progress drawing; it keeps explicit Cancel / Save buttons.
+
+**Organization — Settings theme controls were split.** The "Theme Palette"
+selector sat under *Editor Preferences* at the top while the light/dark toggle
+and the accent/background color pickers were in an *Appearance* section buried at
+the very bottom (below Plugins). Consolidated: all theme controls (mode, palette,
+colors) now live in one **Appearance** section placed right after Editor
+Preferences. Section order is now Editor → Appearance → Backup → Security →
+Keyboard Shortcuts → Plugins.
+
+**Logic — input clamping.** The Settings default-font-size input clamped its max
+(72) but not its min; it now clamps to 8–72.
+
+**Find bar + hyperlink dialog correctness (from the diff review):**
+- FindBar kept a stale "n of m" readout and Prev/Next target when the entry was
+  edited with the bar open; it now re-syncs from the plugin on every editor
+  `update`. The active-match re-clamp after an edit now stays on the last match
+  instead of an arbitrary modulo wrap.
+- The hyperlink dialog accepted `journal://` internal links but TipTap's URI
+  allowlist silently rejected them (link never applied, dialog closed anyway).
+  Registered `protocols: ['journal']` on the Link extension (verified:
+  `journal://entry/12` now passes, `javascript:` still rejected) and `applyLink`
+  now surfaces an error instead of closing when `setLink` reports failure.
+
+**Remaining minor (documented, not changed):** a few quick one-shot prompts still
+use the native `window.prompt`/`alert` (Save Entry As… format, per-entry
+Background Image URL, entry lock/unlock password, Insert Image by URL). They are
+functional and low-traffic; upgrading them to styled dialogs is a future polish
+pass, tracked here rather than rushed in this round.
+
+**Audit gate (all green):** `tsc` clean · `eslint .` 0 errors (1 pre-existing
+warning in `ThemeSettings`) · `vitest run` 848/848 · `npm run build` clean.
+
+---
+
+## Final gap closure + full audit — 2026-05-29
+
+Closed the last set of "honest remaining gaps" the prior audit had flagged as
+design differences / minor, and re-ran the whole verification gate. The only
+items still open are the ones CLAUDE.md keeps **intentionally deferred** by owner
+decision (hierarchical category tree / vertical tabs, multi-user admin panel,
+external Category Sync, macOS/Linux Electron targets).
+
+**Gaps closed this pass (web + Electron, both targets share the codebase):**
+
+1. **In-entry Find with highlight + cycle (the flagship gap).** J8's Ctrl+F finds
+   within the open entry and F3 cycles matches; this app kept Ctrl+F for the
+   broader global cross-entry search, so in-entry find is now its own find bar:
+   - `src/lib/inEntryFind.ts` — pure, unit-tested match maths (literal / regex /
+     whole-word / case toggles, zero-width-safe scan, wrap-around index).
+   - `src/components/journal/extensions/SearchHighlight.ts` — a ProseMirror
+     decoration plugin that highlights every match and marks the active one; it
+     reuses the pure lib per text node and maps offsets to doc positions.
+   - `src/components/journal/FindBar.tsx` — the overlay bar: "n of m" readout,
+     Aa / whole-word / regex toggles, Enter / F3 next, Shift+(Enter/F3) prev,
+     Esc to close, scrolls the active match into view without stealing input focus.
+   - Wiring: F3 and the new **Search ▸ Find in Entry…** menu item open the bar
+     (`trigger-find-in-entry` / `trigger-find-next`, handled in `Editor.tsx`).
+     `JournalView` no longer hijacks F3 to the global panel; Ctrl+F stays global.
+2. **Side-by-side split screen.** The split editor now toggles between stacked
+   (top/bottom) and side-by-side (left/right) via **View ▸ Split Orientation**
+   (`trigger-split-orientation`, persisted in `localStorage.splitHorizontal`).
+   The drag divider switches axis (row/col-resize) accordingly.
+3. **Styled hyperlink dialog.** `TipTapToolbar` replaces the old `window.prompt`
+   with an in-app modal (URL field, "open in new tab", inline validation, Remove
+   button), backed by the new tested `src/lib/linkUrl.ts` `normalizeLinkUrl`
+   (promotes bare hosts to https, allows root-relative / journal:// / mailto:,
+   rejects javascript:/data:/file:/protocol-relative).
+
+**Confirmed already-present (earlier docs left ambiguous):** separate Main-toolbar
+and Status-bar toggles both exist (`TabBar` `mainToolbarHidden`, `Editor`
+`statusBarHidden`). Print Preview remains routed through the OS/browser print
+preview (no separate window) — left as a deliberate minor difference.
+
+**Audit gate (all green):** `npx tsc --noEmit` clean · `npx eslint .` 0 errors ·
+`npx vitest run` **848/848** (was 828; +20 from `in-entry-find` and `link-url`) ·
+`npm run build` standalone bundle clean. New trigger events
+(`trigger-find-in-entry`, `trigger-split-orientation`) are in
+`HANDLED_WEB_EVENTS`, so `menu-actions.test.ts` / `menu-bar.test.tsx` still prove
+no menu item is dead on web, and the Electron `view-action → trigger-${action}`
+bridge (`GlobalIPCManager.dispatchViewAction`) routes them identically.
+
+---
+
 ## Menu reorder + runtime verification — 2026-05-24b
 
 Owner-specified menu order implemented (13 menus), driven by the shared

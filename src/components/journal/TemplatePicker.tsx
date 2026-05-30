@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Pencil, Check, FileText } from 'lucide-react';
 import type { JSONContent } from '@tiptap/react';
+import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 export interface Template {
     TemplateID: number;
@@ -21,6 +22,7 @@ interface TemplatePickerProps {
 }
 
 export default function TemplatePicker({ onSelect, onClose, currentHtml, currentDocumentJson }: TemplatePickerProps) {
+    useEscapeToClose(onClose);
     const [templates, setTemplates] = useState<Template[]>([]);
     const [loading, setLoading] = useState(true);
     const [renamingId, setRenamingId] = useState<number | null>(null);

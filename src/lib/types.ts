@@ -4,6 +4,7 @@ export interface Category {
     Type: 'Journal' | 'Notebook';
     Color?: string;
     SortOrder?: number;
+    ParentCategoryID?: number | null;
     Icon?: string;
     ViewSettings?: string; // JSON string
     UserID?: number;

@@ -14,6 +14,7 @@ import OnThisDayPanel from './OnThisDayPanel';
 import WordCloudPanel from './WordCloudPanel';
 import SnippetsPanel from './SnippetsPanel';
 import CategorySettingsModal from './CategorySettingsModal';
+import CategoryTree from './CategoryTree';
 import { Scissors } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { Theme as EmojiTheme } from 'emoji-picker-react';
@@ -272,6 +273,8 @@ export default function TabBar({ userId }: { userId: string }) {
     const [newTabName, setNewTabName] = useState('');
     const [newTabType, setNewTabType] = useState<'Journal' | 'Notebook'>('Journal');
     const [newTabIsSmartbook, setNewTabIsSmartbook] = useState(false);
+    // When adding a sub-category from the tree, the new category's parent.
+    const [pendingParentId, setPendingParentId] = useState<number | null>(null);
     const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
     const [isTrashOpen, setIsTrashOpen] = useState(false);
@@ -412,6 +415,7 @@ export default function TabBar({ userId }: { userId: string }) {
                 body.isSmartbook = true;
                 body.smartbookQuery = JSON.stringify({});
             }
+            if (pendingParentId != null) body.parentCategoryId = pendingParentId;
             const res = await fetch('/api/category', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -422,11 +426,13 @@ export default function TabBar({ userId }: { userId: string }) {
                 setTabs([...tabs, {
                     CategoryID: newCat.id, Name: newTabName, Type: newTabType,
                     Color: randomColor, SortOrder: tabs.length,
+                    ParentCategoryID: pendingParentId,
                     IsSmartbook: newTabIsSmartbook || false,
                 }]);
                 setIsAddMenuOpen(false);
                 setNewTabName('');
                 setNewTabIsSmartbook(false);
+                setPendingParentId(null);
                 router.push(`/journal/${newCat.id}`);
                 // If user created a Smartbook, open the settings modal so they
                 // can configure the query immediately — an empty smartbook is
@@ -458,7 +464,9 @@ export default function TabBar({ userId }: { userId: string }) {
             }
             // Success — update UI
             setTabs(tabs.filter(t => t.CategoryID !== id));
-            if (pathname.includes(String(id))) router.push('/dashboard');
+            // Exact segment compare — pathname.includes(id) misfires when one id
+            // is a substring of another (deleting 2 while viewing /journal/20).
+            if (pathname.split('/')[2] === String(id)) router.push('/dashboard');
         } catch {
             alert("Failed to delete category. Your data is safe.");
         }
@@ -765,37 +773,57 @@ export default function TabBar({ userId }: { userId: string }) {
                 Position follows View › Category Tabs Navigation (top/bottom/vertical). */}
             <div className={
                 mainToolbarHidden ? 'hidden'
-                : tabsPosition === 'vertical' ? 'flex flex-col items-stretch px-2 py-1 gap-1 bg-bg-sidebar max-h-40 overflow-y-auto'
+                : tabsPosition === 'vertical' ? 'flex flex-col items-stretch px-2 py-1 gap-1 bg-bg-sidebar max-h-[40vh] overflow-y-auto'
                 : 'flex items-center px-2 pt-1 space-x-1 bg-bg-sidebar'
             }>
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                    <SortableContext items={tabs.map(c => c.CategoryID)} strategy={horizontalListSortingStrategy}>
-                        {tabs.map((tab) => (
-                            <SortableTab
-                                key={tab.CategoryID}
-                                category={tab}
-                                isActive={String(tab.CategoryID) === activeId}
-                                onClick={() => router.push(`/journal/${tab.CategoryID}`)}
-                                onDelete={deleteTab}
-                                onRename={handleRename}
-                                onIconChange={handleIconChange}
-                                onColorChange={handleColorChange}
-                                onOpenSettings={(id) => setSettingsCategoryId(id)}
-                            />
-                        ))}
-                    </SortableContext>
-                </DndContext>
+                {tabsPosition === 'vertical' ? (
+                    <>
+                        {/* Nestable category tree (hierarchical categories). */}
+                        <CategoryTree
+                            categories={tabs}
+                            activeId={activeId}
+                            onNavigate={(id) => router.push(`/journal/${id}`)}
+                            onOpenSettings={(id) => setSettingsCategoryId(id)}
+                            onDelete={deleteTab}
+                            onAddSub={(parentId) => { setPendingParentId(parentId); setIsAddMenuOpen(true); }}
+                        />
+                        <button onClick={() => { setPendingParentId(null); setIsAddMenuOpen(true); }}
+                            className="mt-1 flex items-center gap-1 rounded px-1 py-1 text-sm text-text-muted hover:bg-bg-hover">
+                            <Plus className="w-4 h-4" /> New category
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                            <SortableContext items={tabs.map(c => c.CategoryID)} strategy={horizontalListSortingStrategy}>
+                                {tabs.map((tab) => (
+                                    <SortableTab
+                                        key={tab.CategoryID}
+                                        category={tab}
+                                        isActive={String(tab.CategoryID) === activeId}
+                                        onClick={() => router.push(`/journal/${tab.CategoryID}`)}
+                                        onDelete={deleteTab}
+                                        onRename={handleRename}
+                                        onIconChange={handleIconChange}
+                                        onColorChange={handleColorChange}
+                                        onOpenSettings={(id) => setSettingsCategoryId(id)}
+                                    />
+                                ))}
+                            </SortableContext>
+                        </DndContext>
 
-                <button onClick={() => setIsAddMenuOpen(true)} className="h-8 w-8 flex items-center justify-center text-text-muted hover:bg-bg-hover rounded">
-                    <Plus className="w-5 h-5" />
-                </button>
+                        <button onClick={() => setIsAddMenuOpen(true)} className="h-8 w-8 flex items-center justify-center text-text-muted hover:bg-bg-hover rounded">
+                            <Plus className="w-5 h-5" />
+                        </button>
+                    </>
+                )}
             </div>
 
             {/* MODAL (Compact) */}
             {isAddMenuOpen && (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
                     <div className="bg-bg-card p-6 rounded-lg w-80 border border-border-primary">
-                        <h3 className="text-text-primary mb-4 font-bold">New Tab</h3>
+                        <h3 className="text-text-primary mb-4 font-bold">{pendingParentId != null ? 'New Sub-Category' : 'New Tab'}</h3>
                         <input className="w-full bg-bg-active border border-border-primary p-2 text-text-primary mb-4 rounded"
                             placeholder="Name" value={newTabName} onChange={e => setNewTabName(e.target.value)} autoFocus />
                         <div className="flex gap-2 mb-4">
@@ -813,7 +841,7 @@ export default function TabBar({ userId }: { userId: string }) {
                             </span>
                         </label>
                         <div className="flex justify-end gap-2">
-                            <button onClick={() => setIsAddMenuOpen(false)} className="px-3 py-1 text-text-muted hover:text-text-primary">Cancel</button>
+                            <button onClick={() => { setIsAddMenuOpen(false); setPendingParentId(null); }} className="px-3 py-1 text-text-muted hover:text-text-primary">Cancel</button>
                             <button onClick={handleCreateTab} disabled={!newTabName} className="px-3 py-1 bg-accent-primary text-white rounded hover:bg-opacity-90">Create</button>
                         </div>
                     </div>

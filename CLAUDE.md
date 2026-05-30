@@ -96,6 +96,12 @@ docs/
 
 ## Critical security model
 
+0. **Sessions are HMAC-signed**, not a bare id. The cookie is a
+   `userId.expiry.signature` token (`src/lib/session.ts`), signed with a
+   key derived from `JOURNAL_DB_SECRET`. `getUserIdFromRequest` /
+   `authedHandler` and the server pages verify the signature — a client
+   cannot forge identity by editing the cookie. (Pre-audit this was a
+   plaintext `userId` integer = trivial impersonation.)
 1. **At-rest encryption** is per-database via SQLCipher; the key is
    derived from `JOURNAL_DB_SECRET`. **Production refuses to start with
    the dev default** — see `src/lib/auth.ts` `checkDbSecret()`.
@@ -114,6 +120,15 @@ docs/
    `dbm.transaction()`. If decryption throws mid-loop, every UPDATE
    rolls back. Without this, a single corrupt entry during password
    removal would silently lose data.
+5. **Restore is lossless + replace-not-duplicate** — `backup/import`
+   round-trips every user-owned table (incl. per-category
+   `PasswordWrappedKey`, Template/Topic/Snippet/Habit/UserSetting) with
+   FK remapping, deletes the user's old rows first, and **validates the
+   file is a real journal before the destructive delete**. A drift guard
+   (`tests/features/backup-import-coverage.test.ts`) fails CI if a new
+   user-owned table isn't taught to the importer. Untrusted attachment
+   blobs are served `nosniff` + strict CSP, with svg/html forced to
+   download (`api/attachment/[id]`).
 
 ## Build pipeline
 
@@ -178,22 +193,43 @@ shipping to production.
   standalone build, Caddy, electron-updater, GitHub Actions.
 - **Production-readiness audit**: standalone-bundle data leak fix,
   `JOURNAL_DB_SECRET` startup guard, `start:web` cwd fix.
+- **J8 gap closure + audit (2026-05-29)**: in-entry Find bar with
+  highlight/cycle (`inEntryFind.ts` + `SearchHighlight.ts` PM-decoration
+  extension + `FindBar.tsx`), side-by-side split orientation, styled
+  hyperlink dialog (`linkUrl.ts`). See `docs/j8-gap-analysis.md` top section.
+- **Dialog UX + remaining gaps (2026-05-29)**: `useEscapeToClose` across
+  modals, reusable `PromptModal` replacing window.prompt, in-app Print
+  Preview, and the **hierarchical category tree** (`categoryTree.ts` +
+  `CategoryTree.tsx`, `ParentCategoryID` column, parent dropdown in
+  Category Properties, vertical-tabs tree view).
+- **Pre-ship security audit (2026-05-30)**: closed three confirmed
+  ship-blockers. (1) **Signed sessions** (`session.ts`) — replaced the
+  forgeable plaintext `userId` cookie. (2+3) **Lossless restore** —
+  `backup/import` was dropping 9/16 tables and the per-category wrapped
+  EEK (locked entries became undecryptable); now full-fidelity with
+  FK remap + pre-delete validation + a coverage guard test. (4)
+  **Attachment XSS hardening** — `nosniff`, per-route CSP, svg/html forced
+  to download; baseline security headers in `next.config.ts`. Known
+  not-yet-fixed (documented in audit): login/unlock rate limiting,
+  `NODE_ENV`-independent secret guard, multi-tenant admin-role gates on
+  `users`/`backup-export`.
 
 ## What's intentionally NOT done
 
-- Hierarchical CATEGORY tree (only Entry hierarchy works) — TabBar is
-  horizontal; nesting needs a vertical redesign.
-- Outlook integration, Penzu/Diaro/WordPress importers,
+- Outlook integration, Penzu/Diaro/WordPress importers, Category Sync,
   customizable Electron menus, drag-to-reorder toolbar, block-level
   tagging — explicitly deferred per user choice.
 - macOS / Linux Electron targets, code signing, auto-minimize-idle.
+- Drag-to-NEST categories in the tree: nesting is set via Category
+  Properties (parent dropdown) or the tree's per-row "+"; the horizontal
+  strip still drag-REORDERS siblings.
 
 ## Running tests / type checks
 
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 729 tests as of the last commit.
+# Baseline: 885 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

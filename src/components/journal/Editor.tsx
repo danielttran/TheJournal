@@ -13,6 +13,9 @@ import type { CanvasPath } from 'react-sketch-canvas';
 import { type WritingPrompt } from '@/lib/prompts';
 import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
+import FindBar from './FindBar';
+import PromptModal, { type PromptConfig } from './PromptModal';
+import { useToast } from '@/components/Toast';
 
 import { useEditor, EditorContent, type Editor as TipTapEditor, type JSONContent } from '@tiptap/react';
 import type { AnyExtension } from '@tiptap/core';
@@ -33,6 +36,7 @@ import { FontSize } from './extensions/FontSize';
 import { Bookmark } from './extensions/Bookmark';
 import { FileAttachment } from './extensions/FileAttachment';
 import { ParagraphStyle } from './extensions/ParagraphStyle';
+import { SearchHighlight } from './extensions/SearchHighlight';
 import { VideoBlock } from './extensions/VideoBlock';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
@@ -205,6 +209,9 @@ function PluginLoadedEditor({
     const [propsMeta, setPropsMeta] = useState<{ created?: string; modified?: string; title?: string }>({});
     const [toolbarHidden, setToolbarHidden] = useState(false);
     const [statusBarHidden, setStatusBarHidden] = useState(false);
+    const [showFindBar, setShowFindBar] = useState(false);
+    const [prompt, setPrompt] = useState<PromptConfig | null>(null);
+    const { showToast } = useToast();
     const [showFontDialog, setShowFontDialog] = useState(false);
     const [showParagraphDialog, setShowParagraphDialog] = useState(false);
     const [ctxInsertOpen, setCtxInsertOpen] = useState(false);
@@ -242,12 +249,16 @@ function PluginLoadedEditor({
     const renderAbortRef = useRef<AbortController | null>(null);
     const splitContainerRef = useRef<HTMLDivElement>(null);
     const [splitRatio, setSplitRatio] = useState(50);
+    // J8 offers stacked (top/bottom) and side-by-side (left/right) split layouts.
+    const [splitHorizontal, setSplitHorizontal] = useState(false);
 
     // TipTap Extensions
     const extensions = useMemo(() => [
         StarterKit,
         ResizableImage,
-        Link.configure({ openOnClick: false }),
+        // `journal` is registered so internal journal://entry/<id> links the
+        // hyperlink dialog accepts actually pass TipTap's URI allowlist.
+        Link.configure({ openOnClick: false, protocols: ['journal'] }),
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
         TaskList,
         TaskItem.configure({ nested: true }),
@@ -261,6 +272,7 @@ function PluginLoadedEditor({
         Bookmark,
         FileAttachment,
         ParagraphStyle,
+        SearchHighlight,
         VideoBlock,
         Table.configure({ resizable: false }),
         TableRow,
@@ -451,9 +463,18 @@ function PluginLoadedEditor({
         window.addEventListener('keydown', handler);
 
         const handleSearch = () => onOpenSearch?.();
+        // In-entry find bar (J8 Ctrl+F / F3 parity). Ctrl+F stays the global
+        // cross-entry search; F3 / "Find Next" / "Find in Entry" open this bar.
+        const handleFindInEntry = () => setShowFindBar(true);
         const handleTemplates = () => setShowTemplatePicker(true);
         const handleFocus = () => setIsDistractionFree(true);
         const handleSplit = () => onToggleSplitMode?.();
+        const handleSplitOrientation = () => setSplitHorizontal(v => {
+            const next = !v;
+            try { localStorage.setItem('splitHorizontal', next ? '1' : '0'); } catch { /* ignore */ }
+            return next;
+        });
+        try { setSplitHorizontal(localStorage.getItem('splitHorizontal') === '1'); } catch { /* ignore */ }
         const handleUndo = () => editor?.chain().focus().undo().run();
         const handleRedo = () => editor?.chain().focus().redo().run();
         const handleInlineCode = () => editor?.chain().focus().toggleCode().run();
@@ -463,9 +484,12 @@ function PluginLoadedEditor({
         const handlePrompts = () => setShowWritingPrompts(true);
 
         window.addEventListener('trigger-search', handleSearch);
+        window.addEventListener('trigger-find-in-entry', handleFindInEntry);
+        window.addEventListener('trigger-find-next', handleFindInEntry);
         window.addEventListener('trigger-templates', handleTemplates);
         window.addEventListener('trigger-focus', handleFocus);
         window.addEventListener('trigger-split', handleSplit);
+        window.addEventListener('trigger-split-orientation', handleSplitOrientation);
         window.addEventListener('trigger-undo', handleUndo);
         window.addEventListener('trigger-redo', handleRedo);
         window.addEventListener('trigger-inline-code', handleInlineCode);
@@ -477,9 +501,12 @@ function PluginLoadedEditor({
         return () => {
             window.removeEventListener('keydown', handler);
             window.removeEventListener('trigger-search', handleSearch);
+            window.removeEventListener('trigger-find-in-entry', handleFindInEntry);
+            window.removeEventListener('trigger-find-next', handleFindInEntry);
             window.removeEventListener('trigger-templates', handleTemplates);
             window.removeEventListener('trigger-focus', handleFocus);
             window.removeEventListener('trigger-split', handleSplit);
+            window.removeEventListener('trigger-split-orientation', handleSplitOrientation);
             window.removeEventListener('trigger-undo', handleUndo);
             window.removeEventListener('trigger-redo', handleRedo);
             window.removeEventListener('trigger-inline-code', handleInlineCode);
@@ -736,20 +763,35 @@ function PluginLoadedEditor({
             'trigger-font-properties': () => setShowFontDialog(true),
             'trigger-paragraph-properties': () => setShowParagraphDialog(true),
         };
-        const onLock = async () => {
+        const onLock = () => {
             const id = entryIdRef.current;
             if (!id) return;
             if (isLocked) {
-                const pw = window.prompt('Enter password to unlock this entry:');
-                if (pw == null) return;
-                const res = await fetch(`/api/entry/${id}/lock`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-                if (res.ok) window.location.reload(); else window.alert('Wrong password or unlock failed.');
+                setPrompt({
+                    title: 'Unlock entry',
+                    message: 'Enter the password to unlock and decrypt this entry.',
+                    inputType: 'password',
+                    confirmLabel: 'Unlock',
+                    onConfirm: async (pw) => {
+                        const res = await fetch(`/api/entry/${id}/lock`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+                        if (res.ok) { window.location.reload(); return null; }
+                        return 'Wrong password or unlock failed.';
+                    },
+                });
             } else {
-                const pw = window.prompt('Set a password to lock this entry (encrypts its content):');
-                if (!pw) return;
-                await flushPendingSave();
-                const res = await fetch(`/api/entry/${id}/lock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
-                if (res.ok) window.location.reload(); else window.alert('Lock failed.');
+                setPrompt({
+                    title: 'Lock entry',
+                    message: 'Set a password to lock this entry. Its content is encrypted at rest; there is no recovery if you forget it.',
+                    inputType: 'password',
+                    confirmLabel: 'Lock',
+                    onConfirm: async (pw) => {
+                        if (!pw) return 'Enter a password.';
+                        await flushPendingSave();
+                        const res = await fetch(`/api/entry/${id}/lock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+                        if (res.ok) { window.location.reload(); return null; }
+                        return 'Lock failed.';
+                    },
+                });
             }
         };
         // Run a plugin's registered action by id (from the Plugins menu).
@@ -759,7 +801,7 @@ function PluginLoadedEditor({
             const btn = TheJournalAPI.registeredToolbarButtons.find(b => b.id === id);
             logAction('plugin', `run-plugin:${id}`, { found: !!btn });
             if (btn) btn.onClick(editor);
-            else window.alert(`Plugin "${id}" is not loaded.`);
+            else showToast(`Plugin "${id}" is not loaded.`, 'error');
         };
         for (const [evt, fn] of Object.entries(handlers)) window.addEventListener(evt, fn);
         window.addEventListener('trigger-lock-entry', onLock);
@@ -769,7 +811,7 @@ function PluginLoadedEditor({
             window.removeEventListener('trigger-lock-entry', onLock);
             window.removeEventListener('trigger-run-plugin', onRunPlugin);
         };
-    }, [editor, isLocked, flushPendingSave]);
+    }, [editor, isLocked, flushPendingSave, showToast]);
 
     // Per-entry background image (David RM context-menu "Background Image").
     // Persisted in localStorage keyed by entry so it survives reloads.
@@ -782,23 +824,40 @@ function PluginLoadedEditor({
         const id = entryIdRef.current;
         if (!id) return;
         const current = (() => { try { return localStorage.getItem(`entryBg-${id}`) ?? ''; } catch { return ''; } })();
-        const url = window.prompt('Background image URL (leave blank to clear):', current);
-        if (url === null) return;
-        const trimmed = url.trim();
-        try {
-            if (trimmed) localStorage.setItem(`entryBg-${id}`, trimmed);
-            else localStorage.removeItem(`entryBg-${id}`);
-        } catch { /* ignore */ }
-        setBgImage(trimmed || null);
+        setPrompt({
+            title: 'Background image',
+            message: 'Image URL to show behind this entry. Leave blank to clear.',
+            initialValue: current,
+            placeholder: 'https://…',
+            allowEmpty: true,
+            confirmLabel: 'Apply',
+            onConfirm: (url) => {
+                const trimmed = url.trim();
+                try {
+                    if (trimmed) localStorage.setItem(`entryBg-${id}`, trimmed);
+                    else localStorage.removeItem(`entryBg-${id}`);
+                } catch { /* ignore */ }
+                setBgImage(trimmed || null);
+            },
+        });
     }, []);
 
     const saveEntryAs = useCallback(() => {
         const id = entryIdRef.current;
         if (!id) return;
-        const fmt = (window.prompt('Save entry as (md, rtf, html, txt):', 'html') || '').trim().toLowerCase();
-        if (!fmt) return;
-        if (!['md', 'rtf', 'html', 'txt'].includes(fmt)) { window.alert('Supported formats: md, rtf, html, txt'); return; }
-        window.open(`/api/entry/${id}/export?format=${fmt}`, '_blank');
+        setPrompt({
+            title: 'Save entry as',
+            message: 'Choose a format to export this entry.',
+            options: [
+                { value: 'html', label: 'HTML (.html)' },
+                { value: 'md', label: 'Markdown (.md)' },
+                { value: 'rtf', label: 'Rich Text (.rtf)' },
+                { value: 'txt', label: 'Plain text (.txt)' },
+            ],
+            initialValue: 'html',
+            confirmLabel: 'Export',
+            onConfirm: (fmt) => { window.open(`/api/entry/${id}/export?format=${fmt}`, '_blank'); },
+        });
     }, []);
 
     // Context-menu "Paste": native paste preserves formatting (works in Electron
@@ -814,7 +873,9 @@ function PluginLoadedEditor({
         const onMouseMove = (ev: MouseEvent) => {
             if (!splitContainerRef.current) return;
             const rect = splitContainerRef.current.getBoundingClientRect();
-            const ratio = ((ev.clientY - rect.top) / rect.height) * 100;
+            const ratio = splitHorizontal
+                ? ((ev.clientX - rect.left) / rect.width) * 100
+                : ((ev.clientY - rect.top) / rect.height) * 100;
             setSplitRatio(Math.max(20, Math.min(80, ratio)));
         };
         const onMouseUp = () => {
@@ -823,11 +884,11 @@ function PluginLoadedEditor({
             document.body.style.removeProperty('cursor');
             document.body.style.removeProperty('user-select');
         };
-        document.body.style.cursor = 'row-resize';
+        document.body.style.cursor = splitHorizontal ? 'col-resize' : 'row-resize';
         document.body.style.userSelect = 'none';
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
-    }, []);
+    }, [splitHorizontal]);
 
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -1220,18 +1281,18 @@ function PluginLoadedEditor({
                 const svg = await res.text();
                 const paths = extractDrawingPaths(svg);
                 if (!paths) {
-                    window.alert('This image is not an editable drawing.');
+                    showToast('This image is not an editable drawing.', 'error');
                     return;
                 }
                 setDrawingState({ mode: 'edit', initialPaths: paths });
             } catch (err) {
                 console.error('[Editor] failed to load drawing for edit:', err);
-                window.alert('Could not load this drawing for editing.');
+                showToast('Could not load this drawing for editing.', 'error');
             }
         };
         window.addEventListener('trigger-edit-drawing', handler);
         return () => window.removeEventListener('trigger-edit-drawing', handler);
-    }, [editor]);
+    }, [editor, showToast]);
 
     const applyPrompt = useCallback((prompt: WritingPrompt) => {
         if (!editor) return;
@@ -1817,7 +1878,7 @@ function PluginLoadedEditor({
 
             <div
                 ref={splitContainerRef}
-                className={`flex-1 relative flex flex-col min-h-0 ${isDistractionFree ? 'max-w-4xl mx-auto w-full mt-10' : ''}`}
+                className={`flex-1 relative flex min-h-0 ${isSplitMode && splitHorizontal ? 'flex-row' : 'flex-col'} ${isDistractionFree ? 'max-w-4xl mx-auto w-full mt-10' : ''}`}
                 onDragOver={e => {
                     // Only intercept if the drag payload contains image files
                     if (Array.from(e.dataTransfer.items).some(i => i.kind === 'file' && i.type.startsWith('image/'))) {
@@ -1846,20 +1907,32 @@ function PluginLoadedEditor({
                     setContextMenu({ x: Math.min(e.clientX, window.innerWidth - 232), y: Math.min(e.clientY, window.innerHeight - 150) });
                 }}
             >
+                {showFindBar && <FindBar editor={editor} secondaryEditor={isSplitMode ? editor2 : null} onClose={() => setShowFindBar(false)} />}
+                {prompt && <PromptModal config={prompt} onClose={() => setPrompt(null)} />}
                 <div
                     style={{
-                        height: isSplitMode ? `${splitRatio}%` : '100%',
+                        ...(isSplitMode
+                            ? (splitHorizontal ? { width: `${splitRatio}%` } : { height: `${splitRatio}%` })
+                            : { height: '100%' }),
                         ...(bgImage ? { backgroundImage: `url("${bgImage}")`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'local' } : {}),
                     }}
-                    className="flex flex-col min-h-0 tiptap-container"
+                    className="flex flex-col min-h-0 min-w-0 tiptap-container"
                 >
                     <EditorContent editor={editor} className="flex-1" />
                 </div>
 
                 {isSplitMode && (
                     <>
-                        <div onMouseDown={handleDividerMouseDown} className="h-1 bg-border-primary hover:bg-accent-primary cursor-row-resize relative flex-shrink-0"><div className="absolute inset-x-0 -top-1 -bottom-1" /></div>
-                        <div style={{ height: `${100 - splitRatio}%` }} className="flex flex-col min-h-0 tiptap-container border-t-2 border-border-primary">
+                        <div
+                            onMouseDown={handleDividerMouseDown}
+                            className={`bg-border-primary hover:bg-accent-primary relative flex-shrink-0 ${splitHorizontal ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'}`}
+                        >
+                            <div className={splitHorizontal ? 'absolute inset-y-0 -left-1 -right-1' : 'absolute inset-x-0 -top-1 -bottom-1'} />
+                        </div>
+                        <div
+                            style={splitHorizontal ? { width: `${100 - splitRatio}%` } : { height: `${100 - splitRatio}%` }}
+                            className={`flex flex-col min-h-0 min-w-0 tiptap-container ${splitHorizontal ? 'border-l-2' : 'border-t-2'} border-border-primary`}
+                        >
                             <EditorContent editor={editor2} className="flex-1" />
                         </div>
                     </>

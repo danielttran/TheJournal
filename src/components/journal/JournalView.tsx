@@ -135,19 +135,17 @@ export default function JournalView({
         const openDate = () => { setDatePickerValue(searchParams.get('date') || localToday()); setShowDatePicker(true); };
         const back = () => window.history.back();
         const forward = () => window.history.forward();
-        // The app's "find" surface is the global search panel; F3 opens it.
-        const findNext = () => setShowSearch(true);
+        // F3 / "Find Next" drive the in-entry find bar (handled in Editor); the
+        // global cross-entry search panel stays on Ctrl+F (trigger-search).
         window.addEventListener('trigger-go-today', goToday);
         window.addEventListener('trigger-go-to-date', openDate);
         window.addEventListener('trigger-history-back', back);
         window.addEventListener('trigger-history-forward', forward);
-        window.addEventListener('trigger-find-next', findNext);
         return () => {
             window.removeEventListener('trigger-go-today', goToday);
             window.removeEventListener('trigger-go-to-date', openDate);
             window.removeEventListener('trigger-history-back', back);
             window.removeEventListener('trigger-history-forward', forward);
-            window.removeEventListener('trigger-find-next', findNext);
         };
     }, [router, categoryId, searchParams, localToday]);
 

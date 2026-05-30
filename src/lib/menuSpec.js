@@ -58,6 +58,7 @@ const J8_MENUS = [
         label: 'Search',
         submenu: [
             { label: 'Find…', action: 'search', accel: 'CmdOrCtrl+F' },
+            { label: 'Find in Entry…', action: 'find-in-entry' },
             { label: 'Find Next', action: 'find-next', accel: 'F3' },
             { label: 'Replace…', action: 'replace', accel: 'CmdOrCtrl+H' },
             SEP,
@@ -95,6 +96,7 @@ const J8_MENUS = [
             SEP,
             { label: 'Distraction-Free Mode', action: 'focus', accel: 'F11' },
             { label: 'Split Screen Layout', action: 'split', accel: 'CmdOrCtrl+\\' },
+            { label: 'Split Orientation (Stacked / Side-by-Side)', action: 'split-orientation' },
             { label: 'Refresh View', action: 'refresh', accel: 'F5' },
             SEP,
             { label: 'Toggle Theme', action: 'toggle-theme', accel: 'CmdOrCtrl+Shift+D' },
