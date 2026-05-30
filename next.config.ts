@@ -73,7 +73,23 @@ const nextConfig: NextConfig = {
   },
   images: {
     unoptimized: true,
-  }
+  },
+  // Baseline security headers on every response. Deliberately conservative —
+  // no global CSP (Next.js needs inline/runtime scripts; a strict policy here
+  // would break hydration). nosniff + frame/referrer hardening are safe
+  // app-wide; untrusted blob serving gets a strict CSP on its own route.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'Referrer-Policy', value: 'same-origin' },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

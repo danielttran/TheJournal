@@ -2,6 +2,7 @@
 
 import { db, dbManager } from "@/lib/db";
 import { getAppDbKey, hashPassword, verifyPassword } from "@/lib/auth";
+import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "@/lib/session";
 import { seedDefaultCategories } from "@/lib/defaultCategories";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -13,12 +14,14 @@ const FormSchema = z.object({
 
 async function setSession(userId: number) {
     const { cookies } = await import("next/headers");
-    (await cookies()).set("userId", userId.toString(), {
+    // HMAC-signed token, not a bare id — the cookie can be read by the server
+    // but not forged by the client.
+    (await cookies()).set(SESSION_COOKIE, createSessionToken(userId), {
         httpOnly: true,
         path: "/",
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",
-        maxAge: 60 * 60 * 24 * 30, // 30 days
+        maxAge: SESSION_MAX_AGE_SECONDS,
     });
 }
 
@@ -74,7 +77,7 @@ export async function login(prevState: unknown, formData: FormData) {
 export async function logout() {
     // Don't close the DB — just clear the session cookie
     const { cookies } = await import("next/headers");
-    (await cookies()).delete("userId");
+    (await cookies()).delete(SESSION_COOKIE);
     redirect("/login");
 }
 

@@ -77,6 +77,32 @@ export async function POST(req: NextRequest) {
             CategoryID: number; Name: string; Color: string | null; IsPrivate: number;
             Type: string | null; Icon: string | null; ViewSettings: string | null;
             SortOrder: number | null; ParentCategoryID: number | null;
+            // Restoring these is what keeps password-locked categories decryptable
+            // and preserves per-category view config. Older backups may lack some
+            // columns (SELECT * yields undefined → coalesced to null on insert).
+            SortMode: string | null; AutoTemplateID: number | null; EntryFrequency: string | null;
+            IsSmartbook: number | null; SmartbookQuery: string | null;
+            PasswordHash: string | null; PasswordSalt: string | null; PasswordWrappedKey: string | null;
+        }
+        interface ImportedTemplateRow {
+            TemplateID: number; Name: string; QuillDelta: string | null;
+            HtmlContent: string | null; DocumentJson: string | null; CreatedDate: string | null;
+        }
+        interface ImportedTopicRow {
+            TopicID: number; Name: string; Color: string | null; Hotkey: number | null;
+            SortOrder: number | null; CreatedAt: string | null; ParentTopicID: number | null;
+        }
+        interface ImportedEntryTopicRow { EntryID: number; TopicID: number; }
+        interface ImportedHabitRow {
+            HabitID: number; Name: string; Color: string | null; Goal: number | null; CreatedAt: string | null;
+        }
+        interface ImportedHabitLogRow { HabitID: number; Date: string; Count: number | null; }
+        interface ImportedSnippetRow {
+            Name: string; Content: string; Shortcut: string | null; CreatedAt: string | null;
+        }
+        interface ImportedUserSettingRow { Key: string; Value: string | null; }
+        interface ImportedBackupScheduleRow {
+            IntervalDays: number; DestPath: string; LastRun: string | null; Enabled: number | null;
         }
         interface ImportedEntryRow {
             EntryID: number; CategoryID: number; Title: string; PreviewText: string | null;
@@ -105,20 +131,63 @@ export async function POST(req: NextRequest) {
             Name: string; QueryJson: string; CreatedAt: string | null;
         }
 
+        // Validate the attached file is actually a TheJournal database BEFORE the
+        // destructive delete. Restoring a foreign/corrupt file must never wipe
+        // the user's existing data — fail loudly instead.
+        const coreTables = await db.prepare(
+            `SELECT name FROM imported.sqlite_master WHERE type='table' AND name IN ('Category','Entry','EntryContent')`
+        ).all() as { name: string }[];
+        if (coreTables.length < 3) {
+            throw new Error('Selected file is not a valid TheJournal backup.');
+        }
+
         // 2. Perform Restore Transaction
         const transaction = db.transaction(async () => {
-            // A. Clear current user's data (Attachment has no cascade, must delete explicitly)
-            await db.prepare('DELETE FROM Attachment WHERE UserID = ?').run(userId);
-            await db.prepare('DELETE FROM Category WHERE UserID = ?').run(userId);
+            // Optional tables (added post-launch / absent in old backups). Reading
+            // a missing imported.<table> throws; treat as "nothing to restore".
+            const safeAll = async <T>(sql: string): Promise<T[]> => {
+                try { return await db.prepare(sql).all() as T[]; }
+                catch { return []; }
+            };
 
-            // B. Remap Categories
+            // A. Clear ALL of the current user's data so restore REPLACES rather
+            // than duplicates. Child rows cascade: Category→Entry→EntryContent,
+            // Category/Topic→EntryTopic, Habit→HabitLog.
+            for (const t of ['Attachment', 'Category', 'Topic', 'Template', 'Snippet',
+                'Habit', 'Reminder', 'WordGoal', 'SavedSearch', 'UserSetting', 'BackupSchedule']) {
+                await db.prepare(`DELETE FROM ${t} WHERE UserID = ?`).run(userId);
+            }
+
+            // B. Templates first — Category.AutoTemplateID references them.
+            const importedTemplates = await safeAll<ImportedTemplateRow>("SELECT * FROM imported.Template");
+            const templateIdMap = new Map<number, number>();
+            for (const t of importedTemplates) {
+                const r = await db.prepare(`
+                    INSERT INTO main.Template (UserID, Name, QuillDelta, HtmlContent, DocumentJson, CreatedDate)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `).run(userId, t.Name, t.QuillDelta ?? null, t.HtmlContent ?? null, t.DocumentJson ?? null, t.CreatedDate ?? null);
+                templateIdMap.set(t.TemplateID, r.lastInsertRowid as number);
+            }
+
+            // C. Categories — all columns, incl. per-category password material
+            // (without PasswordWrappedKey, locked entries would be undecryptable).
             const importedCats = await db.prepare("SELECT * FROM imported.Category").all() as ImportedCategoryRow[];
             const catIdMap = new Map<number, number>();
             for (const cat of importedCats) {
+                const mappedTemplate = cat.AutoTemplateID ? templateIdMap.get(cat.AutoTemplateID) ?? null : null;
                 const r = await db.prepare(`
-                    INSERT INTO main.Category (UserID, Name, Color, IsPrivate, Type, Icon, ViewSettings, SortOrder)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(userId, cat.Name, cat.Color, cat.IsPrivate, cat.Type || 'Journal', cat.Icon, cat.ViewSettings, cat.SortOrder || 0);
+                    INSERT INTO main.Category
+                        (UserID, Name, Color, IsPrivate, Type, Icon, ViewSettings, SortOrder,
+                         SortMode, AutoTemplateID, EntryFrequency, IsSmartbook, SmartbookQuery,
+                         PasswordHash, PasswordSalt, PasswordWrappedKey)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                    userId, cat.Name, cat.Color, cat.IsPrivate, cat.Type || 'Journal', cat.Icon,
+                    cat.ViewSettings, cat.SortOrder || 0,
+                    cat.SortMode ?? null, mappedTemplate, cat.EntryFrequency ?? null,
+                    cat.IsSmartbook ?? 0, cat.SmartbookQuery ?? null,
+                    cat.PasswordHash ?? null, cat.PasswordSalt ?? null, cat.PasswordWrappedKey ?? null
+                );
                 catIdMap.set(cat.CategoryID, r.lastInsertRowid as number);
             }
             // Re-link the category hierarchy in a second pass: parents may have
@@ -134,7 +203,27 @@ export async function POST(req: NextRequest) {
                 }
             }
 
-            // C. Remap Entries
+            // D. Topics (hierarchical) — second pass re-links ParentTopicID.
+            const importedTopics = await safeAll<ImportedTopicRow>("SELECT * FROM imported.Topic");
+            const topicIdMap = new Map<number, number>();
+            for (const t of importedTopics) {
+                const r = await db.prepare(`
+                    INSERT INTO main.Topic (UserID, Name, Color, Hotkey, SortOrder, CreatedAt)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `).run(userId, t.Name, t.Color ?? '#6366f1', t.Hotkey ?? null, t.SortOrder ?? 0, t.CreatedAt ?? null);
+                topicIdMap.set(t.TopicID, r.lastInsertRowid as number);
+            }
+            for (const t of importedTopics) {
+                if (t.ParentTopicID == null) continue;
+                const newId = topicIdMap.get(t.TopicID);
+                const newParentId = topicIdMap.get(t.ParentTopicID);
+                if (newId && newParentId) {
+                    await db.prepare('UPDATE main.Topic SET ParentTopicID = ? WHERE TopicID = ?')
+                        .run(newParentId, newId);
+                }
+            }
+
+            // E. Entries.
             const importedEntries = await db.prepare("SELECT * FROM imported.Entry").all() as ImportedEntryRow[];
             const entryIdMap = new Map<number, number>();
             for (const entry of importedEntries) {
@@ -154,7 +243,7 @@ export async function POST(req: NextRequest) {
                 entryIdMap.set(entry.EntryID, r.lastInsertRowid as number);
             }
 
-            // D. Remap Attachments (images stored as blobs)
+            // F. Attachments (image/file blobs).
             const attIdMap = new Map<number, number>();
             const importedAtts = await db.prepare("SELECT * FROM imported.Attachment").all() as ImportedAttachmentRow[];
             console.log(`[Import] Copying ${importedAtts.length} attachment(s)...`);
@@ -166,7 +255,7 @@ export async function POST(req: NextRequest) {
                 attIdMap.set(att.AttachmentID, r.lastInsertRowid as number);
             }
 
-            // E. Copy EntryContent — rewriting /api/attachment/{oldId} → {newId}
+            // G. EntryContent — rewriting /api/attachment/{oldId} → {newId}.
             const importedContent = await db.prepare("SELECT * FROM imported.EntryContent").all() as ImportedContentRow[];
             for (const content of importedContent) {
                 const newEntryId = entryIdMap.get(content.EntryID);
@@ -187,7 +276,7 @@ export async function POST(req: NextRequest) {
                 `).run(newEntryId, html, docJson);
             }
 
-            // F. Fix ParentEntryID hierarchy
+            // H. Fix ParentEntryID hierarchy.
             for (const entry of importedEntries) {
                 if (entry.ParentEntryID) {
                     const newEntryId = entryIdMap.get(entry.EntryID);
@@ -199,11 +288,36 @@ export async function POST(req: NextRequest) {
                 }
             }
 
-            // G. Import Reminders / WordGoals / SavedSearches (tables added post-launch — safe to skip if absent)
-            const safeAll = async <T>(sql: string): Promise<T[]> => {
-                try { return await db.prepare(sql).all() as T[]; }
-                catch { return []; }
-            };
+            // I. Entry↔Topic links (remap both ids).
+            const importedEntryTopics = await safeAll<ImportedEntryTopicRow>("SELECT * FROM imported.EntryTopic");
+            for (const et of importedEntryTopics) {
+                const newEntryId = entryIdMap.get(et.EntryID);
+                const newTopicId = topicIdMap.get(et.TopicID);
+                if (newEntryId && newTopicId) {
+                    await db.prepare('INSERT OR IGNORE INTO main.EntryTopic (EntryID, TopicID) VALUES (?, ?)')
+                        .run(newEntryId, newTopicId);
+                }
+            }
+
+            // J. Habits + logs (remap HabitID).
+            const importedHabits = await safeAll<ImportedHabitRow>("SELECT * FROM imported.Habit");
+            const habitIdMap = new Map<number, number>();
+            for (const h of importedHabits) {
+                const r = await db.prepare(`
+                    INSERT INTO main.Habit (UserID, Name, Color, Goal, CreatedAt) VALUES (?, ?, ?, ?, ?)
+                `).run(userId, h.Name, h.Color ?? '#10b981', h.Goal ?? 1, h.CreatedAt ?? null);
+                habitIdMap.set(h.HabitID, r.lastInsertRowid as number);
+            }
+            const importedHabitLogs = await safeAll<ImportedHabitLogRow>("SELECT * FROM imported.HabitLog");
+            for (const log of importedHabitLogs) {
+                const newHabitId = habitIdMap.get(log.HabitID);
+                if (newHabitId) {
+                    await db.prepare('INSERT OR IGNORE INTO main.HabitLog (HabitID, Date, Count) VALUES (?, ?, ?)')
+                        .run(newHabitId, log.Date, log.Count ?? 1);
+                }
+            }
+
+            // K. Reminders / WordGoals / SavedSearches (remap entry/category FKs).
             const importedReminders = await safeAll<ImportedReminderRow>("SELECT * FROM imported.Reminder");
             for (const rem of importedReminders) {
                 const newEntryId = rem.EntryID ? entryIdMap.get(rem.EntryID) ?? null : null;
@@ -232,7 +346,27 @@ export async function POST(req: NextRequest) {
                 `).run(userId, s.Name, s.QueryJson, s.CreatedAt ?? null);
             }
 
-            console.log(`[Import] Done. ${importedCats.length} categories, ${importedEntries.length} entries, ${importedAtts.length} attachments, ${importedReminders.length} reminders, ${importedGoals.length} goals.`);
+            // L. Snippets / per-user settings / backup schedules (no FKs to remap).
+            const importedSnippets = await safeAll<ImportedSnippetRow>("SELECT * FROM imported.Snippet");
+            for (const s of importedSnippets) {
+                await db.prepare(`
+                    INSERT INTO main.Snippet (UserID, Name, Content, Shortcut, CreatedAt) VALUES (?, ?, ?, ?, ?)
+                `).run(userId, s.Name, s.Content, s.Shortcut ?? null, s.CreatedAt ?? null);
+            }
+            const importedSettings = await safeAll<ImportedUserSettingRow>("SELECT * FROM imported.UserSetting");
+            for (const us of importedSettings) {
+                await db.prepare(`
+                    INSERT OR REPLACE INTO main.UserSetting (UserID, Key, Value) VALUES (?, ?, ?)
+                `).run(userId, us.Key, us.Value ?? null);
+            }
+            const importedSchedules = await safeAll<ImportedBackupScheduleRow>("SELECT * FROM imported.BackupSchedule");
+            for (const bs of importedSchedules) {
+                await db.prepare(`
+                    INSERT INTO main.BackupSchedule (UserID, IntervalDays, DestPath, LastRun, Enabled) VALUES (?, ?, ?, ?, ?)
+                `).run(userId, bs.IntervalDays, bs.DestPath, bs.LastRun ?? null, bs.Enabled ?? 1);
+            }
+
+            console.log(`[Import] Done. ${importedCats.length} categories, ${importedEntries.length} entries, ${importedAtts.length} attachments, ${importedTemplates.length} templates, ${importedTopics.length} topics, ${importedHabits.length} habits.`);
         });
 
         await transaction();

@@ -1,6 +1,7 @@
 import { db, ensureUnlocked } from '@/lib/db';
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
+import { verifySessionToken, SESSION_COOKIE } from '@/lib/session';
 import JournalView from '@/components/journal/JournalView';
 
 interface CategoryRow {
@@ -39,9 +40,9 @@ export default async function JournalPage({ params, searchParams }: {
     const sp = await searchParams;
 
     // Check Auth
-    const userIdCookie = (await cookies()).get("userId");
-    if (!userIdCookie) redirect("/login");
-    const userId = userIdCookie.value;
+    const verifiedId = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+    if (verifiedId === null) redirect("/login");
+    const userId = String(verifiedId);
 
     // Lazily unlock the DB — dev-mode workers may start without inherited unlock state
     await ensureUnlocked();

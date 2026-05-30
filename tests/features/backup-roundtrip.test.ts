@@ -23,13 +23,27 @@ let source: DBManager;
 let dest: DBManager;
 
 async function seedSource() {
-    // User + categories
+    // User + a template (Category.AutoTemplateID references it → must remap)
     await source.prepare('INSERT INTO User (UserID, Username) VALUES (?, ?)').run(1, 'src');
-    const cat = await source.prepare('INSERT INTO Category (UserID, Name, Type) VALUES (?, ?, ?)').run(1, 'Travel', 'Journal');
+    const tmpl = await source.prepare('INSERT INTO Template (UserID, Name, HtmlContent) VALUES (?, ?, ?)')
+        .run(1, 'Daily layout', '<p>{{date}}</p>');
+    const tmplId = tmpl.lastInsertRowid;
+
+    // A password-locked category: the wrapped key MUST survive or its entry
+    // content (ENC1: ciphertext) becomes permanently undecryptable.
+    const cat = await source.prepare(
+        `INSERT INTO Category (UserID, Name, Type, AutoTemplateID, PasswordHash, PasswordSalt, PasswordWrappedKey)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(1, 'Travel', 'Journal', tmplId, 'argon2hash', 'saltbytes', 'wrapped-eek-blob');
     const catId = cat.lastInsertRowid;
     // A nested child category — its parent ref must survive the round-trip.
     await source.prepare('INSERT INTO Category (UserID, Name, Type, ParentCategoryID) VALUES (?, ?, ?, ?)')
         .run(1, 'Trips 2026', 'Journal', catId);
+
+    // Topic, snippet, and a per-user setting — all previously dropped on restore.
+    await source.prepare('INSERT INTO Topic (UserID, Name, Color) VALUES (?, ?, ?)').run(1, 'Beaches', '#00aaff');
+    await source.prepare('INSERT INTO Snippet (UserID, Name, Content) VALUES (?, ?, ?)').run(1, 'sig', 'Cheers, me');
+    await source.prepare('INSERT INTO UserSetting (UserID, Key, Value) VALUES (?, ?, ?)').run(1, 'theme', 'dark');
 
     // Entries with all interesting flags
     const e1 = await source.prepare(
@@ -65,13 +79,25 @@ async function runImport(destDb: DBManager, sourcePath: string, destUserId: numb
     await destDb.prepare(`ATTACH DATABASE "${sourcePath}" AS imported KEY "x'${KEY}'"`).run();
     try {
         const tx = destDb.transaction(async () => {
+            // Templates first — Category.AutoTemplateID remaps onto them.
+            const tmpls = await destDb.prepare(`SELECT * FROM imported.Template`).all() as any[];
+            const templateIdMap = new Map<number, number>();
+            for (const t of tmpls) {
+                const r = await destDb.prepare(
+                    `INSERT INTO main.Template (UserID, Name, HtmlContent, DocumentJson, CreatedDate) VALUES (?, ?, ?, ?, ?)`
+                ).run(destUserId, t.Name, t.HtmlContent ?? null, t.DocumentJson ?? null, t.CreatedDate ?? null);
+                templateIdMap.set(t.TemplateID, r.lastInsertRowid as number);
+            }
+
             const cats = await destDb.prepare(`SELECT * FROM imported.Category`).all() as any[];
             const catIdMap = new Map<number, number>();
             for (const c of cats) {
+                const mappedTemplate = c.AutoTemplateID ? templateIdMap.get(c.AutoTemplateID) ?? null : null;
                 const r = await destDb.prepare(
-                    `INSERT INTO main.Category (UserID, Name, Type, Color, IsPrivate, ViewSettings, SortOrder, Icon)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-                ).run(destUserId, c.Name, c.Type, c.Color ?? '#6366f1', c.IsPrivate ?? 0, c.ViewSettings ?? null, c.SortOrder ?? 0, c.Icon ?? null);
+                    `INSERT INTO main.Category (UserID, Name, Type, Color, IsPrivate, ViewSettings, SortOrder, Icon, AutoTemplateID, PasswordHash, PasswordSalt, PasswordWrappedKey)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                ).run(destUserId, c.Name, c.Type, c.Color ?? '#6366f1', c.IsPrivate ?? 0, c.ViewSettings ?? null, c.SortOrder ?? 0, c.Icon ?? null,
+                    mappedTemplate, c.PasswordHash ?? null, c.PasswordSalt ?? null, c.PasswordWrappedKey ?? null);
                 catIdMap.set(c.CategoryID, r.lastInsertRowid as number);
             }
             // Second pass: re-link parents now that every category has a new id.
@@ -138,6 +164,21 @@ async function runImport(destDb: DBManager, sourcePath: string, destUserId: numb
                     `INSERT INTO main.SavedSearch (UserID, Name, QueryJson, CreatedAt) VALUES (?, ?, ?, ?)`
                 ).run(destUserId, s.Name, s.QueryJson, s.CreatedAt ?? null);
             }
+            for (const t of await safeAll('SELECT * FROM imported.Topic')) {
+                await destDb.prepare(
+                    `INSERT INTO main.Topic (UserID, Name, Color, SortOrder, CreatedAt) VALUES (?, ?, ?, ?, ?)`
+                ).run(destUserId, t.Name, t.Color ?? '#6366f1', t.SortOrder ?? 0, t.CreatedAt ?? null);
+            }
+            for (const s of await safeAll('SELECT * FROM imported.Snippet')) {
+                await destDb.prepare(
+                    `INSERT INTO main.Snippet (UserID, Name, Content, Shortcut, CreatedAt) VALUES (?, ?, ?, ?, ?)`
+                ).run(destUserId, s.Name, s.Content, s.Shortcut ?? null, s.CreatedAt ?? null);
+            }
+            for (const us of await safeAll('SELECT * FROM imported.UserSetting')) {
+                await destDb.prepare(
+                    `INSERT OR REPLACE INTO main.UserSetting (UserID, Key, Value) VALUES (?, ?, ?)`
+                ).run(destUserId, us.Key, us.Value ?? null);
+            }
         });
         await tx();
     } finally {
@@ -177,6 +218,24 @@ describe('Backup round-trip', () => {
         expect(travel).toBeDefined();
         // The child's parent ref was remapped to the parent's NEW id, not lost.
         expect(child.ParentCategoryID).toBe(travel.CategoryID);
+        // Per-category password material survives → locked entries stay decryptable.
+        expect(travel.PasswordWrappedKey).toBe('wrapped-eek-blob');
+        expect(travel.PasswordSalt).toBe('saltbytes');
+        expect(travel.PasswordHash).toBe('argon2hash');
+
+        // Template restored, and Category.AutoTemplateID remapped onto its new id.
+        const tmpls = await dest.prepare('SELECT * FROM Template WHERE UserID = ?').all(99) as any[];
+        expect(tmpls.length).toBe(1);
+        expect(tmpls[0].Name).toBe('Daily layout');
+        expect(travel.AutoTemplateID).toBe(tmpls[0].TemplateID);
+
+        // Topic, snippet, and per-user setting — previously dropped on restore.
+        const topics = await dest.prepare('SELECT * FROM Topic WHERE UserID = ?').all(99) as any[];
+        expect(topics.map(t => t.Name)).toContain('Beaches');
+        const snippets = await dest.prepare('SELECT * FROM Snippet WHERE UserID = ?').all(99) as any[];
+        expect(snippets.map(s => s.Name)).toContain('sig');
+        const setting = await dest.prepare('SELECT Value FROM UserSetting WHERE UserID = ? AND Key = ?').get(99, 'theme') as any;
+        expect(setting?.Value).toBe('dark');
 
         // Verify entries (both regular and soft-deleted)
         const allEntries = await dest.prepare('SELECT * FROM Entry WHERE CategoryID = ?').all(travel.CategoryID) as any[];

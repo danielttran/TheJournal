@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { verifySessionToken, SESSION_COOKIE } from './session';
 
 /**
  * Standard authenticated handler. Wraps a route function with:
@@ -22,9 +23,8 @@ export function authedHandler<Args extends unknown[]>(
     return async (...args: Args) => {
         try {
             const req = args[0] as NextRequest | undefined;
-            const v = req?.cookies?.get?.('userId')?.value;
-            const userId = v ? parseInt(v, 10) : NaN;
-            if (isNaN(userId)) {
+            const userId = verifySessionToken(req?.cookies?.get?.(SESSION_COOKIE)?.value);
+            if (userId === null) {
                 return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
             }
             return await handler(userId, ...args);
@@ -47,8 +47,5 @@ export function authedHandler<Args extends unknown[]>(
  * has a custom not-authed branch).
  */
 export function getUserIdFromRequest(req: NextRequest): number | null {
-    const v = req.cookies?.get?.('userId')?.value;
-    if (!v) return null;
-    const n = parseInt(v, 10);
-    return Number.isFinite(n) ? n : null;
+    return verifySessionToken(req.cookies?.get?.(SESSION_COOKIE)?.value);
 }

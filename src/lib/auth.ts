@@ -62,6 +62,16 @@ export function getAppDbKey(): string {
         .digest('hex');
 }
 
+// ─── Session signing key ──────────────────────────────────────────────────────
+// HMAC key for signing session cookies. Derived from the same installation
+// secret but domain-separated from the DB key so the two can never collide.
+// Reuses the JOURNAL_DB_SECRET guard, so production won't sign sessions with
+// the public dev default either.
+export function getSessionSigningKey(): Buffer {
+    checkDbSecret();
+    return createHash('sha256').update('thejournal:session:' + APP_DB_SECRET).digest();
+}
+
 // ─── User Password Hashing ────────────────────────────────────────────────────
 // User passwords are hashed with Argon2id and stored in the User table.
 // This is separate from the DB encryption key.
