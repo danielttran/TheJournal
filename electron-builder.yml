@@ -7,7 +7,12 @@ files:
   # "**/*": a developer checkout can contain journal.tjdb / journal.db files,
   # backups, screenshots, tests, and other private or unnecessary artifacts.
   - "package.json"
-  - ".next/**/*"
+  # Electron embeds Next.js from .next/ directly. Package only its runtime
+  # surface: never include web standalone output, build caches, or diagnostics.
+  - ".next/BUILD_ID"
+  - ".next/*.json"
+  - ".next/server/**/*"
+  - ".next/static/**/*"
   - "node_modules/**/*"
   - "public/**/*"
   - "plugins/**/*"

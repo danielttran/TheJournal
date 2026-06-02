@@ -21,6 +21,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { assertStandaloneSafe } = require('./verify-standalone');
 
 const root = path.resolve(__dirname, '..');
 const standalone = path.join(root, '.next', 'standalone');
@@ -66,5 +67,7 @@ copyDirSync(
     path.join(standalone, 'plugins'),
     { optional: true },
 );
+
+assertStandaloneSafe(standalone);
 
 console.log('[stage-standalone] done. Start the server with `node .next/standalone/server.js`.');

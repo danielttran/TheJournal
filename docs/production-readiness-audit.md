@@ -12,11 +12,15 @@
 2. **Desktop installers now use a runtime-only allow-list**
    - `electron-builder.yml` no longer begins with `"**/*"`.
    - Installers include the compiled Next.js application, runtime dependencies, public assets, bundled plugins, Electron shell, and shared menu specification only.
+   - Electron packages only the required `.next` runtime surface (`BUILD_ID`, root manifests, `server`, and `static`); nested standalone output, build caches, and diagnostics remain outside the installer.
    - Development databases, backups, tests, screenshots, docs, scripts, and other checkout-only files are outside the package boundary.
 3. **Development database artifacts are no longer versioned**
    - The tracked `journal.db` and `journal.db.bak` files were removed. The existing `.gitignore` database rules prevent them from being added again.
-4. **Desktop release configuration has regression coverage**
-   - A focused Vitest file asserts that the installer build compiles first and that the Electron config retains an explicit runtime allow-list.
+4. **Standalone web output has an independent safety check**
+   - The trace exclusion map uses the documented global `/*` route glob.
+   - Staging fails if a standalone bundle contains database files or checkout-only top-level directories, even if tracing configuration regresses later.
+5. **Release configuration has regression coverage**
+   - A focused Vitest file asserts installer ordering, Electron package boundaries, the global trace glob, and standalone safety verification.
 
 ## Verification notes
 - `npm run lint` completes with no errors. Existing warnings remain and should continue to be reduced, but they do not block the configured lint command.

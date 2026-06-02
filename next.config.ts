@@ -39,7 +39,7 @@ const nextConfig: NextConfig = {
   // is excluded explicitly here to keep the bundle small AND to prevent
   // local data from accidentally shipping to production.
   outputFileTracingExcludes: {
-    '*': [
+    '/*': [
       // Local development data — must never ship.
       './journal.db',
       './journal.db.bak',
