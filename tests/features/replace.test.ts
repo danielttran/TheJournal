@@ -10,6 +10,8 @@ import { join } from 'path';
 import { unlink } from 'fs/promises';
 import { DBManager } from '../../src/lib/db';
 import { buildReplaceRegex, previewReplace, executeReplace } from '../../src/lib/replace';
+import { setCategoryPassword, encryptWithKey, decryptWithKey, ENC_PREFIX } from '../../src/lib/categoryCrypto';
+import { cacheCategoryKey, clearCategoryKey } from '../../src/lib/categoryKeyCache';
 
 const TEST_DB_PATH = join(process.cwd(), `test-rep-${Date.now()}.tjdb`);
 const TEST_KEY = 'deadbeef'.repeat(8);
@@ -114,5 +116,54 @@ describe('executeReplace', () => {
         await executeReplace(dbm, USER_ID, { categoryId, find: 'cat', replace: 'X', matchCase: false, wholeWord: true });
         const content = await dbm.prepare('SELECT HtmlContent FROM EntryContent WHERE EntryID = ?').get(id) as any;
         expect(content.HtmlContent).toBe('<p>X catalogue cats X</p>');
+    });
+});
+
+describe('executeReplace on a password-locked category', () => {
+    let lockedCat: number;
+    let eek: Uint8Array;
+
+    beforeEach(async () => {
+        const r = await dbm.prepare('INSERT INTO Category (UserID, Name, Type) VALUES (?, ?, ?)').run(USER_ID, 'L', 'Notebook');
+        lockedCat = r.lastInsertRowid;
+        eek = await setCategoryPassword(dbm, USER_ID, lockedCat, 'pw');
+    });
+
+    async function lockedEntry(html: string): Promise<number> {
+        const ciphertext = encryptWithKey(html, eek);
+        const r = await dbm.prepare(
+            `INSERT INTO Entry (CategoryID, Title, PreviewText) VALUES (?, ?, ?)`
+        ).run(lockedCat, 't', '');
+        await dbm.prepare('INSERT INTO EntryContent (EntryID, HtmlContent) VALUES (?, ?)').run(r.lastInsertRowid, ciphertext);
+        return r.lastInsertRowid;
+    }
+
+    it('decrypts, replaces, and re-encrypts so content stays decryptable', async () => {
+        cacheCategoryKey(USER_ID, lockedCat, eek);
+        const id = await lockedEntry('<p>match me</p>');
+
+        const { totalReplacements } = await executeReplace(dbm, USER_ID,
+            { categoryId: lockedCat, find: 'match', replace: 'gone', matchCase: false, wholeWord: false });
+        expect(totalReplacements).toBe(1);
+
+        const row = await dbm.prepare('SELECT HtmlContent FROM EntryContent WHERE EntryID = ?').get(id) as any;
+        // Still ciphertext on disk...
+        expect(row.HtmlContent.startsWith(ENC_PREFIX)).toBe(true);
+        // ...and decrypts to the replaced plaintext (not mangled).
+        expect(decryptWithKey(row.HtmlContent, eek)).toContain('gone');
+    });
+
+    it('refuses (CATEGORY_LOCKED) when the EEK is not cached, leaving ciphertext intact', async () => {
+        cacheCategoryKey(USER_ID, lockedCat, eek);
+        const id = await lockedEntry('<p>match me</p>');
+        const before = (await dbm.prepare('SELECT HtmlContent FROM EntryContent WHERE EntryID = ?').get(id) as any).HtmlContent;
+        clearCategoryKey(USER_ID, lockedCat);
+
+        await expect(executeReplace(dbm, USER_ID,
+            { categoryId: lockedCat, find: 'match', replace: 'gone', matchCase: false, wholeWord: false }))
+            .rejects.toMatchObject({ code: 'CATEGORY_LOCKED' });
+
+        const after = (await dbm.prepare('SELECT HtmlContent FROM EntryContent WHERE EntryID = ?').get(id) as any).HtmlContent;
+        expect(after).toBe(before);
     });
 });

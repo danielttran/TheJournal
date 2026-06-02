@@ -39,7 +39,11 @@ const nextConfig: NextConfig = {
   // is excluded explicitly here to keep the bundle small AND to prevent
   // local data from accidentally shipping to production.
   outputFileTracingExcludes: {
-    '/*': [
+    // Key is matched against every route path with picomatch
+    // `{ contains: true }`. '*' matches all routes INCLUDING the root '/';
+    // '/*' silently misses '/', leaking the root page's traced files
+    // (journal.tjdb, src/**, ...) into the standalone bundle.
+    '*': [
       // Local development data — must never ship.
       './journal.db',
       './journal.db.bak',

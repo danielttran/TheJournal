@@ -122,6 +122,8 @@ export async function POST(req: NextRequest) {
             Title: string; Notes: string | null; DueAt: string; IsComplete: number;
             CompletedAt: string | null; EntryID: number | null; CreatedAt: string | null;
             RecurInterval: string | null; RecurEvery: number | null;
+            ReminderType: string | null; Status: string | null;
+            LeadMinutes: number | null; NotifiedAt: string | null;
         }
         interface ImportedGoalRow {
             Type: string; Target: number; StartDate: string; EndDate: string | null;
@@ -322,12 +324,14 @@ export async function POST(req: NextRequest) {
             for (const rem of importedReminders) {
                 const newEntryId = rem.EntryID ? entryIdMap.get(rem.EntryID) ?? null : null;
                 await db.prepare(`
-                    INSERT INTO main.Reminder(UserID, Title, Notes, DueAt, IsComplete, CompletedAt, EntryID, CreatedAt, RecurInterval, RecurEvery)
-                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO main.Reminder(UserID, Title, Notes, DueAt, IsComplete, CompletedAt, EntryID, CreatedAt, RecurInterval, RecurEvery, ReminderType, Status, LeadMinutes, NotifiedAt)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `).run(
                     userId, rem.Title, rem.Notes ?? null, rem.DueAt,
                     rem.IsComplete ? 1 : 0, rem.CompletedAt ?? null, newEntryId, rem.CreatedAt ?? null,
-                    rem.RecurInterval ?? null, rem.RecurEvery ?? null
+                    rem.RecurInterval ?? null, rem.RecurEvery ?? null,
+                    rem.ReminderType ?? 'Appointment', rem.Status ?? 'active',
+                    rem.LeadMinutes ?? 0, rem.NotifiedAt ?? null
                 );
             }
             const importedGoals = await safeAll<ImportedGoalRow>("SELECT * FROM imported.WordGoal");

@@ -202,16 +202,23 @@ describe('maybeEncryptForCategory', () => {
 });
 
 describe('getEntryCategoryId', () => {
-    it('returns the CategoryID for an existing entry', async () => {
+    it('returns the CategoryID for an existing entry owned by the user', async () => {
         const r = await dbm.prepare(
             `INSERT INTO Entry (CategoryID, Title) VALUES (?, 't')`
         ).run(CAT_ID);
-        const id = await getEntryCategoryId(dbm, Number(r.lastInsertRowid));
+        const id = await getEntryCategoryId(dbm, USER_ID, Number(r.lastInsertRowid));
         expect(id).toBe(CAT_ID);
     });
 
     it('returns null for a missing entry', async () => {
-        expect(await getEntryCategoryId(dbm, 9999)).toBeNull();
+        expect(await getEntryCategoryId(dbm, USER_ID, 9999)).toBeNull();
+    });
+
+    it('returns null when the entry belongs to another user (cross-tenant guard)', async () => {
+        const r = await dbm.prepare(
+            `INSERT INTO Entry (CategoryID, Title) VALUES (?, 't')`
+        ).run(CAT_ID);
+        expect(await getEntryCategoryId(dbm, OTHER_USER_ID, Number(r.lastInsertRowid))).toBeNull();
     });
 });
 
