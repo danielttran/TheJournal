@@ -58,9 +58,9 @@ if errorlevel 1 (
 )
 
 REM ---------------------------------------------------------------------------
-REM Build installer. build:installer runs scripts/install-sqlite.js (rebuilds
-REM @journeyapps/sqlcipher's native binding against the Electron runtime's
-REM V8 ABI) and then electron-builder, which honours electron-builder.yml
+REM Package installer. The Next.js build already completed above, so invoke the
+REM packaging-only script. It rebuilds @journeyapps/sqlcipher against Electron's
+REM V8 ABI and then runs electron-builder, which honours electron-builder.yml
 REM (Windows NSIS target, publish: github).
 REM
 REM electron-builder needs GH_TOKEN to publish to GitHub Releases. When run
@@ -68,9 +68,9 @@ REM locally without GH_TOKEN it builds the installer but doesn't upload.
 REM ---------------------------------------------------------------------------
 echo.
 echo [3/3] Building NSIS installer (this can take several minutes)...
-call npm run build:installer
+call npm run package:installer
 if errorlevel 1 (
-    echo [error] npm run build:installer failed.
+    echo [error] npm run package:installer failed.
     popd & exit /b 1
 )
 

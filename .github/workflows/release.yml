@@ -39,8 +39,8 @@ jobs:
         run: npx vitest run
 
       - name: Build installer
-        # build:installer = `node scripts/install-sqlite.js && electron-builder`.
-        # The install-sqlite step rebuilds @journeyapps/sqlcipher's native
+        # build:installer compiles Next.js, then rebuilds @journeyapps/sqlcipher's
+        # native binding and invokes electron-builder. The install-sqlite step rebuilds the
         # binding against the Electron runtime's V8 ABI. electron-builder
         # then bundles the installer and — because electron-builder.yml has
         # a `publish: github` block — uploads it to the Release for this

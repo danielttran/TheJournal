@@ -1,37 +1,33 @@
-# Production Readiness Audit (2026-04-11)
+# Production Readiness Audit (2026-06-02)
 
 ## Scope
-- Static review of core backend/data paths (`src/lib/db.ts`, API handlers).
-- Build/test/lint verification from repository scripts.
-- Concurrency and reliability review focused on database usage, request handling, and startup behavior.
+- Verified the shared Next.js application used by both the standalone web bundle and the Electron desktop shell.
+- Reviewed the Windows Electron release path (`package.json`, `electron-builder.yml`, and `.github/workflows/release.yml`).
+- Re-ran lint, TypeScript checks, focused packaging regression tests, and the available Vitest suite in the audit environment.
 
-## What was verified
-1. **Database transaction serialization**
-   - Confirmed `DBManager.transaction()` uses an async mutex plus `BEGIN IMMEDIATE` and `finally` release to avoid overlapping write transactions.
-2. **Database unlock lifecycle**
-   - Hardened unlock flow so schema-migration failures close the temporary DB handle and clear `this.instance` to prevent leaked handles and inconsistent runtime state.
-   - Added `PRAGMA busy_timeout = 5000` to reduce transient `SQLITE_BUSY` under concurrent load.
-3. **Search pagination hardening**
-   - Validated and normalized `limit`/`offset` parsing to prevent `NaN`, negative, or malformed values from reaching SQL pagination clauses.
+## Fixed release blockers
+1. **Electron release builds now compile the application before packaging**
+   - `npm run build:installer` runs `npm run build:electron` before the packaging-only `npm run package:installer` step.
+   - The tag-driven Windows release workflow can no longer invoke `electron-builder` against a checkout with no compiled `.next` application.
+2. **Desktop installers now use a runtime-only allow-list**
+   - `electron-builder.yml` no longer begins with `"**/*"`.
+   - Installers include the compiled Next.js application, runtime dependencies, public assets, bundled plugins, Electron shell, and shared menu specification only.
+   - Development databases, backups, tests, screenshots, docs, scripts, and other checkout-only files are outside the package boundary.
+3. **Development database artifacts are no longer versioned**
+   - The tracked `journal.db` and `journal.db.bak` files were removed. The existing `.gitignore` database rules prevent them from being added again.
+4. **Desktop release configuration has regression coverage**
+   - A focused Vitest file asserts that the installer build compiles first and that the Electron config retains an explicit runtime allow-list.
 
-## Critical blockers found
-1. **Lint baseline is currently not production-clean**
-   - `npm run lint` reports 150 errors / 44 warnings across API, components, electron scripts, and tests.
-   - Multiple `no-explicit-any`, `no-require-imports`, and hook-rule violations are present.
-2. **Build is not reproducible in this environment without external font access**
-   - `npm run build` fails because `next/font` cannot fetch Geist / Geist Mono from Google Fonts.
-3. **Tests are currently blocked in this environment by native dependency mismatch**
-   - `npm test` fails due to missing `libcrypto.so.1.1` required by `@journeyapps/sqlcipher` binding.
+## Verification notes
+- `npm run lint` completes with no errors. Existing warnings remain and should continue to be reduced, but they do not block the configured lint command.
+- The full Vitest command remains partially blocked in this audit container because the prebuilt `@journeyapps/sqlcipher` binary requires `libcrypto.so.1.1`. CI installs the matching `libssl1.1` compatibility package before running tests.
+- The focused desktop-packaging regression suite does not import SQLCipher and runs in the audit container.
 
-## Performance / reliability observations
-- Search currently uses `LIKE` scans over joined `Entry` + `EntryContent`; there is an FTS table in schema but this route does not use it. Under large datasets this may become a bottleneck.
-- Large lint debt is likely masking real defects; CI should enforce a stable baseline and prevent regressions.
-
-## Recommended next actions (priority order)
-1. Stabilize CI environment for native SQLCipher and production build dependencies.
-2. Establish lint baseline and reduce existing violations (start with API + DB modules).
-3. Move search endpoint to FTS-backed querying for predictable performance at scale.
-4. Add load tests for concurrent writes and searches with representative dataset sizes.
+## Remaining operational checks before a public desktop release
+1. Run the Windows tag-driven release workflow and install the generated NSIS package on a clean Windows VM.
+2. Confirm the packaged app starts, creates its journal under Electron `userData`, and loads bundled plugins.
+3. Confirm a standalone web deployment starts from `.next/standalone/server.js` with production secrets configured as documented in `docs/env-vars.md`.
+4. Add Windows code signing when distributing broadly; unsigned NSIS builds will trigger SmartScreen warnings.
 
 ## Conclusion
-The application has several solid patterns (transaction mutex, WAL mode), but it is **not yet production ready** due to unresolved lint errors and environment-dependent build/test failures. The code changes in this patch specifically reduce risk of DB handle leaks and malformed pagination inputs.
+The web and Electron targets continue to use the same compiled Next.js application. The audited desktop release path now builds that application reliably and packages only required runtime files, eliminating both a broken-installer risk and an accidental local-data disclosure risk.
