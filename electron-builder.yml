@@ -3,18 +3,21 @@ productName: TheJournal
 directories:
   output: dist
 files:
-  - "**/*"
-  - "!**/*.ts"
-  - "!*.map"
-  - "!package-lock.json"
-  - "!src/app/**/*" 
-  # Note: logic relies on .next and node_modules, src/app is compiled to .next
-  # But we might need src/electron
-  - "src/electron/**/*"
-  - "public/**/*"
-  - ".next/**/*"
+  # Keep the desktop installer runtime-only. In particular, do not start from
+  # "**/*": a developer checkout can contain journal.tjdb / journal.db files,
+  # backups, screenshots, tests, and other private or unnecessary artifacts.
   - "package.json"
+  # Electron embeds Next.js from .next/ directly. Package only its runtime
+  # surface: never include web standalone output, build caches, or diagnostics.
+  - ".next/BUILD_ID"
+  - ".next/*.json"
+  - ".next/server/**/*"
+  - ".next/static/**/*"
   - "node_modules/**/*"
+  - "public/**/*"
+  - "plugins/**/*"
+  - "src/electron/**/*"
+  - "src/lib/menuSpec.js"
 
 asar: true
 
