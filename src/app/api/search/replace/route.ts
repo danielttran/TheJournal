@@ -20,10 +20,20 @@ export const POST = authedHandler<[NextRequest]>('POST /api/search/replace', asy
     const parsed = Schema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
 
-    if (parsed.data.preview) {
-        const result = await previewReplace(dbManager, userId, parsed.data);
+    try {
+        if (parsed.data.preview) {
+            const result = await previewReplace(dbManager, userId, parsed.data);
+            return NextResponse.json(result);
+        }
+        const result = await executeReplace(dbManager, userId, parsed.data);
         return NextResponse.json(result);
+    } catch (err) {
+        if ((err as { code?: string })?.code === 'CATEGORY_LOCKED') {
+            return NextResponse.json(
+                { error: 'Category is locked. Unlock it before running search-and-replace.' },
+                { status: 423 },
+            );
+        }
+        throw err;
     }
-    const result = await executeReplace(dbManager, userId, parsed.data);
-    return NextResponse.json(result);
 });

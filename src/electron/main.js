@@ -495,7 +495,21 @@ app.whenReady().then(async () => {
 
         // Register IPC Handlers
         ipcMain.handle('get-settings', () => settingsManager.getSettings());
+        // Keys the renderer is allowed to write through the generic setter.
+        // `dbPath` is deliberately excluded: it is set ONLY via the native
+        // file picker (select-database). Without this guard a compromised
+        // renderer (e.g. XSS via pasted/plugin content) could repoint the
+        // app at an attacker-controlled database that opens on next launch.
+        const RENDERER_WRITABLE_SETTINGS = new Set([
+            'theme', 'userName', 'rememberMe', 'savedPassword',
+            'backupPath', 'autoBackupOnClose', 'backupFrequency', 'retentionCount',
+            'defaultFontSize', 'idleLockMinutes', 'lockOnMinimize', 'themePreferences',
+        ]);
         ipcMain.handle('save-setting', (event, key, value) => {
+            if (!RENDERER_WRITABLE_SETTINGS.has(key)) {
+                console.warn('[Electron] save-setting rejected non-writable key:', key);
+                return false;
+            }
             const success = settingsManager.saveSettings({ [key]: value });
             return success ? settingsManager.getSettings() : false;
         });

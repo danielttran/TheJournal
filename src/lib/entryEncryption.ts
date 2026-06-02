@@ -21,11 +21,16 @@ export interface DecryptedContent {
 
 export async function getEntryCategoryId(
     dbm: DBManager,
+    userId: number,
     entryId: number,
 ): Promise<number | null> {
+    // Scoped by UserID via the owning category — never resolve an entry the
+    // caller doesn't own (codebase invariant: every query filters by UserID).
     const row = await dbm.prepare(
-        'SELECT CategoryID FROM Entry WHERE EntryID = ?'
-    ).get(entryId) as { CategoryID: number } | undefined;
+        `SELECT e.CategoryID FROM Entry e
+         JOIN Category c ON c.CategoryID = e.CategoryID
+         WHERE e.EntryID = ? AND c.UserID = ?`
+    ).get(entryId, userId) as { CategoryID: number } | undefined;
     return row?.CategoryID ?? null;
 }
 

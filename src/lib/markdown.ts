@@ -103,11 +103,21 @@ function yamlString(v: string): string {
     return v;
 }
 
+// Like yamlString but for a value inside a flow sequence (tags: [a, b]).
+// There, `,` `[` `]` `{` `}` are structural and MUST be quoted, or a tag
+// such as "a, b" would be misread as two separate tags on re-parse.
+function yamlFlowString(v: string): string {
+    if (/[",:#[\]{}]/.test(v) || v !== v.trim()) {
+        return `"${v.replace(/"/g, '\\"')}"`;
+    }
+    return v;
+}
+
 export function frontmatter(fm: FrontmatterInput): string {
     const lines: string[] = ['---', `title: ${yamlString(fm.title)}`];
     if (fm.createdDate) lines.push(`created: ${fm.createdDate}`);
     if (fm.modifiedDate) lines.push(`modified: ${fm.modifiedDate}`);
-    const tags = (fm.tags ?? []).filter(Boolean);
+    const tags = (fm.tags ?? []).filter(Boolean).map(yamlFlowString);
     lines.push(`tags: [${tags.join(', ')}]`);
     if (fm.mood) lines.push(`mood: ${fm.mood}`);
     lines.push('---');

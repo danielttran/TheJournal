@@ -1,4 +1,6 @@
 import type { DBManager } from './db';
+import { ENC_PREFIX, decryptWithKey, encryptWithKey, isCategoryLocked } from './categoryCrypto';
+import { getCategoryKey } from './categoryKeyCache';
 
 export interface ReplaceOptions {
     matchCase: boolean;
@@ -46,12 +48,41 @@ function replaceTextOnly(html: string, regex: RegExp, replacement: string): { ne
     return { newHtml: out.join(''), count };
 }
 
+/**
+ * Resolve how to read/write entry content for a category. For a
+ * password-protected category, search-and-replace must operate on the
+ * decrypted plaintext — never on the `ENC1:` ciphertext, or a match inside
+ * the base64 blob would mangle it into something the AES-GCM tag check can
+ * never decrypt again (permanent data loss). When the category is locked but
+ * the EEK isn't cached, we refuse with CATEGORY_LOCKED so the route can 423.
+ */
+async function resolveContentCodec(
+    dbm: DBManager,
+    userId: number,
+    categoryId: number,
+): Promise<{ decode: (raw: string) => string; encode: (plain: string) => string }> {
+    const identity = { decode: (s: string) => s, encode: (s: string) => s };
+    if (!(await isCategoryLocked(dbm, userId, categoryId))) return identity;
+
+    const eek = getCategoryKey(userId, categoryId);
+    if (!eek) {
+        const err = new Error('Category is locked') as Error & { code?: string };
+        err.code = 'CATEGORY_LOCKED';
+        throw err;
+    }
+    return {
+        decode: (raw: string) => (raw.startsWith(ENC_PREFIX) ? decryptWithKey(raw, eek) : raw),
+        encode: (plain: string) => encryptWithKey(plain, eek),
+    };
+}
+
 export async function previewReplace(
     dbm: DBManager,
     userId: number,
     params: ReplaceParams
 ): Promise<{ affected: { EntryID: number; Title: string; count: number }[]; totalReplacements: number }> {
     const regex = buildReplaceRegex(params.find, params);
+    const codec = await resolveContentCodec(dbm, userId, params.categoryId);
     const rows = await dbm.prepare(`
         SELECT e.EntryID, e.Title, ec.HtmlContent
         FROM Entry e
@@ -63,7 +94,7 @@ export async function previewReplace(
     const affected: { EntryID: number; Title: string; count: number }[] = [];
     let total = 0;
     for (const r of rows) {
-        const count = countMatches(r.HtmlContent ?? '', regex);
+        const count = countMatches(codec.decode(r.HtmlContent ?? ''), regex);
         if (count > 0) {
             affected.push({ EntryID: r.EntryID, Title: r.Title, count });
             total += count;
@@ -78,6 +109,7 @@ export async function executeReplace(
     params: ReplaceParams
 ): Promise<{ totalEntriesChanged: number; totalReplacements: number }> {
     const regex = buildReplaceRegex(params.find, params);
+    const codec = await resolveContentCodec(dbm, userId, params.categoryId);
 
     let entriesChanged = 0;
     let total = 0;
@@ -95,11 +127,12 @@ export async function executeReplace(
         `).all(userId, params.categoryId) as { EntryID: number; HtmlContent: string | null }[];
 
         for (const row of rows) {
-            const { newHtml, count } = replaceTextOnly(row.HtmlContent ?? '', regex, params.replace);
+            const plain = codec.decode(row.HtmlContent ?? '');
+            const { newHtml, count } = replaceTextOnly(plain, regex, params.replace);
             if (count > 0) {
                 await dbm.prepare(
                     `UPDATE EntryContent SET HtmlContent = ? WHERE EntryID = ?`
-                ).run(newHtml, row.EntryID);
+                ).run(codec.encode(newHtml), row.EntryID);
                 await dbm.prepare(
                     `UPDATE Entry SET Version = Version + 1, ModifiedDate = CURRENT_TIMESTAMP WHERE EntryID = ?`
                 ).run(row.EntryID);

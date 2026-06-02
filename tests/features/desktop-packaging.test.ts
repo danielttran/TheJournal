@@ -40,9 +40,13 @@ describe('desktop release packaging', () => {
         expect(builderConfig).toContain('- "plugins/**/*"');
     });
 
-    it('uses the documented global route glob for standalone trace exclusions', () => {
-        expect(nextConfig).toContain("outputFileTracingExcludes: {\n    '/*': [");
-        expect(nextConfig).not.toContain("outputFileTracingExcludes: {\n    '*': [");
+    it('uses a trace-exclude key that matches every route including the root', () => {
+        // Next matches the key against each route with picomatch
+        // { contains: true }. '*' matches '/'; '/*' silently misses it,
+        // leaking the root page's traced files into the standalone bundle.
+        const key = nextConfig.match(/outputFileTracingExcludes:\s*\{\s*(?:\/\/[^\n]*\n\s*)*'([^']+)':/)?.[1];
+        expect(key).toBe('*');
+        expect(key).not.toBe('/*');
     });
 });
 

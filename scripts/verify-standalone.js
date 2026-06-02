@@ -20,7 +20,7 @@ const FORBIDDEN_TOP_LEVEL_DIRS = new Set([
 ]);
 
 function isDatabaseArtifact(name) {
-    return /\.(?:db|tjdb|sqlite)(?:$|[-.])/i.test(name);
+    return /\.(?:db|tjdb|sqlite3?)(?:$|[-.])/i.test(name);
 }
 
 function findForbiddenStandaloneFiles(standaloneDir) {
