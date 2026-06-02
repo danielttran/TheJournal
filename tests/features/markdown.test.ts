@@ -86,6 +86,12 @@ describe('frontmatter', () => {
         const fm = frontmatter({ title: 'has "quotes"', tags: [] });
         expect(fm).toContain('title: "has \\"quotes\\""');
     });
+
+    it('quotes tags containing flow-sequence special chars so they re-parse as one tag', () => {
+        const fm = frontmatter({ title: 'T', tags: ['a, b', 'plain', 'has:colon'] });
+        // "a, b" must be quoted or YAML reads it as two items.
+        expect(fm).toContain('tags: ["a, b", plain, "has:colon"]');
+    });
 });
 
 describe('exportEntry / exportCategory', () => {

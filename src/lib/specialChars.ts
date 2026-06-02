@@ -38,5 +38,5 @@ export const SPECIAL_CHAR_GROUPS: SpecialCharGroup[] = [
 
 /** Flat, de-duplicated list of every catalogued symbol. */
 export function allSpecialChars(): string[] {
-    return SPECIAL_CHAR_GROUPS.flatMap(g => g.chars);
+    return [...new Set(SPECIAL_CHAR_GROUPS.flatMap(g => g.chars))];
 }
