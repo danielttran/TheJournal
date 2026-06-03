@@ -289,6 +289,11 @@ function PluginLoadedEditor({
     // without stale closures (useEditor hooks fire before refs are set)
     const editor1Ref = useRef<TipTapEditor | null>(null);
     const editor2Ref = useRef<TipTapEditor | null>(null);
+    // handleChange is created with [] deps (it's wired into the editor once), so
+    // it can't close over the latest performSave (which depends on `editor`).
+    // Call through this ref so the debounced autosave always runs the current
+    // performSave — with the live editor — instead of the first (editor=null) one.
+    const performSaveRef = useRef<((id: number, isAutoSave?: boolean) => Promise<boolean>) | null>(null);
 
     const handleChange = useCallback((html: string, json: JSONContent, source: string) => {
         contentRef.current = html;
@@ -303,7 +308,7 @@ function PluginLoadedEditor({
             if (isFullyLoadedRef.current) {
                 if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = setTimeout(() => {
-                    if (entryIdRef.current && isDirtyRef.current) performSave(entryIdRef.current, true);
+                    if (entryIdRef.current && isDirtyRef.current) performSaveRef.current?.(entryIdRef.current, true);
                 }, 1000);
             }
         }
@@ -619,15 +624,20 @@ function PluginLoadedEditor({
         }
     }, [editor]);
 
+    // Keep the autosave ref pointing at the latest performSave (see handleChange).
+    useEffect(() => { performSaveRef.current = performSave; }, [performSave]);
+
     useEffect(() => {
         const backupTimer = setInterval(() => {
             if (entryIdRef.current && isDirtyRef.current && isFullyLoadedRef.current) {
-                localStorage.setItem('editor_backup', JSON.stringify({
-                    entryId: entryIdRef.current,
-                    content: contentRef.current,
-                    documentJson: documentJsonRef.current,
-                    timestamp: Date.now()
-                }));
+                try {
+                    localStorage.setItem('editor_backup', JSON.stringify({
+                        entryId: entryIdRef.current,
+                        content: contentRef.current,
+                        documentJson: documentJsonRef.current,
+                        timestamp: Date.now()
+                    }));
+                } catch { /* private mode / quota exceeded — autosave still runs */ }
             }
         }, 5000);
         return () => clearInterval(backupTimer);
@@ -666,12 +676,14 @@ function PluginLoadedEditor({
             const currentCacheKey = cacheKeyRef.current;
             const version = versionRef.current;
 
-            localStorage.setItem('editor_backup', JSON.stringify({
-                entryId: id,
-                content: html,
-                documentJson: documentJson,
-                timestamp: Date.now()
-            }));
+            try {
+                localStorage.setItem('editor_backup', JSON.stringify({
+                    entryId: id,
+                    content: html,
+                    documentJson: documentJson,
+                    timestamp: Date.now()
+                }));
+            } catch { /* private mode / quota exceeded — server save still runs */ }
 
             cacheEntry(`entry-${id}`, html, documentJson);
             if (currentCacheKey && currentCacheKey !== `entry-${id}`) {
@@ -942,20 +954,24 @@ function PluginLoadedEditor({
             const documentJson = editor ? editor.getJSON() : documentJsonRef.current;
             const { url, body } = buildSavePayload(id, html, documentJson, versionRef.current);
 
-            localStorage.setItem('editor_backup', JSON.stringify({
-                entryId: id,
-                content: html,
-                documentJson: documentJson,
-                timestamp: Date.now()
-            }));
-
             // sendBeacon issues a POST (route aliases POST → PUT) and is the
             // only reliable way to ship data during unload. Modern browsers
             // block sync XHR in beforeunload and Chrome warns/freezes the tab —
             // so if the beacon is rejected (e.g. > 64KB payload limit) we rely
-            // on the localStorage backup written above and recover on reopen.
+            // on the localStorage backup written below and recover on reopen.
+            // Send it FIRST: a localStorage quota error must never prevent the
+            // primary save path from running.
             const blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
             navigator.sendBeacon(url, blob);
+
+            try {
+                localStorage.setItem('editor_backup', JSON.stringify({
+                    entryId: id,
+                    content: html,
+                    documentJson: documentJson,
+                    timestamp: Date.now()
+                }));
+            } catch { /* private mode / quota exceeded — beacon already sent */ }
 
             isDirtyRef.current = false;
             e.preventDefault();
@@ -1048,7 +1064,11 @@ function PluginLoadedEditor({
                         setEntryId(urlEntryId);
                         onEntryChange?.(urlEntryId);
                         entryIdRef.current = urlEntryId;
-                        fetch(`/api/entry/${urlEntryId}`).then(r => r.ok ? r.json() : null).then(d => {
+                        fetch(`/api/entry/${urlEntryId}`, { signal: renderAbort.signal }).then(r => r.ok ? r.json() : null).then(d => {
+                            // Guard against a fast A→B switch: if this load was
+                            // superseded, don't let entry A's metadata/version
+                            // overwrite entry B's already-applied state.
+                            if (!isMounted || renderAbort.signal.aborted) return;
                             if (d?.Version && versionRef.current === null) versionRef.current = d.Version;
                             applyMeta(d);
                         }).catch(() => {});

@@ -649,12 +649,17 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
     }, [sortKey, categoryId]);
 
     useEffect(() => {
+        // Debounced: pages/journalEntries get a fresh array identity on every
+        // save (journal-entry-updated), which previously fired a /api/tags
+        // request per keystroke. Coalesce bursts into one request.
         let cancelled = false;
-        fetch('/api/tags')
-            .then(r => r.ok ? r.json() : { tags: [] })
-            .then(d => { if (!cancelled) setAvailableTags(d.tags ?? []); })
-            .catch(() => {});
-        return () => { cancelled = true; };
+        const t = setTimeout(() => {
+            fetch('/api/tags')
+                .then(r => r.ok ? r.json() : { tags: [] })
+                .then(d => { if (!cancelled) setAvailableTags(d.tags ?? []); })
+                .catch(() => {});
+        }, 600);
+        return () => { cancelled = true; clearTimeout(t); };
     }, [pages, journalEntries]);
 
     const entryHasAllTags = useCallback((entry: Entry, wanted: string[]) => {
@@ -677,7 +682,9 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         return sortEntries(entries, 'manual');
     }, [journalEntries, matchedEntryIds, showFavoritesOnly, activeTags, entryHasAllTags]);
 
-    const groupedEntries = filteredJournalEntries.reduce((acc: Record<string, Record<string, { entries: Entry[], key: string }>>, entry: Entry) => {
+    // Memoized: this O(n) date-formatting reduce otherwise re-ran on every
+    // Sidebar render (each keystroke in search, context-menu open, drag tick).
+    const groupedEntries = useMemo(() => filteredJournalEntries.reduce((acc: Record<string, Record<string, { entries: Entry[], key: string }>>, entry: Entry) => {
         if (!entry.CreatedDate) return acc;
         const date = new Date(entry.CreatedDate);
         if (isNaN(date.getTime())) return acc;
@@ -688,7 +695,7 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         if (!acc[year][month]) acc[year][month] = { entries: [], key: monthKey };
         acc[year][month].entries.push(entry);
         return acc;
-    }, {});
+    }, {}), [filteredJournalEntries]);
 
     const createEntryWithContent = async (parentId: number | null, entryType: 'Page' | 'Folder', template?: Template | null) => {
         const res = await fetch('/api/entry/create', {
@@ -926,6 +933,20 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
     const startDate = startOfWeek(monthStart);
     const endDate = endOfWeek(monthEnd);
     const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
+    // Bucket entries by day once (memoized) instead of re-filtering all entries
+    // per calendar cell on every render (was O(cells × entries)).
+    const entriesByDay = useMemo(() => {
+        const map = new Map<string, Entry[]>();
+        for (const e of journalEntries) {
+            if (!e.CreatedDate) continue;
+            const d = new Date(e.CreatedDate);
+            if (isNaN(d.getTime())) continue;
+            const k = format(d, 'yyyy-MM-dd');
+            const list = map.get(k);
+            if (list) list.push(e); else map.set(k, [e]);
+        }
+        return map;
+    }, [journalEntries]);
 
     return (
         <div
@@ -964,15 +985,15 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
                         </div>
                         <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
                         <div className="grid grid-cols-7 gap-1 text-sm">
-                            {calendarDays.map((day, i) => {
+                            {calendarDays.map((day) => {
                                 const isSelected = isSameDay(day, selectedDate);
                                 const isCurrentMonth = isSameMonth(day, currentMonth);
-                                const entriesForDay = journalEntries.filter(e => e.CreatedDate && isSameDay(new Date(e.CreatedDate), day));
+                                const entriesForDay = entriesByDay.get(format(day, 'yyyy-MM-dd')) ?? [];
                                 const entryForDay = entriesForDay[0];
                                 const dayCount = entriesForDay.length;
                                 return (
                                     <div
-                                        key={i}
+                                        key={format(day, 'yyyy-MM-dd')}
                                         onClick={() => onDateClick(day)}
                                         className={`relative p-1 rounded cursor-pointer flex items-center justify-center h-8 w-8 mx-auto ${!isCurrentMonth ? 'text-text-muted opacity-50' : ''} ${isSelected ? 'bg-accent-primary text-white font-bold' : 'hover:bg-bg-hover text-text-secondary'}`}
                                         title={dayCount > 1 ? `${dayCount} entries on ${format(day, 'PP')}` : (entryForDay?.Title || "")}

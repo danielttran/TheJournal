@@ -360,6 +360,9 @@ export default function TabBar({ userId }: { userId: string }) {
         if (over && active.id !== over.id) {
             const oldIndex = tabs.findIndex(c => c.CategoryID === active.id);
             const newIndex = tabs.findIndex(c => c.CategoryID === over.id);
+            // The list can change between drag-start and drag-end (e.g. a
+            // journal-entry-updated refetch); a stale id → -1 would corrupt order.
+            if (oldIndex < 0 || newIndex < 0) return;
 
             const newTabs = arrayMove(tabs, oldIndex, newIndex);
             setTabs(newTabs); // Optimistic
