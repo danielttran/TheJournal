@@ -1,4 +1,5 @@
 import type { DBManager } from './db';
+import { loadEntryHtmlForRead } from './entryEncryption';
 
 /** Strip HTML tags + entities, count whitespace-separated tokens. */
 export function countWords(html: string | null | undefined): number {
@@ -85,28 +86,33 @@ export async function computeProgress(
     }
 
     if (input.type === 'daily') {
-        // Both sides in local time — `CURRENT_TIMESTAMP` stamps in UTC, so an
-        // 11 pm entry on Monday local lands on Tuesday UTC. Without the
-        // `'localtime'` modifier on both sides the daily goal flips empty
-        // every night after UTC midnight.
-        conditions.push(`date(e.CreatedDate, 'localtime') = date('now', 'localtime')`);
+        // CreatedDate is stored naive-local, so compare its bare date() against
+        // the local "today". Re-applying 'localtime' to the (already-local)
+        // CreatedDate would treat it as UTC and shift it a day in non-UTC zones.
+        conditions.push(`date(e.CreatedDate) = date('now', 'localtime')`);
     } else {
-        conditions.push(`date(e.CreatedDate, 'localtime') >= ?`);
+        conditions.push(`date(e.CreatedDate) >= ?`);
         params.push(input.startDate);
         if (input.endDate) {
-            conditions.push(`date(e.CreatedDate, 'localtime') <= ?`);
+            conditions.push(`date(e.CreatedDate) <= ?`);
             params.push(input.endDate);
         }
     }
 
     const rows = await dbm.prepare(`
-        SELECT ec.HtmlContent FROM Entry e
+        SELECT e.CategoryID, ec.HtmlContent FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
         LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
         WHERE ${conditions.join(' AND ')}
-    `).all(...params) as { HtmlContent: string | null }[];
+    `).all(...params) as { CategoryID: number; HtmlContent: string | null }[];
 
-    const current = rows.reduce((sum, r) => sum + countWords(r.HtmlContent), 0);
+    // Decrypt locked-category content when its EEK is cached; count 0 words when
+    // it isn't, so ENC1: ciphertext isn't miscounted as ~1 word toward the goal.
+    let current = 0;
+    for (const r of rows) {
+        const html = await loadEntryHtmlForRead(dbm, userId, r.CategoryID, r.HtmlContent);
+        if (html !== null) current += countWords(html);
+    }
     const percent = input.target > 0 ? Math.min(100, (current / input.target) * 100) : 0;
     return { current, target: input.target, percent };
 }

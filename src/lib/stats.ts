@@ -1,5 +1,6 @@
 import type { DBManager } from './db';
 import { countWords } from './wordgoals';
+import { loadEntryHtmlForRead } from './entryEncryption';
 import { normalizeTag } from './tags';
 
 const NOT_DELETED = `e.IsDeleted = 0`;
@@ -15,28 +16,37 @@ export async function totalEntries(dbm: DBManager, userId: number): Promise<numb
 
 export async function totalWords(dbm: DBManager, userId: number): Promise<number> {
     const rows = await dbm.prepare(`
-        SELECT ec.HtmlContent FROM Entry e
+        SELECT e.CategoryID, ec.HtmlContent FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
         LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
         WHERE c.UserID = ? AND ${NOT_DELETED}
-    `).all(userId) as { HtmlContent: string | null }[];
-    return rows.reduce((s, r) => s + countWords(r.HtmlContent), 0);
+    `).all(userId) as { CategoryID: number; HtmlContent: string | null }[];
+    // Decrypt locked content when the EEK is cached; skip (0) otherwise so raw
+    // ENC1: ciphertext isn't miscounted as ~1 word.
+    let total = 0;
+    for (const r of rows) {
+        const html = await loadEntryHtmlForRead(dbm, userId, r.CategoryID, r.HtmlContent);
+        if (html !== null) total += countWords(html);
+    }
+    return total;
 }
 
 export interface DayBucket { date: string; count: number; words: number; }
 
 export async function entriesPerDay(dbm: DBManager, userId: number, days: number): Promise<DayBucket[]> {
-    // Match the user's calendar: bucket entries by their LOCAL date, not the
-    // UTC date `CURRENT_TIMESTAMP` records. The JS pre-seed below uses local
-    // YYYY-MM-DD too so both sides line up.
+    // CreatedDate is stored as naive LOCAL time (by-date entries at noon, notebook
+    // entries via datetime('now','localtime')), so bucket by date() directly — do
+    // NOT re-apply 'localtime', which would treat the naive value as UTC and shift
+    // it a day in non-UTC zones. The JS pre-seed below uses local YYYY-MM-DD too,
+    // and the range bound stays in local via date('now','localtime', ?).
     const rows = await dbm.prepare(`
-        SELECT date(e.CreatedDate, 'localtime') AS d, ec.HtmlContent
+        SELECT date(e.CreatedDate) AS d, e.CategoryID, ec.HtmlContent
         FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
         LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
         WHERE c.UserID = ? AND ${NOT_DELETED}
-          AND date(e.CreatedDate, 'localtime') >= date('now', 'localtime', ?)
-    `).all(userId, `-${days - 1} days`) as { d: string; HtmlContent: string | null }[];
+          AND date(e.CreatedDate) >= date('now', 'localtime', ?)
+    `).all(userId, `-${days - 1} days`) as { d: string; CategoryID: number; HtmlContent: string | null }[];
 
     const map = new Map<string, { count: number; words: number }>();
     for (let i = days - 1; i >= 0; i--) {
@@ -49,18 +59,20 @@ export async function entriesPerDay(dbm: DBManager, userId: number, days: number
         const bucket = map.get(row.d);
         if (!bucket) continue;
         bucket.count += 1;
-        bucket.words += countWords(row.HtmlContent);
+        // Decrypt locked content when its EEK is cached; count 0 otherwise.
+        const html = await loadEntryHtmlForRead(dbm, userId, row.CategoryID, row.HtmlContent);
+        bucket.words += html !== null ? countWords(html) : 0;
     }
     return [...map.entries()].map(([date, v]) => ({ date, ...v }));
 }
 
 async function distinctEntryDates(dbm: DBManager, userId: number): Promise<string[]> {
-    // `date(CreatedDate, 'localtime')` converts the UTC `CURRENT_TIMESTAMP`
-    // SQLite stamps onto rows into the user's local calendar day, so an
-    // entry written at 11 pm local doesn't fall into the next-UTC-day's
-    // streak bucket. The JS callers compare against a local YYYY-MM-DD too.
+    // CreatedDate is stored as naive LOCAL time, so date() already yields the
+    // user's calendar day. Applying 'localtime' here would re-interpret the
+    // naive value as UTC and shift the streak bucket a day in non-UTC zones.
+    // The JS callers compare against a local YYYY-MM-DD too.
     const rows = await dbm.prepare(`
-        SELECT DISTINCT date(e.CreatedDate, 'localtime') AS d
+        SELECT DISTINCT date(e.CreatedDate) AS d
         FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
         WHERE c.UserID = ? AND ${NOT_DELETED}
@@ -231,7 +243,7 @@ export async function moodByMonth(
 ): Promise<MoodMonth[]> {
     if (monthsBack < 1) monthsBack = 1;
     const rows = await dbm.prepare(`
-        SELECT strftime('%Y-%m', e.CreatedDate, 'localtime') AS month,
+        SELECT strftime('%Y-%m', e.CreatedDate) AS month,
                e.Mood AS mood,
                COUNT(*) AS count
         FROM Entry e

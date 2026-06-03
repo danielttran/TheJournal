@@ -79,9 +79,14 @@ export async function POST(req: NextRequest) {
 
         // Create Entry + Content atomically to prevent orphaned rows
         const createEntry = db.transaction(async () => {
+            // Store CreatedDate in LOCAL naive time (matching the by-date journal
+            // path's "YYYY-MM-DD HH:MM:SS" convention) rather than the UTC
+            // CURRENT_TIMESTAMP default. The whole app buckets CreatedDate as
+            // naive-local (stats/heatmap/anniversary/search), so a UTC stamp here
+            // mis-files notebook entries by a day in non-UTC timezones.
             const result = await db.prepare(`
-                INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType, CreatedDate, ModifiedDate)
+                VALUES (?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))
             `).run(categoryId, title, initialPreview, parentEntryId || null, entryType);
 
             const newEntryId = result.lastInsertRowid;

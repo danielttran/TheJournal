@@ -1,5 +1,6 @@
 import type { DBManager } from './db';
 import { countWords } from './wordgoals';
+import { loadEntryHtmlForRead } from './entryEncryption';
 
 export interface HeatmapCell {
     date: string;       // 'YYYY-MM-DD'
@@ -44,20 +45,23 @@ function assignIntensities(cells: HeatmapCell[]): void {
 
 export async function buildHeatmap(dbm: DBManager, userId: number, year: number): Promise<HeatmapCell[]> {
     const rows = await dbm.prepare(`
-        SELECT date(e.CreatedDate) AS d, ec.HtmlContent
+        SELECT date(e.CreatedDate) AS d, e.CategoryID, ec.HtmlContent
         FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
         LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
         WHERE c.UserID = ?
           AND e.IsDeleted = 0
           AND strftime('%Y', e.CreatedDate) = ?
-    `).all(userId, String(year)) as { d: string; HtmlContent: string | null }[];
+    `).all(userId, String(year)) as { d: string; CategoryID: number; HtmlContent: string | null }[];
 
     const buckets = new Map<string, { entryCount: number; wordCount: number }>();
     for (const r of rows) {
         const b = buckets.get(r.d) ?? { entryCount: 0, wordCount: 0 };
         b.entryCount += 1;
-        b.wordCount += countWords(r.HtmlContent);
+        // Decrypt locked-category content when the EEK is cached; count 0 words
+        // when it isn't, so ENC1: ciphertext isn't miscounted as ~1 word.
+        const html = await loadEntryHtmlForRead(dbm, userId, r.CategoryID, r.HtmlContent);
+        b.wordCount += html !== null ? countWords(html) : 0;
         buckets.set(r.d, b);
     }
 
