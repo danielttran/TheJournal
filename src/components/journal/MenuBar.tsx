@@ -13,7 +13,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { J8_MENUS, type MenuNode, type MenuLeaf } from '@/lib/menuSpec';
+import { J8_MENUS, type MenuNode, type MenuLeaf, type MenuTop } from '@/lib/menuSpec';
+import { applyMenuCustomization } from '@/lib/menuCustomization';
+import { loadMenuHidden, MENU_CONFIG_EVENT } from '@/lib/menuCustomConfig';
 import { resolveWebMenuAction } from '@/lib/menuActions';
 import { logAction } from '@/lib/actionLog';
 
@@ -84,8 +86,18 @@ export default function MenuBar() {
     const [openIdx, setOpenIdx] = useState<number | null>(null);
     const barRef = useRef<HTMLDivElement>(null);
     const [isElectron, setIsElectron] = useState(false);
+    // User menu customization (hidden items). Re-read on the config event so
+    // toggling in Settings updates the bar live (mirrors toolbar-config-changed).
+    const [menus, setMenus] = useState<MenuTop[]>(J8_MENUS);
 
     useEffect(() => { setIsElectron(typeof window !== 'undefined' && !!window.electron); }, []);
+
+    useEffect(() => {
+        const refresh = () => setMenus(applyMenuCustomization(J8_MENUS, loadMenuHidden()));
+        refresh();
+        window.addEventListener(MENU_CONFIG_EVENT, refresh);
+        return () => window.removeEventListener(MENU_CONFIG_EVENT, refresh);
+    }, []);
 
     useEffect(() => {
         if (openIdx === null) return;
@@ -101,7 +113,7 @@ export default function MenuBar() {
 
     return (
         <div ref={barRef} className="flex items-center h-8 px-1 bg-bg-sidebar border-b border-border-primary select-none text-text-secondary text-sm flex-shrink-0">
-            {J8_MENUS.map((menu, idx) => (
+            {menus.map((menu, idx) => (
                 <div key={menu.label} className="relative">
                     <button
                         onClick={() => setOpenIdx(openIdx === idx ? null : idx)}

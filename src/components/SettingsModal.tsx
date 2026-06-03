@@ -9,6 +9,9 @@ import PluginsSection from './PluginsSection';
 import {
     TOOLBAR_GROUPS, loadToolbarConfig, saveToolbarConfig, toggleGroup, isGroupVisible,
 } from '@/lib/toolbarConfig';
+import { J8_MENUS } from '@/lib/menuSpec';
+import { listMenuItems } from '@/lib/menuCustomization';
+import { loadMenuHidden, saveMenuHidden } from '@/lib/menuCustomConfig';
 import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 interface SettingsModalProps {
@@ -206,6 +209,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             {/* Appearance Section — grouped right after editor prefs so all
                                 theme controls (mode, palette, colors) live together. */}
                             <ThemeSettings settings={settings} onSave={handleSave} />
+
+                            <div className="h-px bg-border-primary" />
+
+                            {/* Menus Section — show/hide menu items (J8 customizable menus). */}
+                            <MenuCustomizeSection />
 
                             <div className="h-px bg-border-primary" />
 
@@ -483,6 +491,55 @@ function ToolbarCustomizeSection() {
                 })}
             </div>
         </div>
+    );
+}
+
+// Customize which menu items appear (J8 customizable menus). Persists the
+// hidden-id set via menuCustomConfig (localStorage + Electron settings.json),
+// applied to both the web MenuBar and the native menu.
+function MenuCustomizeSection() {
+    const [hidden, setHidden] = useState(() => loadMenuHidden());
+    const [expanded, setExpanded] = useState(false);
+    const rows = listMenuItems(J8_MENUS);
+    const onToggle = (id: string) => {
+        const next = new Set(hidden);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        setHidden(next);
+        saveMenuHidden(next);
+    };
+    return (
+        <section>
+            <h3 className="text-sm font-semibold text-accent-primary uppercase tracking-wider mb-2">Menus</h3>
+            <p className="text-xs text-text-muted mb-2">
+                Hide menu items you don&apos;t use. Hidden items still work via their keyboard shortcut.
+                {hidden.size > 0 ? ` (${hidden.size} hidden)` : ''}
+            </p>
+            <button
+                onClick={() => setExpanded(v => !v)}
+                className="text-xs px-2 py-1 rounded bg-bg-active border border-border-primary text-text-primary hover:bg-bg-hover mb-2"
+            >
+                {expanded ? 'Hide menu list' : 'Customize menu items…'}
+            </button>
+            {expanded && (
+                <div className="max-h-72 overflow-y-auto rounded-lg border border-border-primary p-2 space-y-0.5">
+                    {rows.map(r => (
+                        <label
+                            key={r.id}
+                            className={`flex items-center gap-2 text-sm cursor-pointer select-none ${r.depth === 0 ? 'font-semibold text-text-primary mt-1.5' : 'text-text-secondary'}`}
+                            style={{ paddingLeft: r.depth * 14 }}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={!hidden.has(r.id)}
+                                onChange={() => onToggle(r.id)}
+                                className="accent-[color:var(--color-accent-primary)]"
+                            />
+                            {r.label}
+                        </label>
+                    ))}
+                </div>
+            )}
+        </section>
     );
 }
 

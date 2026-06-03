@@ -27,6 +27,9 @@ class SettingsManager {
             // When enabled, closing/minimizing hides to the system tray instead
             // of quitting; the app keeps running and reopens from the tray icon.
             minimizeToTray: false,
+            // Menu customization: full label-path ids the user has hidden from
+            // the menus. Applied by applyMenuCustomization on both targets.
+            menuHiddenItems: [],
             themePreferences: {
                 light: { accentPrimary: '#9333ea', bgApp: '#f3f4f6', bgSidebar: '#ffffff' },
                 dark: { accentPrimary: '#14b8a6', bgApp: '#000000', bgSidebar: '#000000' }

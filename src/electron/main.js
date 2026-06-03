@@ -8,6 +8,7 @@ const next = require('next');
 const getPort = require('get-port');
 const SettingsManager = require('./settings');
 const { clampWindowBounds } = require('../lib/windowState');
+const { applyMenuCustomization } = require('../lib/menuCustomization');
 
 const dev = process.env.NODE_ENV !== 'production';
 const dir = path.join(__dirname, '../../'); // Adjust based on where main.js is (src/electron/main.js -> root is ../../)
@@ -569,7 +570,12 @@ function createMenu() {
         return item;
     });
 
-    const template = J8_MENUS.map((m) => ({ label: m.label, submenu: toTemplate(m.submenu) }));
+    // Apply the user's menu customization (hidden items) so the native menu
+    // matches the web MenuBar, both built from the same shared spec.
+    const hidden = (settingsManager?.getSettings?.() ?? {}).menuHiddenItems || [];
+    const effectiveMenus = applyMenuCustomization(J8_MENUS, hidden);
+
+    const template = effectiveMenus.map((m) => ({ label: m.label, submenu: toTemplate(m.submenu) }));
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
 }
@@ -593,7 +599,7 @@ app.whenReady().then(async () => {
             'theme', 'userName', 'rememberMe', 'savedPassword',
             'backupPath', 'autoBackupOnClose', 'backupFrequency', 'retentionCount',
             'defaultFontSize', 'idleLockMinutes', 'lockOnMinimize', 'themePreferences',
-            'minimizeToTray',
+            'minimizeToTray', 'menuHiddenItems',
         ]);
         ipcMain.handle('save-setting', (event, key, value) => {
             if (!RENDERER_WRITABLE_SETTINGS.has(key)) {
@@ -601,6 +607,10 @@ app.whenReady().then(async () => {
                 return false;
             }
             const success = settingsManager.saveSettings({ [key]: value });
+            // Rebuild the native menu live when the user changes its customization.
+            if (success && key === 'menuHiddenItems') {
+                try { createMenu(); } catch (e) { console.error('[Electron] menu rebuild failed:', e); }
+            }
             return success ? settingsManager.getSettings() : false;
         });
         ipcMain.handle('logout', () => {
