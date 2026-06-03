@@ -213,23 +213,40 @@ shipping to production.
   not-yet-fixed (documented in audit): login/unlock rate limiting,
   `NODE_ENV`-independent secret guard, multi-tenant admin-role gates on
   `users`/`backup-export`.
+- **J8 parity round 4 (2026-06-03)**: closed the three biggest buildable
+  deferred gaps. (1) **Drag-to-nest categories** — the vertical category tree
+  now accepts drag-to-reparent (drop on a row = child; drop on the root zone =
+  top level), reusing the cycle-guarded reparent route with optimistic
+  revert-on-reject (`resolveCategoryDrop` in `categoryTree.ts`). (2)
+  **Electron window-state persistence + system tray** — window size/position +
+  maximized state survive restarts (`windowState.js`/`.d.ts` clamps recovery
+  onto a visible display); a guarded tray + `minimizeToTray` option keep the
+  app running on close. Also fixed the missing `public/favicon.ico` that
+  `electron-builder.yml` referenced. (3) **Customizable editor toolbar** —
+  nine named toolbar groups can be shown/hidden from Settings (pure
+  `toolbarConfig.ts`; defaults to all-visible). See `docs/j8-gap-analysis.md`.
 
 ## What's intentionally NOT done
 
-- Outlook integration, Penzu/Diaro/WordPress importers, Category Sync,
-  customizable Electron menus, drag-to-reorder toolbar, block-level
-  tagging — explicitly deferred per user choice.
-- macOS / Linux Electron targets, code signing, auto-minimize-idle.
-- Drag-to-NEST categories in the tree: nesting is set via Category
-  Properties (parent dropdown) or the tree's per-row "+"; the horizontal
-  strip still drag-REORDERS siblings.
+- Outlook integration, Penzu/Diaro/WordPress importers — out of scope per the
+  goal ("bridge all gaps except importing from other apps").
+- **Category Sync**: needs an external sync service that doesn't exist — out of
+  scope (an import/sync-from-elsewhere feature, like the importers above).
+- **Toolbar group REORDER** (only show/hide is offered): the toolbar
+  interleaves contextual controls (image-resize, plugin buttons, flex spacer)
+  whose left-to-right position is meaningful. Block-level / inline tagging is
+  NOT a J8 feature (J8 tags whole entries), so it is a non-goal, not a gap.
+- **Customizable Electron menus**: low value and not click-testable in CI
+  (native OS menu). The menu is data-driven from one shared `menuSpec.js`.
+- **macOS / Linux Electron targets, code signing, auto-minimize-idle**: cannot
+  be built or validated in the CI/dev environment (Windows NSIS only).
 
 ## Running tests / type checks
 
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 885 tests as of the last commit.
+# Baseline: 915 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

@@ -1,5 +1,65 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Deferred-gap closure round 4 — 2026-06-03
+
+Per the goal "bridge all gaps except importing from other apps," this round
+reversed three previously-deferred items that are genuine J8 features and are
+buildable + verifiable in this environment. Shared codebase → web + Electron
+get them together (window-state/tray are inherently Electron-only OS concerns).
+
+1. **Drag-to-nest categories (vertical tree).** J8 lets you drag categories to
+   reorganize the hierarchy; previously this app only re-parented via the
+   Category Properties dropdown or the per-row "+". `CategoryTree.tsx` now uses
+   `@dnd-kit/core` (already a dependency): drag a row onto another to make it a
+   child, or onto the "Drop here to move to top level" zone (shown only
+   mid-drag) to promote it to a root. The drop is resolved by the new pure,
+   tested `resolveCategoryDrop` (`categoryTree.ts`) which refuses self-drops,
+   cycles, and no-ops; it persists through the existing cycle-guarded
+   `PUT /api/category/[id]` (`parentCategoryId`) with an optimistic update that
+   reverts if the server rejects. The horizontal/bottom strips keep their flat
+   drag-REORDER unchanged.
+
+2. **Electron window-state persistence + system tray.** J8 remembers its
+   window geometry and offers a tray. New pure helper `windowState.js`/`.d.ts`
+   (`clampWindowBounds`, unit-tested) validates saved bounds and recenters a
+   window saved on a now-disconnected monitor so the app always opens
+   reachable. `main.js` saves normal bounds + maximized state (debounced) and
+   restores them on launch. A guarded `Tray` (degrades silently if no icon or
+   platform support) plus a `minimizeToTray` setting keep the app running on
+   close, reopening from the tray. Fixed the **missing `public/favicon.ico`**
+   that `electron-builder.yml` already referenced (latent build/icon bug).
+   Settings → Security gains a "Minimize to system tray" toggle (Electron only).
+
+3. **Customizable editor toolbar (show/hide groups).** J8 has customizable
+   toolbars. The editor toolbar is now organized into nine named groups
+   (font, marks, paragraph style, lists, alignment, blocks/table, insert,
+   tools, history); each can be toggled from **Settings → Editor Preferences →
+   Editor Toolbar Buttons**. Logic is the pure, tested `toolbarConfig.ts`
+   (hidden-group set in `localStorage`, junk-safe parse, canonical-order
+   serialize); the toolbar re-reads on a `toolbar-config-changed` window event
+   (mirrors `font-size-changed`). Defaults to all-visible — existing layouts
+   are unchanged. **Group reorder is intentionally not offered**: the toolbar
+   interleaves contextual controls (image-resize that appears on image select,
+   plugin buttons, a flex spacer) whose left-to-right position is meaningful.
+
+**Honest remaining non-goals (not buildable/verifiable here, or not J8):**
+- **Importers (Outlook / Penzu / Diaro / WordPress) and external Category
+  Sync** — explicitly out of scope per the goal.
+- **Block-level / inline tagging** — NOT a J8 feature (J8 tags whole entries
+  via Topics, which this app already supports incl. hierarchy), so building it
+  would diverge from J8, not converge.
+- **Customizable Electron menus** — low value and not click-testable in CI
+  (native OS menu). Menu stays data-driven from the shared `menuSpec.js`.
+- **macOS/Linux Electron targets + code signing + auto-minimize-idle** —
+  cannot be built or validated in this Linux CI/dev environment (Windows NSIS
+  is the only packaged target).
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors (1 pre-existing
+`ThemeSettings` warning) · `vitest run` **915/915** (+20: `resolveCategoryDrop`,
+`window-state`, `toolbar-config`) · `npm run build` standalone bundle clean.
+
+---
+
 ## Hierarchical category tree — 2026-05-29d
 
 The last substantial deferred feature, built on explicit owner approval. Categories
