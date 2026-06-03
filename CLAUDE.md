@@ -211,8 +211,19 @@ shipping to production.
   **Attachment XSS hardening** — `nosniff`, per-route CSP, svg/html forced
   to download; baseline security headers in `next.config.ts`. Known
   not-yet-fixed (documented in audit): login/unlock rate limiting,
-  `NODE_ENV`-independent secret guard, multi-tenant admin-role gates on
-  `users`/`backup-export`.
+  `NODE_ENV`-independent secret guard.
+- **Stability/perf audit (2026-06-03c)**: fixed a crypto key-cache aliasing bug
+  (`getCategoryKey` returned the live EEK buffer a concurrent evict could zero
+  mid-encrypt — now returns a copy + 12h absolute TTL cap), the category-reorder
+  route's unawaited `stmt.run` (silent write loss), the `entry/move` cycle-guard
+  TOCTOU (now transactional), and serialized `backup/import` (concurrent imports
+  collided on the `imported` ATTACH alias). Closed the **multi-tenant admin
+  gate** (`src/lib/admin.ts`, bootstrap admin = lowest UserID): `users` CRUD +
+  whole-DB `backup/export` are now admin-only (no-op for single-user). Editor:
+  guarded the entry-metadata side-fetch against fast-switch races, made the
+  unload save beacon-first + storage writes try/catch (no data loss on quota),
+  routed autosave through a ref (no stale editor). Sidebar: memoized grouping +
+  calendar day-bucketing + debounced tag refetch.
 - **J8 parity round 4 (2026-06-03)**: closed the three biggest buildable
   deferred gaps. (1) **Drag-to-nest categories** — the vertical category tree
   now accepts drag-to-reparent (drop on a row = child; drop on the root zone =

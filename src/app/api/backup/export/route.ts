@@ -2,6 +2,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { isAdminUser } from '@/lib/admin';
 import { getUserIdFromRequest } from '@/lib/route-helpers';
 
 export async function GET(req: NextRequest) {
@@ -9,6 +10,12 @@ export async function GET(req: NextRequest) {
         const userId = getUserIdFromRequest(req);
         if (!userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
+        // This ships the ENTIRE encrypted DB file (every user's data), so it's
+        // restricted to the bootstrap admin. A single-user install is unaffected.
+        if (!(await isAdminUser(userId))) {
+            return NextResponse.json({ error: "Administrator access required" }, { status: 403 });
         }
 
         // 1. Locate the live encrypted DB file
