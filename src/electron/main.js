@@ -110,6 +110,11 @@ async function performAutoBackup() {
 }
 
 async function startServer() {
+    // Mark the embedded Next.js process as desktop-hosted. Server routes use
+    // this to enable Electron-only shortcuts (e.g. importing a database by an
+    // OS filesystem path) that would be a cross-tenant vector on multi-user web.
+    process.env.JOURNAL_DESKTOP = '1';
+
     // Set DB Path for Next.js and the renderer to use
     process.env.JOURNAL_DB_PATH = getDatabasePath();
     console.log('[Electron] Database Path:', process.env.JOURNAL_DB_PATH);
@@ -600,6 +605,10 @@ app.whenReady().then(async () => {
             'backupPath', 'autoBackupOnClose', 'backupFrequency', 'retentionCount',
             'defaultFontSize', 'idleLockMinutes', 'lockOnMinimize', 'themePreferences',
             'minimizeToTray', 'menuHiddenItems',
+            // UI prefs the renderer persists; without these the keybinding editor
+            // and theme-palette dropdown apply live but reset on restart (the
+            // writes were silently rejected and only web localStorage kept them).
+            'keybindings', 'themePalette',
         ]);
         ipcMain.handle('save-setting', (event, key, value) => {
             if (!RENDERER_WRITABLE_SETTINGS.has(key)) {

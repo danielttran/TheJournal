@@ -57,8 +57,12 @@ describe('Word cloud — large input', () => {
 
 describe('Reminders — large list', () => {
     it('1000 reminders: list-by-filter returns within 1 second', async () => {
+        // Base the due times an hour out so every reminder is genuinely
+        // upcoming even after the (non-trivial) insert loop advances the clock —
+        // the 'upcoming' filter compares against the current instant, not the
+        // current date.
         for (let i = 0; i < 1000; i++) {
-            const due = new Date(Date.now() + i * 60_000).toISOString();
+            const due = new Date(Date.now() + 3_600_000 + i * 60_000).toISOString();
             await createReminder(dbm, USER_ID, { title: `r${i}`, dueAt: due });
         }
         const start = Date.now();

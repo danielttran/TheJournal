@@ -40,6 +40,23 @@ describe('compileSafeRegex', () => {
         expect(() => compileSafeRegex('(a+)*', { matchCase: false })).toThrow(SafeRegexError);
     });
 
+    it('rejects brace-quantified and alternation ReDoS shapes', () => {
+        // These compile under a naive [+*]-only guard but still backtrack
+        // catastrophically. (a{1,2})+ on "aaa…!" is exponential.
+        expect(() => compileSafeRegex('(a{1,2})+$', { matchCase: false })).toThrow(SafeRegexError);
+        expect(() => compileSafeRegex('(a+){1,50}', { matchCase: false })).toThrow(SafeRegexError);
+        expect(() => compileSafeRegex('(a|aa)+$', { matchCase: false })).toThrow(SafeRegexError);
+        expect(() => compileSafeRegex('(\\S+)+', { matchCase: false })).toThrow(SafeRegexError);
+    });
+
+    it('still accepts safe groups, alternation, and non-capturing groups', () => {
+        // No outer quantifier on the group, or no inner quantifier/alternation.
+        expect(() => compileSafeRegex('(foo|bar)', { matchCase: false })).not.toThrow();
+        expect(() => compileSafeRegex('(ab)+', { matchCase: false })).not.toThrow();
+        expect(() => compileSafeRegex('(?:ab)+', { matchCase: false })).not.toThrow();
+        expect(() => compileSafeRegex('\\d{1,3}\\.\\d{1,3}', { matchCase: false })).not.toThrow();
+    });
+
     it('rejects empty patterns', () => {
         expect(() => compileSafeRegex('', { matchCase: false })).toThrow(SafeRegexError);
         expect(() => compileSafeRegex('   ', { matchCase: false })).toThrow(SafeRegexError);

@@ -128,6 +128,24 @@ describe('Reminders — listing & filters', () => {
         expect(titles).not.toContain('past-done');
     });
 
+    it('list "overdue"/"upcoming" respect the time of day, not just the date', async () => {
+        // A reminder due earlier TODAY must count as overdue (not upcoming).
+        // Regression: the filter used to compare a full ISO timestamp against a
+        // bare date() so anything due today fell on the wrong side of the line.
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const oneHourAhead = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        await createReminder(dbm, USER_ID, { title: 'earlier-today', dueAt: oneHourAgo });
+        await createReminder(dbm, USER_ID, { title: 'later-today', dueAt: oneHourAhead });
+
+        const overdue = (await listReminders(dbm, USER_ID, 'overdue')).map(x => x.Title);
+        expect(overdue).toContain('earlier-today');
+        expect(overdue).not.toContain('later-today');
+
+        const upcoming = (await listReminders(dbm, USER_ID, 'upcoming')).map(x => x.Title);
+        expect(upcoming).toContain('later-today');
+        expect(upcoming).not.toContain('earlier-today');
+    });
+
     it('list "today" returns only reminders due today', async () => {
         const today = new Date();
         today.setHours(15, 0, 0, 0);

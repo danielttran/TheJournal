@@ -13,13 +13,19 @@ export type ReminderFilter = 'all' | 'today' | 'upcoming' | 'overdue' | 'complet
  */
 export function buildReminderWhere(filter: ReminderFilter): string {
     const notTerminal = `Status NOT IN ('canceled', 'skipped', 'missed')`;
+    // DueAt is a full ISO-8601 instant (e.g. 2026-06-03T08:00:00.000Z). Compare
+    // it against the current instant via datetime() on BOTH sides — datetime()
+    // parses the 'T'/'Z' to a UTC 'YYYY-MM-DD HH:MM:SS' that string-compares
+    // correctly. Comparing the raw ISO string against a bare date() (the old
+    // bug) made a reminder due earlier *today* never count as overdue and wrongly
+    // appear as upcoming. "today" buckets by the LOCAL calendar date of DueAt.
     switch (filter) {
         case 'today':
-            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND date(DueAt) = date('now', 'localtime')`;
+            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND date(DueAt, 'localtime') = date('now', 'localtime')`;
         case 'upcoming':
-            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND DueAt >= date('now', 'localtime')`;
+            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND datetime(DueAt) >= datetime('now')`;
         case 'overdue':
-            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND DueAt < date('now', 'localtime')`;
+            return `UserID = ? AND IsComplete = 0 AND ${notTerminal} AND datetime(DueAt) < datetime('now')`;
         case 'completed':
             return `UserID = ? AND IsComplete = 1`;
         case 'tasks':

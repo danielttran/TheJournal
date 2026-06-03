@@ -33,6 +33,21 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 403 });
         }
 
+        // If nesting under a parent, the parent must belong to this user and
+        // live in the same category. Without this a client could attach a child
+        // to a foreign/other-category parent id, producing a structurally
+        // invalid tree that the recursive subtree CTEs (trash/bulk/move) walk.
+        if (parentEntryId) {
+            const parent = await db.prepare(`
+                SELECT 1 FROM Entry e
+                JOIN Category c ON e.CategoryID = c.CategoryID
+                WHERE e.EntryID = ? AND c.UserID = ? AND e.CategoryID = ?
+            `).get(parentEntryId, userId, categoryId);
+            if (!parent) {
+                return NextResponse.json({ error: "Parent entry not found or not in this category" }, { status: 400 });
+            }
+        }
+
         const { html: initialHtml, documentJson: initialDocumentJson, previewText: initialPreview }
             = await resolveInitialEntryContent(
                 dbManager,
