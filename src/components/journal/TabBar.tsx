@@ -378,6 +378,23 @@ export default function TabBar({ userId }: { userId: string }) {
         }
     };
 
+    // Drag-to-nest in the vertical tree: optimistically re-parent, then persist.
+    // The server re-validates ownership + cycle safety (PUT /api/category/[id]).
+    const handleReparent = async (id: number, parentId: number | null) => {
+        const prev = tabs;
+        setTabs(prev.map(c => c.CategoryID === id ? { ...c, ParentCategoryID: parentId } : c));
+        try {
+            const res = await fetch(`/api/category/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ parentCategoryId: parentId }),
+            });
+            if (!res.ok) setTabs(prev); // server rejected (cycle/ownership) — revert
+        } catch {
+            setTabs(prev);
+        }
+    };
+
     const handleRename = async (id: number, newName: string) => {
         setTabs(prev => prev.map(c => c.CategoryID === id ? { ...c, Name: newName } : c));
         await fetch(`/api/category/${id}`, {
@@ -786,6 +803,7 @@ export default function TabBar({ userId }: { userId: string }) {
                             onOpenSettings={(id) => setSettingsCategoryId(id)}
                             onDelete={deleteTab}
                             onAddSub={(parentId) => { setPendingParentId(parentId); setIsAddMenuOpen(true); }}
+                            onReparent={handleReparent}
                         />
                         <button onClick={() => { setPendingParentId(null); setIsAddMenuOpen(true); }}
                             className="mt-1 flex items-center gap-1 rounded px-1 py-1 text-sm text-text-muted hover:bg-bg-hover">

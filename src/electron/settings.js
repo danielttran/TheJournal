@@ -20,6 +20,13 @@ class SettingsManager {
             // M3 security UX: 0 disables auto-lock; otherwise lock after N minutes idle.
             idleLockMinutes: 0,
             lockOnMinimize: false,
+            // Window geometry restored on next launch (J8 remembers its size +
+            // position). null = use the default 90%-of-screen geometry.
+            windowBounds: null,
+            windowMaximized: false,
+            // When enabled, closing/minimizing hides to the system tray instead
+            // of quitting; the app keeps running and reopens from the tray icon.
+            minimizeToTray: false,
             themePreferences: {
                 light: { accentPrimary: '#9333ea', bgApp: '#f3f4f6', bgSidebar: '#ffffff' },
                 dark: { accentPrimary: '#14b8a6', bgApp: '#000000', bgSidebar: '#000000' }

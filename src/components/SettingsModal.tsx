@@ -23,6 +23,7 @@ interface Settings {
     defaultFontSize: number;
     idleLockMinutes?: number;
     lockOnMinimize?: boolean;
+    minimizeToTray?: boolean;
 }
 
 export const THEME_PALETTES = [
@@ -47,6 +48,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         defaultFontSize: 14,
         idleLockMinutes: 0,
         lockOnMinimize: false,
+        minimizeToTray: false,
         themePreferences: {},
     });
     const [loading, setLoading] = useState(true);
@@ -88,6 +90,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         defaultFontSize: saved.defaultFontSize || 14,
                         idleLockMinutes: Number(saved.idleLockMinutes) || 0,
                         lockOnMinimize: !!saved.lockOnMinimize,
+                        minimizeToTray: !!saved.minimizeToTray,
                     });
                 }
             } catch (error) {
@@ -393,6 +396,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary ${settings.lockOnMinimize ? 'bg-accent-primary' : 'bg-gray-200 dark:bg-gray-700'}`}
                                             >
                                                 <span className={`absolute top-1 left-1 bg-white border border-gray-100 dark:border-0 w-4 h-4 rounded-full shadow transform transition-transform duration-200 ${settings.lockOnMinimize ? 'translate-x-5' : 'translate-x-0'}`} />
+                                            </button>
+                                        </div>
+                                    )}
+                                    {isElectron && (
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <label className="text-sm font-medium text-text-primary">Minimize to system tray</label>
+                                                <p className="text-xs text-text-muted">Closing the window keeps the app running in the tray instead of quitting.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => handleSave('minimizeToTray', !settings.minimizeToTray)}
+                                                className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary ${settings.minimizeToTray ? 'bg-accent-primary' : 'bg-gray-200 dark:bg-gray-700'}`}
+                                            >
+                                                <span className={`absolute top-1 left-1 bg-white border border-gray-100 dark:border-0 w-4 h-4 rounded-full shadow transform transition-transform duration-200 ${settings.minimizeToTray ? 'translate-x-5' : 'translate-x-0'}`} />
                                             </button>
                                         </div>
                                     )}

@@ -4,6 +4,7 @@ import {
     flattenTree,
     wouldCreateCycle,
     eligibleParentIds,
+    resolveCategoryDrop,
     type CategoryNodeInput,
 } from '../../src/lib/categoryTree';
 
@@ -82,5 +83,27 @@ describe('eligibleParentIds', () => {
         const cats = [cat(1), cat(2, 1), cat(3, 2), cat(4)];
         expect(eligibleParentIds(cats, 1).sort()).toEqual([4]);
         expect(eligibleParentIds(cats, 3).sort()).toEqual([1, 2, 4]);
+    });
+});
+
+describe('resolveCategoryDrop', () => {
+    const cats = [cat(1), cat(2, 1), cat(3, 2), cat(4)];
+
+    it('nests a dragged category under the drop target', () => {
+        expect(resolveCategoryDrop(cats, 4, 1)).toEqual({ ok: true, parentId: 1 });
+    });
+    it('promotes to a root when dropped on the root zone (null target)', () => {
+        expect(resolveCategoryDrop(cats, 2, null)).toEqual({ ok: true, parentId: null });
+    });
+    it('refuses a self-drop', () => {
+        expect(resolveCategoryDrop(cats, 1, 1)).toEqual({ ok: false, parentId: null, reason: 'self' });
+    });
+    it('refuses a drop that would create a cycle (onto a descendant)', () => {
+        expect(resolveCategoryDrop(cats, 1, 3)).toEqual({ ok: false, parentId: null, reason: 'cycle' });
+    });
+    it('treats dropping onto the existing parent as a no-op', () => {
+        expect(resolveCategoryDrop(cats, 2, 1)).toEqual({ ok: false, parentId: 1, reason: 'no-op' });
+        // already a root, dropped on root zone
+        expect(resolveCategoryDrop(cats, 4, null)).toEqual({ ok: false, parentId: null, reason: 'no-op' });
     });
 });
