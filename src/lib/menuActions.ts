@@ -38,6 +38,7 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
     // Sidebar (entry tree)
     'trigger-nav-prev', 'trigger-nav-next', 'trigger-new-subentry', 'trigger-new-entry',
     'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry',
+    'trigger-tag-selection',
     // JournalView (navigation / layout / category view-mode)
     'trigger-go-today', 'trigger-go-to-date', 'trigger-history-back', 'trigger-history-forward',
     'trigger-find-next', 'trigger-find-in-entry', 'trigger-toggle-sidebar', 'trigger-sidebar-side', 'trigger-sidebar-left',

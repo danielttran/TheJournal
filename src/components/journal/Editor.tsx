@@ -34,6 +34,7 @@ import { TextStyle } from '@tiptap/extension-text-style';
 import FontFamily from '@tiptap/extension-font-family';
 import { FontSize } from './extensions/FontSize';
 import { Bookmark } from './extensions/Bookmark';
+import { InlineTag } from './extensions/InlineTag';
 import { FileAttachment } from './extensions/FileAttachment';
 import { ParagraphStyle } from './extensions/ParagraphStyle';
 import { SearchHighlight } from './extensions/SearchHighlight';
@@ -270,6 +271,7 @@ function PluginLoadedEditor({
         FontFamily,
         FontSize,
         Bookmark,
+        InlineTag,
         FileAttachment,
         ParagraphStyle,
         SearchHighlight,
@@ -859,6 +861,48 @@ function PluginLoadedEditor({
             onConfirm: (fmt) => { window.open(`/api/entry/${id}/export?format=${fmt}`, '_blank'); },
         });
     }, []);
+
+    // Inline (block-level) topic tagging: tag the SELECTED text with a topic.
+    // Fetches the user's topics, lets them pick one, and applies the InlineTag
+    // mark to the selection (round-trips in the entry HTML). With an empty
+    // selection it offers to remove an inline tag at the cursor instead.
+    const tagSelectionFlow = useCallback(async () => {
+        if (!editor) return;
+        const { from, to } = editor.state.selection;
+        if (from === to) {
+            if (editor.isActive('inlineTag')) editor.chain().focus().unsetInlineTag().run();
+            else showToast('Select some text to tag it with a topic.');
+            return;
+        }
+        let topics: { Name?: string; name?: string; Color?: string; color?: string }[] = [];
+        try {
+            const res = await fetch('/api/topic');
+            topics = res.ok ? await res.json() : [];
+        } catch { /* offline — fall through to empty */ }
+        if (!Array.isArray(topics) || topics.length === 0) {
+            showToast('No topics defined yet. Create topics first (Topic ▸ Manage Topics).');
+            return;
+        }
+        const nameOf = (t: { Name?: string; name?: string }) => t.Name ?? t.name ?? '';
+        const colorOf = (t: { Color?: string; color?: string }) => t.Color ?? t.color ?? '#888888';
+        setPrompt({
+            title: 'Tag selection with topic',
+            message: 'Apply an inline topic tag to the selected text.',
+            options: topics.map(t => ({ value: nameOf(t), label: nameOf(t) })),
+            initialValue: nameOf(topics[0]),
+            confirmLabel: 'Tag',
+            onConfirm: (name) => {
+                const t = topics.find(x => nameOf(x) === name);
+                editor.chain().focus().setInlineTag(name, t ? colorOf(t) : undefined).run();
+            },
+        });
+    }, [editor, showToast]);
+
+    useEffect(() => {
+        const onTagSelection = () => { void tagSelectionFlow(); };
+        window.addEventListener('trigger-tag-selection', onTagSelection);
+        return () => window.removeEventListener('trigger-tag-selection', onTagSelection);
+    }, [tagSelectionFlow]);
 
     // Context-menu "Paste": native paste preserves formatting (works in Electron
     // and supporting browsers); fall back to the async clipboard as plain text.
@@ -1562,6 +1606,7 @@ function PluginLoadedEditor({
                                 <Item label="Background Image" onClick={run(setBackgroundImage)} />
                                 <Sep />
                                 <Item label="Tag Entry with Topic…" kbd="Ctrl+Shift+G" onClick={dispatch('trigger-assign-topics')} />
+                                <Item label="Tag Selection with Topic…" onClick={dispatch('trigger-tag-selection')} />
                                 <div
                                     className="relative"
                                     onMouseEnter={() => setCtxInsertOpen(true)}
