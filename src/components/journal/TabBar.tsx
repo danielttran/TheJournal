@@ -360,6 +360,9 @@ export default function TabBar({ userId }: { userId: string }) {
         if (over && active.id !== over.id) {
             const oldIndex = tabs.findIndex(c => c.CategoryID === active.id);
             const newIndex = tabs.findIndex(c => c.CategoryID === over.id);
+            // The list can change between drag-start and drag-end (e.g. a
+            // journal-entry-updated refetch); a stale id → -1 would corrupt order.
+            if (oldIndex < 0 || newIndex < 0) return;
 
             const newTabs = arrayMove(tabs, oldIndex, newIndex);
             setTabs(newTabs); // Optimistic
@@ -375,6 +378,23 @@ export default function TabBar({ userId }: { userId: string }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ updates })
             }).catch(() => { /* silence */ });
+        }
+    };
+
+    // Drag-to-nest in the vertical tree: optimistically re-parent, then persist.
+    // The server re-validates ownership + cycle safety (PUT /api/category/[id]).
+    const handleReparent = async (id: number, parentId: number | null) => {
+        const prev = tabs;
+        setTabs(prev.map(c => c.CategoryID === id ? { ...c, ParentCategoryID: parentId } : c));
+        try {
+            const res = await fetch(`/api/category/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ parentCategoryId: parentId }),
+            });
+            if (!res.ok) setTabs(prev); // server rejected (cycle/ownership) — revert
+        } catch {
+            setTabs(prev);
         }
     };
 
@@ -786,6 +806,7 @@ export default function TabBar({ userId }: { userId: string }) {
                             onOpenSettings={(id) => setSettingsCategoryId(id)}
                             onDelete={deleteTab}
                             onAddSub={(parentId) => { setPendingParentId(parentId); setIsAddMenuOpen(true); }}
+                            onReparent={handleReparent}
                         />
                         <button onClick={() => { setPendingParentId(null); setIsAddMenuOpen(true); }}
                             className="mt-1 flex items-center gap-1 rounded px-1 py-1 text-sm text-text-muted hover:bg-bg-hover">

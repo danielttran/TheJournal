@@ -6,6 +6,12 @@ import { useTheme } from 'next-themes';
 import { useToast } from './Toast';
 import KeybindingsSection from './KeybindingsSection';
 import PluginsSection from './PluginsSection';
+import {
+    TOOLBAR_GROUPS, loadToolbarConfig, saveToolbarConfig, toggleGroup, isGroupVisible,
+} from '@/lib/toolbarConfig';
+import { J8_MENUS } from '@/lib/menuSpec';
+import { listMenuItems } from '@/lib/menuCustomization';
+import { loadMenuHidden, saveMenuHidden } from '@/lib/menuCustomConfig';
 import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 interface SettingsModalProps {
@@ -23,6 +29,7 @@ interface Settings {
     defaultFontSize: number;
     idleLockMinutes?: number;
     lockOnMinimize?: boolean;
+    minimizeToTray?: boolean;
 }
 
 export const THEME_PALETTES = [
@@ -47,6 +54,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         defaultFontSize: 14,
         idleLockMinutes: 0,
         lockOnMinimize: false,
+        minimizeToTray: false,
         themePreferences: {},
     });
     const [loading, setLoading] = useState(true);
@@ -88,6 +96,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         defaultFontSize: saved.defaultFontSize || 14,
                         idleLockMinutes: Number(saved.idleLockMinutes) || 0,
                         lockOnMinimize: !!saved.lockOnMinimize,
+                        minimizeToTray: !!saved.minimizeToTray,
                     });
                 }
             } catch (error) {
@@ -191,6 +200,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         <span className="text-xs text-text-muted ml-2">px</span>
                                     </div>
                                 </div>
+
+                                <ToolbarCustomizeSection />
                             </section>
 
                             <div className="h-px bg-border-primary" />
@@ -198,6 +209,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             {/* Appearance Section — grouped right after editor prefs so all
                                 theme controls (mode, palette, colors) live together. */}
                             <ThemeSettings settings={settings} onSave={handleSave} />
+
+                            <div className="h-px bg-border-primary" />
+
+                            {/* Menus Section — show/hide menu items (J8 customizable menus). */}
+                            <MenuCustomizeSection />
 
                             <div className="h-px bg-border-primary" />
 
@@ -396,6 +412,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             </button>
                                         </div>
                                     )}
+                                    {isElectron && (
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <label className="text-sm font-medium text-text-primary">Minimize to system tray</label>
+                                                <p className="text-xs text-text-muted">Closing the window keeps the app running in the tray instead of quitting.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => handleSave('minimizeToTray', !settings.minimizeToTray)}
+                                                className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary ${settings.minimizeToTray ? 'bg-accent-primary' : 'bg-gray-200 dark:bg-gray-700'}`}
+                                            >
+                                                <span className={`absolute top-1 left-1 bg-white border border-gray-100 dark:border-0 w-4 h-4 rounded-full shadow transform transition-transform duration-200 ${settings.minimizeToTray ? 'translate-x-5' : 'translate-x-0'}`} />
+                                            </button>
+                                        </div>
+                                    )}
                                     <p className="text-xs text-text-muted">
                                         Press <kbd className="px-1.5 py-0.5 rounded bg-bg-active border border-border-primary text-[10px]">Ctrl</kbd>
                                         +<kbd className="px-1.5 py-0.5 rounded bg-bg-active border border-border-primary text-[10px]">Shift</kbd>
@@ -428,6 +458,88 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
             </div>
         </div>
+    );
+}
+
+// Customize which editor toolbar groups are shown (J8 "Customize Toolbar").
+// Persists to localStorage via toolbarConfig + notifies open toolbars to re-read.
+function ToolbarCustomizeSection() {
+    const [hidden, setHidden] = useState(() => loadToolbarConfig());
+    const onToggle = (id: string) => {
+        const next = toggleGroup(hidden, id);
+        setHidden(next);
+        saveToolbarConfig(next);
+    };
+    return (
+        <div className="space-y-2 mt-5">
+            <label className="text-sm font-medium text-text-primary">Editor Toolbar Buttons</label>
+            <p className="text-xs text-text-muted">Hide toolbar groups you don&apos;t use. Affects the rich-text editor toolbar.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
+                {TOOLBAR_GROUPS.map(g => {
+                    const visible = isGroupVisible(hidden, g.id);
+                    return (
+                        <label key={g.id} className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={visible}
+                                onChange={() => onToggle(g.id)}
+                                className="accent-[color:var(--color-accent-primary)]"
+                            />
+                            {g.label}
+                        </label>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+// Customize which menu items appear (J8 customizable menus). Persists the
+// hidden-id set via menuCustomConfig (localStorage + Electron settings.json),
+// applied to both the web MenuBar and the native menu.
+function MenuCustomizeSection() {
+    const [hidden, setHidden] = useState(() => loadMenuHidden());
+    const [expanded, setExpanded] = useState(false);
+    const rows = listMenuItems(J8_MENUS);
+    const onToggle = (id: string) => {
+        const next = new Set(hidden);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        setHidden(next);
+        saveMenuHidden(next);
+    };
+    return (
+        <section>
+            <h3 className="text-sm font-semibold text-accent-primary uppercase tracking-wider mb-2">Menus</h3>
+            <p className="text-xs text-text-muted mb-2">
+                Hide menu items you don&apos;t use. Hidden items still work via their keyboard shortcut.
+                {hidden.size > 0 ? ` (${hidden.size} hidden)` : ''}
+            </p>
+            <button
+                onClick={() => setExpanded(v => !v)}
+                className="text-xs px-2 py-1 rounded bg-bg-active border border-border-primary text-text-primary hover:bg-bg-hover mb-2"
+            >
+                {expanded ? 'Hide menu list' : 'Customize menu items…'}
+            </button>
+            {expanded && (
+                <div className="max-h-72 overflow-y-auto rounded-lg border border-border-primary p-2 space-y-0.5">
+                    {rows.map(r => (
+                        <label
+                            key={r.id}
+                            className={`flex items-center gap-2 text-sm cursor-pointer select-none ${r.depth === 0 ? 'font-semibold text-text-primary mt-1.5' : 'text-text-secondary'}`}
+                            style={{ paddingLeft: r.depth * 14 }}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={!hidden.has(r.id)}
+                                onChange={() => onToggle(r.id)}
+                                className="accent-[color:var(--color-accent-primary)]"
+                            />
+                            {r.label}
+                        </label>
+                    ))}
+                </div>
+            )}
+        </section>
     );
 }
 

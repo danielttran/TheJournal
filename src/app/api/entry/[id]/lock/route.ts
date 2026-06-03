@@ -17,13 +17,16 @@ export const dynamic = 'force-dynamic';
  */
 
 async function ownedEntry(userId: number, entryId: number) {
+    // Ownership is enforced in SQL (AND c.UserID = ?) per the codebase
+    // invariant — every query filters by UserID — not just by a post-query
+    // JS check, so a future caller can't accidentally skip it.
     return await dbManager.prepare(`
         SELECT e.EntryID, e.IsLocked, ec.HtmlContent, c.UserID
         FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
         LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
-        WHERE e.EntryID = ? AND e.IsDeleted = 0
-    `).get(entryId) as { EntryID: number; IsLocked: number; HtmlContent: string | null; UserID: number } | undefined;
+        WHERE e.EntryID = ? AND c.UserID = ? AND e.IsDeleted = 0
+    `).get(entryId, userId) as { EntryID: number; IsLocked: number; HtmlContent: string | null; UserID: number } | undefined;
 }
 
 function isBlob(x: unknown): x is EncryptedBlob {

@@ -1,23 +1,28 @@
 import { db } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
+import { isAdminUser } from "@/lib/admin";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 
 export const dynamic = 'force-dynamic';
 
-/** GET /api/users — list accounts (David RM "Manage Users"). */
+const FORBIDDEN = NextResponse.json({ error: 'Administrator access required' }, { status: 403 });
+
+/** GET /api/users — list accounts (David RM "Manage Users"). Admin only. */
 export const GET = authedHandler<[NextRequest]>(
     'GET /api/users',
-    async () => {
+    async (userId) => {
+        if (!(await isAdminUser(userId))) return FORBIDDEN;
         const rows = await db.prepare('SELECT UserID, Username FROM User ORDER BY Username').all();
         return NextResponse.json(rows);
     },
 );
 
-/** POST /api/users — provision a new account. body: { username, password } */
+/** POST /api/users — provision a new account. body: { username, password }. Admin only. */
 export const POST = authedHandler<[NextRequest]>(
     'POST /api/users',
-    async (_userId, req) => {
+    async (userId, req) => {
+        if (!(await isAdminUser(userId))) return FORBIDDEN;
         const body = await req.json().catch(() => null) as { username?: unknown; password?: unknown } | null;
         const username = typeof body?.username === 'string' ? body.username.trim() : '';
         const password = typeof body?.password === 'string' ? body.password : '';

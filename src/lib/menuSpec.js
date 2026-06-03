@@ -158,6 +158,7 @@ const J8_MENUS = [
         label: 'Topic',
         submenu: [
             { label: 'Assign Topics…', action: 'assign-topics' },
+            { label: 'Tag Selection with Topic…', action: 'tag-selection' },
             { label: 'Manage Topics…', action: 'manage-topics' },
         ],
     },

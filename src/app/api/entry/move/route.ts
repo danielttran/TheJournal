@@ -40,32 +40,39 @@ export async function PUT(req: NextRequest) {
             if (!parent) {
                 return NextResponse.json({ error: "Target parent not found or unauthorized" }, { status: 403 });
             }
-
-            // Cycle guard — walk up from parentId; if we reach entryId, the move would create a loop
-            // (e.g. moving a section under one of its own children). Uses a recursive CTE to walk
-            // the ancestor chain efficiently in a single query.
-            const cycle = await db.prepare(`
-                WITH RECURSIVE ancestors(id) AS (
-                    SELECT ParentEntryID FROM Entry WHERE EntryID = ?
-                    UNION ALL
-                    SELECT e.ParentEntryID FROM Entry e JOIN ancestors a ON e.EntryID = a.id
-                    WHERE a.id IS NOT NULL
-                )
-                SELECT 1 FROM ancestors WHERE id = ? LIMIT 1
-            `).get(parentId, entryId) as { 1: number } | undefined;
-
-            if (cycle) {
-                return NextResponse.json({ error: "Cannot move an entry under one of its own descendants" }, { status: 400 });
-            }
         }
 
-        const result = await db.prepare(`
-            UPDATE Entry
-            SET ParentEntryID = ?, SortOrder = ?, ModifiedDate = CURRENT_TIMESTAMP
-            WHERE EntryID = ?
-        `).run(parentId, sortOrder, entryId);
+        // The cycle guard + UPDATE MUST run in one transaction (BEGIN IMMEDIATE).
+        // Otherwise two concurrent moves can each individually pass the cycle
+        // check and both commit, producing a parent/child cycle that later
+        // breaks the recursive subtree CTEs in trash/bulk.
+        const moveTx = db.transaction(async () => {
+            if (parentId !== null) {
+                // Walk up from parentId; if we reach entryId the move would loop.
+                const cycle = await db.prepare(`
+                    WITH RECURSIVE ancestors(id) AS (
+                        SELECT ParentEntryID FROM Entry WHERE EntryID = ?
+                        UNION ALL
+                        SELECT e.ParentEntryID FROM Entry e JOIN ancestors a ON e.EntryID = a.id
+                        WHERE a.id IS NOT NULL
+                    )
+                    SELECT 1 FROM ancestors WHERE id = ? LIMIT 1
+                `).get(parentId, entryId) as { 1: number } | undefined;
+                if (cycle) return { cycle: true as const, changes: 0 };
+            }
+            const result = await db.prepare(`
+                UPDATE Entry
+                SET ParentEntryID = ?, SortOrder = ?, ModifiedDate = CURRENT_TIMESTAMP
+                WHERE EntryID = ?
+            `).run(parentId, sortOrder, entryId);
+            return { cycle: false as const, changes: result.changes };
+        });
+        const outcome = await moveTx();
 
-        if (result.changes === 0) {
+        if (outcome.cycle) {
+            return NextResponse.json({ error: "Cannot move an entry under one of its own descendants" }, { status: 400 });
+        }
+        if (outcome.changes === 0) {
             return NextResponse.json({ error: "Entry not found" }, { status: 404 });
         }
 

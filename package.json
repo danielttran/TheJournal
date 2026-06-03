@@ -16,7 +16,9 @@
     "dev:electron": "npm rebuild @journeyapps/sqlcipher && concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build:electron": "next build",
     "build:installer": "npm run build:electron && npm run package:installer",
-    "package:installer": "node scripts/install-sqlite.js && electron-builder"
+    "package:installer": "node scripts/install-sqlite.js && electron-builder",
+    "package:mac": "node scripts/install-sqlite.js && electron-builder --mac",
+    "package:linux": "node scripts/install-sqlite.js && electron-builder --linux"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -8,7 +8,22 @@ import { getUserIdFromRequest } from '@/lib/route-helpers';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // seconds
 
+// Serialize imports process-wide: ATTACH/DETACH run on the shared singleton
+// connection outside the DB mutex and both use the fixed alias `imported`, so
+// two concurrent imports would collide (the second ATTACH fails and an error
+// handler's `DETACH imported` could detach the other import's database). A
+// simple promise chain makes imports run one-at-a-time.
+let importChain: Promise<void> = Promise.resolve();
+async function acquireImportLock(): Promise<() => void> {
+    const prior = importChain;
+    let release!: () => void;
+    importChain = new Promise<void>((r) => { release = r; });
+    await prior;
+    return release;
+}
+
 export async function POST(req: NextRequest) {
+    const releaseImportLock = await acquireImportLock();
     let tempPath = "";
     let ownsTempFile = false;
 
@@ -392,5 +407,7 @@ export async function POST(req: NextRequest) {
             body.details = error instanceof Error ? error.message : String(error);
         }
         return NextResponse.json(body, { status: 500 });
+    } finally {
+        releaseImportLock();
     }
 }

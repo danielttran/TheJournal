@@ -15,7 +15,10 @@ export default function ManageTopicsModal({ onClose }: { onClose: () => void }) 
 
     const load = useCallback(async () => {
         const res = await fetch('/api/topic');
-        if (res.ok) setTopics(await res.json());
+        if (!res.ok) return;
+        // GET /api/topic returns { items: [...] }; tolerate a bare array too.
+        const data = await res.json();
+        setTopics(Array.isArray(data) ? data : (data?.items ?? []));
     }, []);
 
     useEffect(() => { void load(); }, [load]);

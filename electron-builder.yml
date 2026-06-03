@@ -17,7 +17,12 @@ files:
   - "public/**/*"
   - "plugins/**/*"
   - "src/electron/**/*"
+  # Plain-JS libs that the Electron main process requires at runtime. These
+  # MUST be whitelisted explicitly (the src/ tree is otherwise excluded), or
+  # the packaged app crashes on launch with "Cannot find module".
   - "src/lib/menuSpec.js"
+  - "src/lib/windowState.js"
+  - "src/lib/menuCustomization.js"
 
 asar: true
 
@@ -31,6 +36,25 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: "TheJournal"
+
+# Cross-platform desktop targets. The single Electron codebase runs on all three
+# OSes (same embedded Next.js server + native menu built from the shared spec).
+# macOS builds are unsigned here (notarization/signing needs an Apple Developer
+# certificate supplied via CSC_LINK/CSC_KEY_PASSWORD at release time); the dmg
+# + zip targets are required for electron-updater on mac.
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+  icon: public/favicon.ico
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
+  icon: public/favicon.ico
 
 # Required so electron-builder rebuilds @journeyapps/sqlcipher (native C++
 # module) against the Electron runtime's V8 ABI before packaging. Without this

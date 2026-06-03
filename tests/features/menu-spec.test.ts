@@ -53,8 +53,8 @@ describe('J8 menu spec', () => {
         expect(sub('Edit')).not.toContain('search');
         // User Accounts is its own top-level menu.
         expect(sub('User')).toEqual(expect.arrayContaining(['switch-user', 'manage-users', 'change-password', 'auto-login']));
-        // Topic menu exists with assign + manage.
-        expect(sub('Topic')).toEqual(['assign-topics', 'manage-topics']);
+        // Topic menu exists with assign (whole-entry), tag-selection (inline), + manage.
+        expect(sub('Topic')).toEqual(['assign-topics', 'tag-selection', 'manage-topics']);
         // File keeps the Journal Volume Maintenance submenu.
         const file = J8_MENUS.find(m => m.label === 'File')!;
         const fileSubLabels = file.submenu.filter((n): n is MenuLeaf => !('separator' in n)).map(n => n.label);

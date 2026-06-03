@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, Menu, safeStorage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, safeStorage } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
@@ -7,6 +7,8 @@ const { parse } = require('url');
 const next = require('next');
 const getPort = require('get-port');
 const SettingsManager = require('./settings');
+const { clampWindowBounds } = require('../lib/windowState');
+const { applyMenuCustomization } = require('../lib/menuCustomization');
 
 const dev = process.env.NODE_ENV !== 'production';
 const dir = path.join(__dirname, '../../'); // Adjust based on where main.js is (src/electron/main.js -> root is ../../)
@@ -154,6 +156,10 @@ async function startServer() {
 
 let mainWindow;
 let serverInstance;
+let tray = null;
+// Set true when the user picks Quit from the tray/menu so the window 'close'
+// handler knows to actually exit instead of hiding to the tray.
+let isQuitting = false;
 
 function getPluginDir() {
     return path.join(app.getPath('userData'), 'plugins');
@@ -345,10 +351,35 @@ async function installPluginFromFolder(sourcePath, dialog) {
     }
 }
 
+// Persist the live window geometry so the next launch restores it (J8 parity).
+// Debounced because resize/move fire in bursts while dragging.
+let saveBoundsTimer = null;
+function persistWindowState() {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try {
+        const maximized = mainWindow.isMaximized();
+        const patch = { windowMaximized: maximized };
+        // Only record normal bounds when not maximized/minimized; otherwise we'd
+        // save the full-screen rect and lose the user's restored size.
+        if (!maximized && !mainWindow.isMinimized()) {
+            patch.windowBounds = mainWindow.getNormalBounds
+                ? mainWindow.getNormalBounds()
+                : mainWindow.getBounds();
+        }
+        settingsManager.saveSettings(patch);
+    } catch (err) {
+        console.error('[Electron] persistWindowState failed:', err);
+    }
+}
+function scheduleSaveBounds() {
+    if (saveBoundsTimer) clearTimeout(saveBoundsTimer);
+    saveBoundsTimer = setTimeout(persistWindowState, 400);
+}
+
 function createWindow(url) {
     const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
-    mainWindow = new BrowserWindow({
+    const opts = {
         width: Math.floor(width * 0.9),
         height: Math.floor(height * 0.9),
         webPreferences: {
@@ -358,9 +389,41 @@ function createWindow(url) {
         },
         autoHideMenuBar: false,
         backgroundColor: '#111827', // Match bg-bg-app
-    });
+    };
+
+    // Restore saved geometry, clamped back onto a visible screen so a window
+    // saved on a now-disconnected monitor can't open out of reach.
+    const s = settingsManager?.getSettings?.() ?? {};
+    const areas = screen.getAllDisplays().map(d => d.workArea);
+    const restored = clampWindowBounds(s.windowBounds, areas);
+    if (restored) {
+        opts.x = restored.x; opts.y = restored.y;
+        opts.width = restored.width; opts.height = restored.height;
+    }
+
+    mainWindow = new BrowserWindow(opts);
+    if (s.windowMaximized) mainWindow.maximize();
 
     mainWindow.loadURL(url);
+
+    mainWindow.on('resize', scheduleSaveBounds);
+    mainWindow.on('move', scheduleSaveBounds);
+    mainWindow.on('maximize', persistWindowState);
+    mainWindow.on('unmaximize', persistWindowState);
+
+    // Minimize-to-tray: when enabled, closing the window hides it to the tray
+    // and keeps the app running instead of quitting. Quit via the tray menu
+    // (which sets isQuitting) bypasses this.
+    mainWindow.on('close', (e) => {
+        const cur = settingsManager?.getSettings?.() ?? {};
+        if (cur.minimizeToTray && !isQuitting) {
+            e.preventDefault();
+            persistWindowState();
+            mainWindow.hide();
+            return;
+        }
+        persistWindowState();
+    });
 
     mainWindow.on('closed', () => {
         mainWindow = null;
@@ -372,14 +435,41 @@ function createWindow(url) {
     // case where the OS minimizes the window before the renderer notices.
     mainWindow.on('minimize', () => {
         try {
-            const s = settingsManager?.getSettings?.() ?? {};
-            if (s.lockOnMinimize && mainWindow) {
+            const cur = settingsManager?.getSettings?.() ?? {};
+            if (cur.lockOnMinimize && mainWindow) {
                 mainWindow.webContents.send('lock-app', { reason: 'minimize' });
             }
         } catch (err) {
             console.error('[Electron] lock-on-minimize hook failed:', err);
         }
     });
+}
+
+// System tray (J8 parity). Built lazily and guarded: a missing icon or an
+// unsupported platform must never crash startup — tray just stays absent.
+function ensureTray(url) {
+    if (tray) return;
+    try {
+        const iconPath = path.join(__dirname, '..', '..', 'public', 'favicon.ico');
+        const image = nativeImage.createFromPath(iconPath);
+        if (image.isEmpty()) return; // no usable icon — skip tray silently
+        tray = new Tray(image);
+        tray.setToolTip('TheJournal');
+        const showWindow = () => {
+            if (!mainWindow) { createWindow(url); return; }
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        };
+        tray.setContextMenu(Menu.buildFromTemplate([
+            { label: 'Open TheJournal', click: showWindow },
+            { type: 'separator' },
+            { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
+        ]));
+        tray.on('click', showWindow);
+    } catch (err) {
+        console.error('[Electron] tray init failed (continuing without tray):', err);
+    }
 }
 
 function createMenu() {
@@ -480,7 +570,12 @@ function createMenu() {
         return item;
     });
 
-    const template = J8_MENUS.map((m) => ({ label: m.label, submenu: toTemplate(m.submenu) }));
+    // Apply the user's menu customization (hidden items) so the native menu
+    // matches the web MenuBar, both built from the same shared spec.
+    const hidden = (settingsManager?.getSettings?.() ?? {}).menuHiddenItems || [];
+    const effectiveMenus = applyMenuCustomization(J8_MENUS, hidden);
+
+    const template = effectiveMenus.map((m) => ({ label: m.label, submenu: toTemplate(m.submenu) }));
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
 }
@@ -504,6 +599,7 @@ app.whenReady().then(async () => {
             'theme', 'userName', 'rememberMe', 'savedPassword',
             'backupPath', 'autoBackupOnClose', 'backupFrequency', 'retentionCount',
             'defaultFontSize', 'idleLockMinutes', 'lockOnMinimize', 'themePreferences',
+            'minimizeToTray', 'menuHiddenItems',
         ]);
         ipcMain.handle('save-setting', (event, key, value) => {
             if (!RENDERER_WRITABLE_SETTINGS.has(key)) {
@@ -511,6 +607,10 @@ app.whenReady().then(async () => {
                 return false;
             }
             const success = settingsManager.saveSettings({ [key]: value });
+            // Rebuild the native menu live when the user changes its customization.
+            if (success && key === 'menuHiddenItems') {
+                try { createMenu(); } catch (e) { console.error('[Electron] menu rebuild failed:', e); }
+            }
             return success ? settingsManager.getSettings() : false;
         });
         ipcMain.handle('logout', () => {
@@ -700,9 +800,11 @@ app.whenReady().then(async () => {
         }
 
         createWindow(url);
+        ensureTray(url);
 
         app.on('activate', () => {
             if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
+            else if (mainWindow) mainWindow.show();
         });
 
         // ── Auto-update (electron-updater) ─────────────────────────────────────
@@ -784,6 +886,8 @@ app.on('will-quit', () => {
 });
 
 app.on('before-quit', (e) => {
+    // Real quit in progress — let the window close instead of hiding to tray.
+    isQuitting = true;
     // Delegate to the shared performAutoBackup function.
     // Note: before-quit fires synchronously so we cannot await here —
     // the backup copy is synchronous (copyFileSync) and completes before

@@ -22,7 +22,10 @@ export async function PUT(req: NextRequest) {
         const transaction = db.transaction(async () => {
             const stmt = await db.prepare('UPDATE Category SET SortOrder = ? WHERE CategoryID = ? AND UserID = ?');
             for (const update of updates) {
-                stmt.run(update.sortOrder, update.id, userId);
+                // MUST await: an unawaited run() lets the enclosing transaction
+                // COMMIT before (or racing with) the UPDATEs, silently dropping
+                // some reorders and swallowing any SQLITE_BUSY error.
+                await stmt.run(update.sortOrder, update.id, userId);
             }
         });
 

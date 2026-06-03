@@ -112,3 +112,31 @@ export function eligibleParentIds<T extends CategoryNodeInput>(cats: T[], id: nu
     return cats.filter(c => c.CategoryID !== id && !wouldCreateCycle(cats, id, c.CategoryID))
         .map(c => c.CategoryID);
 }
+
+export interface DropResult {
+    ok: boolean;
+    /** The new ParentCategoryID to persist (null = promote to a root). */
+    parentId: number | null;
+    /** Why a drop was refused — for an optional toast/tooltip. */
+    reason?: 'self' | 'cycle' | 'no-op';
+}
+
+/**
+ * Resolve a drag-to-nest drop in the vertical category tree. Dropping a dragged
+ * category onto a target makes it that target's child; dropping onto the root
+ * zone (`targetId == null`) promotes it to a top-level category.
+ *
+ * Refuses self-drops, drops that would create a cycle (target descends from the
+ * dragged node), and no-ops (already that parent). Pure so the UI stays thin.
+ */
+export function resolveCategoryDrop<T extends CategoryNodeInput>(
+    cats: T[], draggedId: number, targetId: number | null,
+): DropResult {
+    if (targetId === draggedId) return { ok: false, parentId: null, reason: 'self' };
+    if (wouldCreateCycle(cats, draggedId, targetId)) {
+        return { ok: false, parentId: null, reason: 'cycle' };
+    }
+    const current = cats.find(c => c.CategoryID === draggedId)?.ParentCategoryID ?? null;
+    if (current === targetId) return { ok: false, parentId: targetId, reason: 'no-op' };
+    return { ok: true, parentId: targetId };
+}

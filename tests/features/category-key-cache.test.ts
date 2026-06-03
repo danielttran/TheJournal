@@ -100,6 +100,32 @@ describe('TTL behaviour', () => {
             expect(getCategoryKey(USER_A, 12), `read at minute ${i*20}`).not.toBeNull();
         }
     });
+
+    it('enforces an absolute lifetime cap even for a continuously-active session', () => {
+        vi.useFakeTimers();
+        const startMs = 1_700_000_000_000;
+        vi.setSystemTime(startMs);
+        cacheCategoryKey(USER_A, 13, fakeEek());
+        // Read every 20 minutes — the sliding TTL would keep it alive forever,
+        // but the 12h hard cap must evict it.
+        let lastNonNull = 0;
+        for (let min = 20; min <= 13 * 60; min += 20) {
+            vi.setSystemTime(startMs + min * 60_000);
+            if (getCategoryKey(USER_A, 13) !== null) lastNonNull = min;
+        }
+        // Stayed alive past ~11h of activity but was force-evicted before 13h.
+        expect(lastNonNull).toBeGreaterThanOrEqual(11 * 60);
+        expect(lastNonNull).toBeLessThan(13 * 60);
+    });
+
+    it('returns a copy, not the live cached buffer (callers cannot mutate the cache)', () => {
+        const eek = fakeEek();
+        cacheCategoryKey(USER_A, 14, eek);
+        const a = getCategoryKey(USER_A, 14)!;
+        a.fill(0); // mutating the returned copy must not affect the cache
+        const b = getCategoryKey(USER_A, 14)!;
+        expect(b[0]).toBe(1);
+    });
 });
 
 describe('defense-in-depth zeroing', () => {

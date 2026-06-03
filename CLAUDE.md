@@ -211,25 +211,63 @@ shipping to production.
   **Attachment XSS hardening** — `nosniff`, per-route CSP, svg/html forced
   to download; baseline security headers in `next.config.ts`. Known
   not-yet-fixed (documented in audit): login/unlock rate limiting,
-  `NODE_ENV`-independent secret guard, multi-tenant admin-role gates on
-  `users`/`backup-export`.
+  `NODE_ENV`-independent secret guard.
+- **Stability/perf audit (2026-06-03c)**: fixed a crypto key-cache aliasing bug
+  (`getCategoryKey` returned the live EEK buffer a concurrent evict could zero
+  mid-encrypt — now returns a copy + 12h absolute TTL cap), the category-reorder
+  route's unawaited `stmt.run` (silent write loss), the `entry/move` cycle-guard
+  TOCTOU (now transactional), and serialized `backup/import` (concurrent imports
+  collided on the `imported` ATTACH alias). Closed the **multi-tenant admin
+  gate** (`src/lib/admin.ts`, bootstrap admin = lowest UserID): `users` CRUD +
+  whole-DB `backup/export` are now admin-only (no-op for single-user). Editor:
+  guarded the entry-metadata side-fetch against fast-switch races, made the
+  unload save beacon-first + storage writes try/catch (no data loss on quota),
+  routed autosave through a ref (no stale editor). Sidebar: memoized grouping +
+  calendar day-bucketing + debounced tag refetch.
+- **J8 parity round 4 (2026-06-03)**: closed the three biggest buildable
+  deferred gaps. (1) **Drag-to-nest categories** — the vertical category tree
+  now accepts drag-to-reparent (drop on a row = child; drop on the root zone =
+  top level), reusing the cycle-guarded reparent route with optimistic
+  revert-on-reject (`resolveCategoryDrop` in `categoryTree.ts`). (2)
+  **Electron window-state persistence + system tray** — window size/position +
+  maximized state survive restarts (`windowState.js`/`.d.ts` clamps recovery
+  onto a visible display); a guarded tray + `minimizeToTray` option keep the
+  app running on close. Also fixed the missing `public/favicon.ico` that
+  `electron-builder.yml` referenced. (3) **Customizable editor toolbar** —
+  nine named toolbar groups can be shown/hidden from Settings (pure
+  `toolbarConfig.ts`; defaults to all-visible). See `docs/j8-gap-analysis.md`.
+
+- **J8 parity round 5 (2026-06-03b)**: closed the remaining deferred items
+  outside the import carve-out. (1) **Customizable menus** — hide menu items
+  from Settings ▸ Menus; pure `menuCustomization.js`/`.d.ts` filters the shared
+  spec, web `MenuBar` re-reads live, Electron native menu rebuilds on
+  `settings.menuHiddenItems`. (2) **Inline (block-level) topic tagging** — new
+  `InlineTag` TipTap mark + pure `inlineTag.ts`; **Topic ▸ Tag Selection with
+  Topic…** + context menu. (3) **Cross-platform Electron targets** — mac
+  (dmg/zip) + linux (AppImage/deb) in `electron-builder.yml` + `package:mac`/
+  `package:linux`; `release.yml` is a 3-OS matrix gated by one verify job. Also
+  fixed an asar `files` packaging bug (round-4 libs `windowState.js` +
+  `menuCustomization.js` weren't whitelisted → would crash the packaged app).
 
 ## What's intentionally NOT done
 
-- Outlook integration, Penzu/Diaro/WordPress importers, Category Sync,
-  customizable Electron menus, drag-to-reorder toolbar, block-level
-  tagging — explicitly deferred per user choice.
-- macOS / Linux Electron targets, code signing, auto-minimize-idle.
-- Drag-to-NEST categories in the tree: nesting is set via Category
-  Properties (parent dropdown) or the tree's per-row "+"; the horizontal
-  strip still drag-REORDERS siblings.
+- **Importers (Outlook / Penzu / Diaro / WordPress) + external Category Sync**:
+  the goal's only carve-out ("bridge all gaps except importing from other
+  apps"). Category Sync is the same class — sync/import from an external service.
+- **macOS code signing / notarization**: a credential, not code. `release.yml`
+  consumes `CSC_LINK`/`CSC_KEY_PASSWORD` if the repo provides them; the mac +
+  linux *builds* are otherwise configured. (The mac/linux installers cannot be
+  built or run inside this Linux CI/dev container, only on their own runners.)
+- **Toolbar group REORDER** (show/hide IS offered): the toolbar interleaves
+  contextual controls (image-resize, plugin buttons, flex spacer) whose
+  left-to-right position is meaningful, so only visibility is configurable.
 
 ## Running tests / type checks
 
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 885 tests as of the last commit.
+# Baseline: 933 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing
