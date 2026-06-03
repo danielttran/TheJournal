@@ -482,43 +482,62 @@ export class DBManager {
         });
 
         if (oldConstraintRow) {
-            // 1. Update any existing 'Section' rows so they survive the copy
+            // 1. (Section rows are normalized to 'Folder' during the copy in
+            //    step 3 — we must NOT UPDATE them in place first, because the OLD
+            //    table's CHECK is IN ('Page','Section') and 'Folder' would violate
+            //    it, aborting the whole migration.)
+
+            // 2. Create the replacement table by DERIVING its DDL from the live
+            //    Entry schema (sqlite_master.sql reflects every ALTER-added
+            //    column), changing only the table name, the self-FK target, and
+            //    the CHECK constraint. Deriving rather than hardcoding the column
+            //    list means a column added later can't be silently dropped (and
+            //    its data lost) the way a stale hardcoded copy would.
+            const newTableDDL = oldConstraintRow.sql
+                .replace(/^CREATE TABLE\s+"?Entry"?/i, 'CREATE TABLE "Entry_new"')
+                .replace(/REFERENCES\s+"?Entry"?\s*\(/gi, 'REFERENCES "Entry_new" (')
+                .replace(/'Section'/g, "'Folder'");
             await new Promise<void>((res, rej) =>
-                this.instance!.run(`UPDATE Entry SET EntryType = 'Folder' WHERE EntryType = 'Section'`, (err) =>
-                    err ? rej(err) : res()
+                this.instance!.run(newTableDDL, (err) => err ? rej(err) : res())
+            );
+
+            // 3. Copy EVERY column (discovered dynamically), mapping the retired
+            //    'Section' type to 'Folder' inline so the new table's
+            //    CHECK(IN ('Page','Folder')) is satisfied without an in-place
+            //    UPDATE the old constraint would reject.
+            const entryCols = await new Promise<{ name: string }[]>((res, rej) =>
+                this.instance!.all(`PRAGMA table_info(Entry)`, (err, rows) =>
+                    err ? rej(err) : res(rows as { name: string }[])
+                )
+            );
+            const colList = entryCols.map(c => `"${c.name}"`).join(', ');
+            const selectList = entryCols
+                .map(c => c.name === 'EntryType'
+                    ? `CASE WHEN EntryType = 'Section' THEN 'Folder' ELSE EntryType END`
+                    : `"${c.name}"`)
+                .join(', ');
+            await new Promise<void>((res, rej) =>
+                this.instance!.run(
+                    `INSERT INTO Entry_new (${colList}) SELECT ${selectList} FROM Entry`,
+                    (err) => err ? rej(err) : res()
                 )
             );
 
-            // 2. Create replacement table with the corrected constraint
-            await new Promise<void>((res, rej) =>
-                this.instance!.run(`CREATE TABLE IF NOT EXISTS Entry_new (
-                    EntryID INTEGER PRIMARY KEY AUTOINCREMENT,
-                    CategoryID INTEGER NOT NULL,
-                    Title TEXT NOT NULL,
-                    PreviewText TEXT,
-                    IsLocked BOOLEAN DEFAULT 0,
-                    CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    ModifiedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    Icon TEXT,
-                    ParentEntryID INTEGER REFERENCES Entry_new(EntryID) ON DELETE CASCADE,
-                    IsExpanded BOOLEAN DEFAULT 0,
-                    EntryType TEXT DEFAULT 'Page' CHECK(EntryType IN ('Page', 'Folder')),
-                    SortOrder REAL DEFAULT 0,
-                    Version INTEGER DEFAULT 1,
-                    FOREIGN KEY (CategoryID) REFERENCES Category(CategoryID) ON DELETE CASCADE
-                )`, (err) => err ? rej(err) : res())
-            );
-
-            // 3. Copy all rows
-            await new Promise<void>((res, rej) =>
-                this.instance!.run(`INSERT INTO Entry_new
-                    SELECT EntryID, CategoryID, Title, PreviewText, IsLocked,
-                           CreatedDate, ModifiedDate, Icon, ParentEntryID, IsExpanded,
-                           EntryType, SortOrder, Version
-                    FROM Entry`, (err) => err ? rej(err) : res())
-            );
-
-            // 4. Swap tables (inside a serialized block so FK checks don't interfere)
+            // 4. Swap tables (inside a serialized block so FK checks don't interfere).
+            //    The EntrySearch FTS triggers reference `Entry` in their bodies;
+            //    modern SQLite re-validates trigger bodies on ALTER TABLE … RENAME,
+            //    so renaming Entry_new → Entry throws "no such table: main.Entry"
+            //    while those triggers still exist. Drop them before the swap and
+            //    recreate them after — otherwise a legacy DB can never be opened.
+            const ftsTriggerNames = [
+                'EntrySearch_Entry_Insert', 'EntrySearch_Entry_Update', 'EntrySearch_Entry_Delete',
+                'EntrySearch_Content_Insert', 'EntrySearch_Content_Update', 'EntrySearch_Content_Delete',
+            ];
+            for (const name of ftsTriggerNames) {
+                await new Promise<void>((res, rej) =>
+                    this.instance!.run(`DROP TRIGGER IF EXISTS ${name}`, (err) => err ? rej(err) : res())
+                );
+            }
             await new Promise<void>((res, rej) =>
                 this.instance!.run('PRAGMA foreign_keys = OFF', (err) => err ? rej(err) : res())
             );
@@ -531,6 +550,11 @@ export class DBManager {
             await new Promise<void>((res, rej) =>
                 this.instance!.run('PRAGMA foreign_keys = ON', (err) => err ? rej(err) : res())
             );
+
+            // Recreate the FTS sync triggers dropped above.
+            for (const query of ftsSyncQueries) {
+                await new Promise<void>((res, rej) => this.instance!.run(query, (err) => err ? rej(err) : res()));
+            }
 
             // Recreate indexes that were on the old table
             const idxQueries = [

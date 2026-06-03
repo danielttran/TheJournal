@@ -55,6 +55,7 @@ import { wordCount as countWords, readingTimeMinutesFromWords } from '@/lib/read
 import { computeEntryStats } from '@/lib/entryProperties';
 import { BUNDLED_PLUGINS } from '@/lib/bundledPlugins';
 import { logAction } from '@/lib/actionLog';
+import { matchSnippetShortcut, type SnippetShortcut } from '@/lib/snippetExpand';
 
 // Module-level (stable) helpers for the editor right-click menu so they aren't
 // re-created each render (avoids react/no-unstable-nested-components).
@@ -431,8 +432,53 @@ function PluginLoadedEditor({
     }, []);
 
     // Keyboard shortcuts
+    // Snippet shortcuts for inline auto-expansion (typing ";sig" + space expands
+    // it). Held in a ref so the keydown handler always sees the latest list
+    // without re-subscribing. Refreshed on mount and when snippets change.
+    const snippetsRef = useRef<SnippetShortcut[]>([]);
+    useEffect(() => {
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const res = await fetch('/api/snippet');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (cancelled) return;
+                snippetsRef.current = (data.items ?? [])
+                    .filter((s: { Shortcut?: string | null }) => s.Shortcut)
+                    .map((s: { Shortcut: string; Content: string }) => ({ shortcut: s.Shortcut, content: s.Content }));
+            } catch { /* offline / unauthorized — expansion just stays inert */ }
+        };
+        load();
+        const onChanged = () => load();
+        window.addEventListener('snippets-changed', onChanged);
+        return () => { cancelled = true; window.removeEventListener('snippets-changed', onChanged); };
+    }, []);
+
+    // Try to expand a snippet shortcut ending at the caret. Returns true if it
+    // consumed the keystroke (an expansion happened).
+    const tryExpandSnippet = useCallback((): boolean => {
+        if (!editor || !editor.isFocused || snippetsRef.current.length === 0) return false;
+        const sel = editor.state.selection;
+        if (!sel.empty) return false;
+        const $from = sel.$from;
+        // Text in the current block up to the caret (non-text nodes → sentinel).
+        const textBefore = $from.parent.textBetween(0, $from.parentOffset, '\n', '￼');
+        const match = matchSnippetShortcut(textBefore, snippetsRef.current);
+        if (!match) return false;
+        const from = sel.from;
+        const start = from - match.shortcut.length;
+        editor.chain().focus().insertContentAt({ from: start, to: from }, match.content).run();
+        return true;
+    }, [editor]);
+
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
+            // Snippet auto-expansion: typing a shortcut then a boundary key
+            // (space / Enter) swaps it for the snippet content. Consume the key.
+            if ((e.key === ' ' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                if (tryExpandSnippet()) { e.preventDefault(); return; }
+            }
             if (e.key === 'F11') {
                 e.preventDefault();
                 setIsDistractionFree(v => {
@@ -489,8 +535,13 @@ function PluginLoadedEditor({
         const handleHighlight = () => editor?.chain().focus().toggleHighlight().run();
         const handleHr = () => editor?.chain().focus().setHorizontalRule().run();
         const handlePrompts = () => setShowWritingPrompts(true);
+        const handleInsertSnippet = (e: Event) => {
+            const html = (e as CustomEvent<string>).detail;
+            if (typeof html === 'string' && html) editor?.chain().focus().insertContent(html).run();
+        };
 
         window.addEventListener('trigger-search', handleSearch);
+        window.addEventListener('trigger-insert-snippet', handleInsertSnippet);
         window.addEventListener('trigger-find-in-entry', handleFindInEntry);
         window.addEventListener('trigger-find-next', handleFindInEntry);
         window.addEventListener('trigger-templates', handleTemplates);
@@ -508,6 +559,7 @@ function PluginLoadedEditor({
         return () => {
             window.removeEventListener('keydown', handler);
             window.removeEventListener('trigger-search', handleSearch);
+            window.removeEventListener('trigger-insert-snippet', handleInsertSnippet);
             window.removeEventListener('trigger-find-in-entry', handleFindInEntry);
             window.removeEventListener('trigger-find-next', handleFindInEntry);
             window.removeEventListener('trigger-templates', handleTemplates);

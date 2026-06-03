@@ -51,6 +51,20 @@ async function performAutoBackup() {
         return;
     }
 
+    // Honor "Backup Frequency (Days)": skip if the last auto-backup was more
+    // recent than the configured interval. A value < 1 means "every close".
+    const freqDays = Number(s.backupFrequency);
+    if (Number.isFinite(freqDays) && freqDays >= 1 && s.lastAutoBackup) {
+        const last = Date.parse(s.lastAutoBackup);
+        if (Number.isFinite(last)) {
+            const elapsedDays = (Date.now() - last) / 86_400_000;
+            if (elapsedDays < freqDays) {
+                console.log(`[Electron] performAutoBackup: last backup ${elapsedDays.toFixed(1)}d ago < ${freqDays}d interval, skipping.`);
+                return;
+            }
+        }
+    }
+
     const dbPath = process.env.JOURNAL_DB_PATH || getDatabasePath();
     console.log('[Electron] performAutoBackup: source DB =', dbPath);
 
@@ -102,6 +116,9 @@ async function performAutoBackup() {
                 fs.copyFileSync(sidecar, `${dest}-${suffix}`);
             }
         });
+
+        // Record when so the frequency gate above can throttle the next close.
+        settingsManager.saveSettings({ lastAutoBackup: new Date().toISOString() });
 
         console.log('[Electron] ✅ Auto-backup SUCCESS at:', dest);
     } catch (err) {

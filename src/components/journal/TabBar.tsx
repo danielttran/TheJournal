@@ -913,7 +913,10 @@ export default function TabBar({ userId }: { userId: string }) {
             )}
 
             {isSnippetsOpen && (
-                <SnippetsPanel onClose={() => setIsSnippetsOpen(false)} />
+                <SnippetsPanel
+                    onClose={() => setIsSnippetsOpen(false)}
+                    onInsert={(html) => window.dispatchEvent(new CustomEvent('trigger-insert-snippet', { detail: html }))}
+                />
             )}
 
             {settingsCategoryId !== null && (
