@@ -747,7 +747,11 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
     // the latest closures so the window listeners subscribe once.
     const assignTopicsFlow = async (entryId: number) => {
         const res = await fetch('/api/topic');
-        const topics = res.ok ? await res.json() : [];
+        // GET /api/topic returns { items: [...] } — unwrap it (a bare array
+        // would also work). Treating the object as an array silently broke
+        // "Tag Entry with Topic" (it always reported "No topics defined").
+        const raw = res.ok ? await res.json() : [];
+        const topics = Array.isArray(raw) ? raw : (raw?.items ?? []);
         if (!Array.isArray(topics) || topics.length === 0) {
             window.alert('No topics defined yet. Create topics before assigning them.');
             return;

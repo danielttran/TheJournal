@@ -889,7 +889,9 @@ function PluginLoadedEditor({
         let topics: { Name?: string; name?: string; Color?: string; color?: string }[] = [];
         try {
             const res = await fetch('/api/topic');
-            topics = res.ok ? await res.json() : [];
+            // GET /api/topic returns { items: [...] }; unwrap it.
+            const raw = res.ok ? await res.json() : [];
+            topics = Array.isArray(raw) ? raw : (raw?.items ?? []);
         } catch { /* offline — fall through to empty */ }
         if (!Array.isArray(topics) || topics.length === 0) {
             showToast('No topics defined yet. Create topics first (Topic ▸ Manage Topics).');
