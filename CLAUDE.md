@@ -226,27 +226,37 @@ shipping to production.
   nine named toolbar groups can be shown/hidden from Settings (pure
   `toolbarConfig.ts`; defaults to all-visible). See `docs/j8-gap-analysis.md`.
 
+- **J8 parity round 5 (2026-06-03b)**: closed the remaining deferred items
+  outside the import carve-out. (1) **Customizable menus** — hide menu items
+  from Settings ▸ Menus; pure `menuCustomization.js`/`.d.ts` filters the shared
+  spec, web `MenuBar` re-reads live, Electron native menu rebuilds on
+  `settings.menuHiddenItems`. (2) **Inline (block-level) topic tagging** — new
+  `InlineTag` TipTap mark + pure `inlineTag.ts`; **Topic ▸ Tag Selection with
+  Topic…** + context menu. (3) **Cross-platform Electron targets** — mac
+  (dmg/zip) + linux (AppImage/deb) in `electron-builder.yml` + `package:mac`/
+  `package:linux`; `release.yml` is a 3-OS matrix gated by one verify job. Also
+  fixed an asar `files` packaging bug (round-4 libs `windowState.js` +
+  `menuCustomization.js` weren't whitelisted → would crash the packaged app).
+
 ## What's intentionally NOT done
 
-- Outlook integration, Penzu/Diaro/WordPress importers — out of scope per the
-  goal ("bridge all gaps except importing from other apps").
-- **Category Sync**: needs an external sync service that doesn't exist — out of
-  scope (an import/sync-from-elsewhere feature, like the importers above).
-- **Toolbar group REORDER** (only show/hide is offered): the toolbar
-  interleaves contextual controls (image-resize, plugin buttons, flex spacer)
-  whose left-to-right position is meaningful. Block-level / inline tagging is
-  NOT a J8 feature (J8 tags whole entries), so it is a non-goal, not a gap.
-- **Customizable Electron menus**: low value and not click-testable in CI
-  (native OS menu). The menu is data-driven from one shared `menuSpec.js`.
-- **macOS / Linux Electron targets, code signing, auto-minimize-idle**: cannot
-  be built or validated in the CI/dev environment (Windows NSIS only).
+- **Importers (Outlook / Penzu / Diaro / WordPress) + external Category Sync**:
+  the goal's only carve-out ("bridge all gaps except importing from other
+  apps"). Category Sync is the same class — sync/import from an external service.
+- **macOS code signing / notarization**: a credential, not code. `release.yml`
+  consumes `CSC_LINK`/`CSC_KEY_PASSWORD` if the repo provides them; the mac +
+  linux *builds* are otherwise configured. (The mac/linux installers cannot be
+  built or run inside this Linux CI/dev container, only on their own runners.)
+- **Toolbar group REORDER** (show/hide IS offered): the toolbar interleaves
+  contextual controls (image-resize, plugin buttons, flex spacer) whose
+  left-to-right position is meaningful, so only visibility is configurable.
 
 ## Running tests / type checks
 
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 915 tests as of the last commit.
+# Baseline: 933 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

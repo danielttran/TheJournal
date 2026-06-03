@@ -1,5 +1,59 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Deferred-gap closure round 5 — 2026-06-03b
+
+Closed the remaining deferred items that fall OUTSIDE the goal's only carve-out
+("importing from other apps"). After this round the only unbridged items are
+the import/sync-from-elsewhere features (explicitly excluded) and macOS code
+*signing* (needs an Apple Developer certificate, a credential not available in
+this environment — the build targets themselves are now configured).
+
+1. **Customizable menus (web + Electron).** Users can hide menu items from
+   **Settings → Menus**. Pure, tested `menuCustomization.js`/`.d.ts` filters the
+   shared `J8_MENUS` spec by a hidden label-path id set (keyed by full path so
+   hiding one command can't remove another that reuses the same `action`),
+   tidies separators, and drops emptied submenus/menus. The web `MenuBar`
+   re-reads on a `menu-config-changed` event; the Electron native menu reads
+   `settings.menuHiddenItems` and **rebuilds live** when it changes. Hidden
+   items still fire via their keyboard accelerator (the dispatcher is
+   independent). `menuHiddenItems` added to the renderer-writable allowlist.
+
+2. **Inline (block-level) topic tagging.** Beyond whole-entry topic assignment,
+   a SELECTED span can now be tagged: the new `InlineTag` TipTap mark wraps the
+   selection in `<span data-tag data-tag-color>` (colored dotted underline) that
+   persists in the entry HTML, round-trips through save/export, and keeps the
+   tagged text searchable. Pure tested `inlineTag.ts` (name normalization + tag
+   extraction). Wired via **Topic ▸ Tag Selection with Topic…** and the editor
+   context menu (`trigger-tag-selection`): pick from the user's topics to apply;
+   no selection removes an inline tag at the cursor.
+
+3. **Cross-platform Electron build targets.** `electron-builder.yml` now
+   declares **macOS** (dmg + zip) and **Linux** (AppImage + deb) targets
+   alongside Windows NSIS; new `package:mac` / `package:linux` npm scripts.
+   `release.yml` is now a **3-OS matrix** (windows/macos/ubuntu, `fail-fast:
+   false` so one platform's failure can't discard the others) gated by a single
+   `verify` job (tsc + vitest). macOS signing is opt-in via `CSC_LINK` /
+   `CSC_KEY_PASSWORD` secrets; unsigned otherwise.
+
+   **Also fixed a packaging bug introduced in round 4:** `main.js` now requires
+   `windowState.js` + `menuCustomization.js`, which were not whitelisted in the
+   asar `files` list — the packaged app would have crashed with "Cannot find
+   module". Both are now included (verified the require paths resolve).
+
+**Only remaining unbridged (by design / environment):**
+- **Importers (Outlook / Penzu / Diaro / WordPress) + external Category Sync**
+  — the goal's explicit carve-out ("except importing from other apps").
+- **macOS code signing / notarization** — needs an Apple Developer certificate
+  (a secret/credential), not a code change; the workflow already consumes it if
+  provided. The mac/linux *builds* are otherwise fully configured.
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors (1 pre-existing
+`ThemeSettings` warning) · `vitest run` **933/933** (+18: `menu-customization`,
+`inline-tag`) · `npm run build` standalone bundle clean · both YAML workflows +
+`electron-builder.yml` validate.
+
+---
+
 ## Deferred-gap closure round 4 — 2026-06-03
 
 Per the goal "bridge all gaps except importing from other apps," this round

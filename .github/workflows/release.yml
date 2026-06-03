@@ -1,21 +1,58 @@
 name: Release
 
-# Triggers on push of a semver tag like v1.2.3. Build the Windows NSIS
-# installer + electron-updater manifest and publish them to the
-# corresponding GitHub Release.
+# Triggers on push of a semver tag like v1.2.3. Builds desktop installers for
+# Windows (NSIS), macOS (dmg + zip) and Linux (AppImage + deb) from the single
+# Electron codebase, plus the electron-updater manifests, and publishes them to
+# the corresponding GitHub Release.
 on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
 
 jobs:
-  build-windows:
-    name: Build Windows NSIS installer
-    runs-on: windows-latest
+  # Single quality gate — refuse to publish a broken installer. If tsc or the
+  # tests fail, no build job runs, so the Release is never created and
+  # electron-updater clients keep the previous version.
+  verify:
+    name: Type-check + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install libssl1.1 for SQLCipher
+        run: |
+          sudo wget -q http://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb
+          sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb
+          rm libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Unit tests
+        run: npx vitest run
+
+  build:
+    name: Build ${{ matrix.os }} installer
+    needs: verify
     permissions:
       # electron-builder needs to create the GitHub Release and upload artifacts.
       contents: write
-
+    strategy:
+      # One platform failing must not discard the other platforms' artifacts.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            flag: --win
+          - os: macos-latest
+            flag: --mac
+          - os: ubuntu-latest
+            flag: --linux
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,26 +65,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Refuse to publish a broken installer. The release workflow is the
-      # last chance to catch regressions — if tsc or tests fail, the
-      # GitHub Release never gets created and electron-updater clients
-      # keep the previous version.
-      - name: Type-check
-        run: npx tsc --noEmit
-
-      - name: Unit tests
-        run: npx vitest run
-
       - name: Build installer
-        # build:installer compiles Next.js, then rebuilds @journeyapps/sqlcipher's
-        # native binding and invokes electron-builder. The install-sqlite step rebuilds the
-        # binding against the Electron runtime's V8 ABI. electron-builder
-        # then bundles the installer and — because electron-builder.yml has
-        # a `publish: github` block — uploads it to the Release for this
-        # tag (creating the Release if needed).
-        run: npm run build:installer
+        # build:electron compiles Next.js; install-sqlite rebuilds the
+        # @journeyapps/sqlcipher native binding against the Electron runtime's
+        # V8 ABI; electron-builder packages the per-OS installer and (via the
+        # `publish: github` block in electron-builder.yml) uploads it to the
+        # Release for this tag, creating the Release if needed.
+        run: |
+          npm run build:electron
+          node scripts/install-sqlite.js
+          npx electron-builder ${{ matrix.flag }} --publish always
         env:
           # electron-builder picks up GH_TOKEN to authenticate the upload.
-          # The default GITHUB_TOKEN has `contents: write` from `permissions`
-          # above, which is exactly what electron-builder needs.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing/notarization is opt-in: if an Apple Developer
+          # certificate is provided as repo secrets it is used, otherwise the
+          # mac build is produced unsigned.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
