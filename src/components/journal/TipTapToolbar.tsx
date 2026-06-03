@@ -15,6 +15,7 @@ import { TheJournalAPI } from '@/lib/pluginApi';
 import { SPECIAL_CHAR_GROUPS } from '@/lib/specialChars';
 import { LINE_HEIGHTS } from '@/lib/paragraphStyle';
 import { normalizeLinkUrl } from '@/lib/linkUrl';
+import { loadToolbarConfig, isGroupVisible, TOOLBAR_CONFIG_EVENT } from '@/lib/toolbarConfig';
 import PromptModal from './PromptModal';
 
 export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
@@ -42,6 +43,15 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const [linkDialog, setLinkDialog] = useState<{ url: string; newTab: boolean; error: string } | null>(null);
     const linkInputRef = useRef<HTMLInputElement>(null);
     const [showImageUrl, setShowImageUrl] = useState(false);
+    // Toolbar customization (J8 "Customize Toolbar"): hidden-group set, kept in
+    // sync with the Settings UI via a window event (mirrors font-size-changed).
+    const [hiddenGroups, setHiddenGroups] = useState(() => loadToolbarConfig());
+    useEffect(() => {
+        const refresh = () => setHiddenGroups(loadToolbarConfig());
+        window.addEventListener(TOOLBAR_CONFIG_EVENT, refresh);
+        return () => window.removeEventListener(TOOLBAR_CONFIG_EVENT, refresh);
+    }, []);
+    const showGroup = useCallback((id: string) => isGroupVisible(hiddenGroups, id), [hiddenGroups]);
 
     useEffect(() => {
         if (!showTableMenu) return;
@@ -437,6 +447,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 }}
             />
 
+            {showGroup('font') && (<>
             <select
                 onChange={(e) => {
                     const val = e.target.value;
@@ -531,7 +542,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                     <ChevronDown className="w-3 h-3 text-text-muted pointer-events-none" />
                 </div>
             </div>
+            </>)}
 
+            {showGroup('marks') && (<>
             <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
@@ -569,7 +582,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <SuperscriptIcon className="w-4 h-4" />
             </button>
+            </>)}
 
+            {showGroup('style') && (<>
             <div className="w-px h-4 bg-border-primary mx-1" />
 
             <select
@@ -585,7 +600,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 <option value="blockquote">Quote</option>
                 <option value="codeBlock">Code block</option>
             </select>
+            </>)}
 
+            {showGroup('lists') && (<>
             <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
@@ -615,7 +632,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             <button onClick={indent} className="p-1.5 rounded hover:bg-bg-hover text-text-muted" title="Increase indent">
                 <Indent className="w-4 h-4" />
             </button>
+            </>)}
 
+            {showGroup('align') && (<>
             <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
@@ -659,7 +678,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 <option value="">Spacing</option>
                 {LINE_HEIGHTS.map(h => <option key={h} value={h}>{h}&times;</option>)}
             </select>
+            </>)}
 
+            {showGroup('blocks') && (<>
             <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
@@ -754,7 +775,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                     </div>
                 )}
             </div>
+            </>)}
 
+            {showGroup('insert') && (<>
             <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
@@ -852,7 +875,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                     </button>
                 </>
             )}
+            </>)}
 
+            {showGroup('tools') && (<>
             <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
@@ -938,6 +963,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <Paintbrush className="w-4 h-4" />
             </button>
+            </>)}
 
             {pluginToolbarButtons.length > 0 && (
                 <>
@@ -970,6 +996,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                 <Sparkles className="w-4 h-4" />
             </button>
 
+            {showGroup('history') && (<>
             <div className="w-px h-4 bg-border-primary mx-1" />
 
             <button
@@ -995,6 +1022,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
             >
                 <RemoveFormatting className="w-4 h-4" />
             </button>
+            </>)}
 
             {showImageUrl && (
                 <PromptModal

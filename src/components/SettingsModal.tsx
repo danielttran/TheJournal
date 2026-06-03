@@ -6,6 +6,9 @@ import { useTheme } from 'next-themes';
 import { useToast } from './Toast';
 import KeybindingsSection from './KeybindingsSection';
 import PluginsSection from './PluginsSection';
+import {
+    TOOLBAR_GROUPS, loadToolbarConfig, saveToolbarConfig, toggleGroup, isGroupVisible,
+} from '@/lib/toolbarConfig';
 import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 
 interface SettingsModalProps {
@@ -194,6 +197,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         <span className="text-xs text-text-muted ml-2">px</span>
                                     </div>
                                 </div>
+
+                                <ToolbarCustomizeSection />
                             </section>
 
                             <div className="h-px bg-border-primary" />
@@ -443,6 +448,39 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         Done
                     </button>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+// Customize which editor toolbar groups are shown (J8 "Customize Toolbar").
+// Persists to localStorage via toolbarConfig + notifies open toolbars to re-read.
+function ToolbarCustomizeSection() {
+    const [hidden, setHidden] = useState(() => loadToolbarConfig());
+    const onToggle = (id: string) => {
+        const next = toggleGroup(hidden, id);
+        setHidden(next);
+        saveToolbarConfig(next);
+    };
+    return (
+        <div className="space-y-2 mt-5">
+            <label className="text-sm font-medium text-text-primary">Editor Toolbar Buttons</label>
+            <p className="text-xs text-text-muted">Hide toolbar groups you don&apos;t use. Affects the rich-text editor toolbar.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
+                {TOOLBAR_GROUPS.map(g => {
+                    const visible = isGroupVisible(hidden, g.id);
+                    return (
+                        <label key={g.id} className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={visible}
+                                onChange={() => onToggle(g.id)}
+                                className="accent-[color:var(--color-accent-primary)]"
+                            />
+                            {g.label}
+                        </label>
+                    );
+                })}
             </div>
         </div>
     );
