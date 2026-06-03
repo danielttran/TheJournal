@@ -84,9 +84,12 @@ export async function POST(req: NextRequest) {
             // CURRENT_TIMESTAMP default. The whole app buckets CreatedDate as
             // naive-local (stats/heatmap/anniversary/search), so a UTC stamp here
             // mis-files notebook entries by a day in non-UTC timezones.
+            // ModifiedDate stays on the UTC default — it's only used for recency
+            // sorting and every later UPDATE stamps it with CURRENT_TIMESTAMP, so
+            // keeping it UTC keeps that column internally consistent.
             const result = await db.prepare(`
-                INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType, CreatedDate, ModifiedDate)
-                VALUES (?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))
+                INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType, CreatedDate)
+                VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))
             `).run(categoryId, title, initialPreview, parentEntryId || null, entryType);
 
             const newEntryId = result.lastInsertRowid;
