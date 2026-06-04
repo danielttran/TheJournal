@@ -306,6 +306,22 @@ export async function POST(req: NextRequest) {
                 `).run(newEntryId, html, docJson);
             }
 
+            // G2. Templates were inserted in step B (before attIdMap existed), but
+            // a template "Save as…" captures an entry's live HTML which can embed
+            // /api/attachment/{id} refs. Remap those to the new attachment ids now
+            // so a template made from an entry-with-image isn't left pointing at a
+            // stale (deleted) id after restore.
+            for (const t of importedTemplates) {
+                const newTemplateId = templateIdMap.get(t.TemplateID);
+                if (!newTemplateId) continue;
+                if (!(t.HtmlContent?.includes('/api/attachment/') || t.DocumentJson?.includes('/api/attachment/'))) continue;
+                const newHtml = t.HtmlContent != null ? remapAttachmentRefs(t.HtmlContent, attIdMap) : null;
+                const newJson = t.DocumentJson != null ? remapAttachmentRefs(t.DocumentJson, attIdMap) : null;
+                await db.prepare(
+                    'UPDATE main.Template SET HtmlContent = ?, DocumentJson = ? WHERE TemplateID = ?'
+                ).run(newHtml, newJson, newTemplateId);
+            }
+
             // H. Fix ParentEntryID hierarchy.
             for (const entry of importedEntries) {
                 if (entry.ParentEntryID) {
@@ -379,11 +395,16 @@ export async function POST(req: NextRequest) {
             }
 
             // L. Snippets / per-user settings / backup schedules (no FKs to remap).
+            // Snippet content can embed /api/attachment/{id} refs (a snippet saved
+            // from content with an image), so remap them to the new attachment ids.
             const importedSnippets = await safeAll<ImportedSnippetRow>("SELECT * FROM imported.Snippet");
             for (const s of importedSnippets) {
+                const content = s.Content?.includes('/api/attachment/')
+                    ? remapAttachmentRefs(s.Content, attIdMap)
+                    : s.Content;
                 await db.prepare(`
                     INSERT INTO main.Snippet (UserID, Name, Content, Shortcut, CreatedAt) VALUES (?, ?, ?, ?, ?)
-                `).run(userId, s.Name, s.Content, s.Shortcut ?? null, s.CreatedAt ?? null);
+                `).run(userId, s.Name, content, s.Shortcut ?? null, s.CreatedAt ?? null);
             }
             const importedSettings = await safeAll<ImportedUserSettingRow>("SELECT * FROM imported.UserSetting");
             for (const us of importedSettings) {
