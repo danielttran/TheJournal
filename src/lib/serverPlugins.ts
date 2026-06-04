@@ -167,9 +167,10 @@ export async function installPluginFromPayload(
 }
 
 /**
- * Remove a plugin by id. Returns true when something was removed, false
- * when the id didn't exist. Rejects ids that fail sanitisation OR resolve
- * outside the plugins root.
+ * Remove a plugin by id. Returns true on success — including when the id
+ * didn't exist, since `fs.rm` with `force: true` treats a missing path as a
+ * no-op (idempotent uninstall); returns false only if removal genuinely fails.
+ * Rejects ids that fail sanitisation OR resolve outside the plugins root.
  */
 export async function uninstallPlugin(rawId: string, dir?: string): Promise<boolean> {
     const id = sanitizePluginId(rawId);
