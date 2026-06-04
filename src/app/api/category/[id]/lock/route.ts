@@ -2,10 +2,10 @@ import { dbManager } from '@/lib/db';
 import {
     setCategoryPassword,
     verifyAndUnwrap,
-    clearCategoryPassword,
     rotateCategoryPassword,
     isCategoryLocked,
     transformCategoryEntries,
+    clearCategoryPasswordFields,
     encryptWithKey,
     decryptWithKey,
     ENC_PREFIX,
@@ -171,8 +171,15 @@ export const DELETE = authedHandler<[NextRequest, Params]>(
         // and we refuse to clear the password. Without the rollback the
         // user would end up with a category that has no password but still
         // contains undecryptable ENC1: rows → permanent data loss.
+        // Decrypt every entry AND clear the password fields in ONE transaction
+        // (afterTransform). Doing the clear in the same tx closes the window where
+        // a concurrent save could re-encrypt an entry between the decrypt commit
+        // and the password clear, leaving an undecryptable ENC1: row.
         try {
-            await transformCategoryEntries(dbManager, userId, categoryId, decryptIfCiphertext(eek));
+            await transformCategoryEntries(
+                dbManager, userId, categoryId, decryptIfCiphertext(eek),
+                () => clearCategoryPasswordFields(dbManager, userId, categoryId),
+            );
         } catch (err) {
             console.error('[lock route] decrypt-all failed during clear-password:', err);
             return NextResponse.json({
@@ -180,8 +187,6 @@ export const DELETE = authedHandler<[NextRequest, Params]>(
             }, { status: 500 });
         }
 
-        const ok = await clearCategoryPassword(dbManager, userId, categoryId, parsed.data.password);
-        if (!ok) return NextResponse.json({ error: 'wrong password' }, { status: 403 });
         clearCategoryKey(userId, categoryId);
         return NextResponse.json({ cleared: true });
     }

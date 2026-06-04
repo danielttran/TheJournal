@@ -31,6 +31,10 @@ export const POST = authedHandler<[NextRequest, Params]>('POST /api/entry/[id]/d
         return NextResponse.json({ id: newId });
     } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to duplicate';
+        // Refused cross-category clone across a password-locked boundary.
+        if ((err as { code?: string }).code === 'CATEGORY_LOCKED') {
+            return NextResponse.json({ error: msg }, { status: 423 });
+        }
         return NextResponse.json({ error: msg }, { status: 400 });
     }
 });

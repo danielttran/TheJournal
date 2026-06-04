@@ -7,7 +7,7 @@ const ReorderSchema = z.object({
     updates: z.array(z.object({
         id: z.number(),
         sortOrder: z.number()
-    }))
+    })).max(10000)
 });
 
 export async function PUT(req: NextRequest) {
