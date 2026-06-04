@@ -603,6 +603,24 @@ function createMenu() {
 }
 
 
+// Single-instance lock: a second launch would start another embedded Next.js
+// server opening the SAME journal.tjdb with a second SQLCipher writer connection,
+// inviting WAL contention / SQLITE_BUSY. Refuse the second instance and instead
+// surface the already-running window. Calling app.quit() before 'ready' prevents
+// whenReady() below from firing.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            if (!mainWindow.isVisible()) mainWindow.show();
+            mainWindow.focus();
+        }
+    });
+}
+
 app.whenReady().then(async () => {
     try {
         // Initialize settings FIRST — requires app to be ready for getPath('userData')

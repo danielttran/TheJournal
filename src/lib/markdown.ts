@@ -96,21 +96,39 @@ export interface FrontmatterInput {
     mood?: string | null;
 }
 
-function yamlString(v: string): string {
-    if (/[":#]/.test(v) || v !== v.trim()) {
-        return `"${v.replace(/"/g, '\\"')}"`;
-    }
-    return v;
+// Escape a string for a YAML double-quoted scalar. Backslash MUST be escaped
+// first (a double-quoted YAML scalar interprets \n, \t, \" …), then the quote
+// and line-breaking control chars — otherwise a title like `C:\new` would
+// re-parse with a literal newline, and a mood like "a\ninjected: true" could
+// break out of the frontmatter block.
+function escapeYamlDoubleQuoted(v: string): string {
+    return v
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t');
 }
 
-// Like yamlString but for a value inside a flow sequence (tags: [a, b]).
-// There, `,` `[` `]` `{` `}` are structural and MUST be quoted, or a tag
-// such as "a, b" would be misread as two separate tags on re-parse.
+function yamlNeedsQuote(v: string): boolean {
+    // Quote when the value carries a YAML special/indicator char anywhere, leads
+    // with an indicator, has surrounding whitespace, is empty, or contains a
+    // line-breaking control char. Conservative — over-quoting is always valid YAML.
+    return v === '' || v !== v.trim()
+        || /[:#"'\\[\]{},&*!|>%@`]/.test(v)
+        || /^[-?]/.test(v)
+        || /[\n\r\t]/.test(v);
+}
+
+function yamlString(v: string): string {
+    return yamlNeedsQuote(v) ? `"${escapeYamlDoubleQuoted(v)}"` : v;
+}
+
+// Like yamlString but for a value inside a flow sequence (tags: [a, b]). The same
+// rules apply; `,` `[` `]` `{` `}` are already covered, so a tag such as "a, b"
+// is quoted and won't be misread as two tags on re-parse.
 function yamlFlowString(v: string): string {
-    if (/[",:#[\]{}]/.test(v) || v !== v.trim()) {
-        return `"${v.replace(/"/g, '\\"')}"`;
-    }
-    return v;
+    return yamlNeedsQuote(v) ? `"${escapeYamlDoubleQuoted(v)}"` : v;
 }
 
 export function frontmatter(fm: FrontmatterInput): string {
@@ -119,7 +137,7 @@ export function frontmatter(fm: FrontmatterInput): string {
     if (fm.modifiedDate) lines.push(`modified: ${fm.modifiedDate}`);
     const tags = (fm.tags ?? []).filter(Boolean).map(yamlFlowString);
     lines.push(`tags: [${tags.join(', ')}]`);
-    if (fm.mood) lines.push(`mood: ${fm.mood}`);
+    if (fm.mood) lines.push(`mood: ${yamlString(fm.mood)}`);
     lines.push('---');
     return lines.join('\n') + '\n';
 }

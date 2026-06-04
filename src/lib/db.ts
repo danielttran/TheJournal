@@ -380,6 +380,10 @@ export class DBManager {
             // the renderer's minute-tick poll doesn't keep firing the same
             // popup forever.
             `ALTER TABLE Reminder ADD COLUMN NotifiedAt DATETIME`,
+            // Links a completed recurring reminder to the occurrence its
+            // completion spawned, so un-completing can delete that occurrence
+            // (instead of leaving a duplicate) and restore the recurrence.
+            `ALTER TABLE Reminder ADD COLUMN NextOccurrenceID INTEGER`,
             // M3.11: per-category passwords (envelope encryption).
             // PasswordHash already exists (added earlier). PasswordSalt + a
             // password-wrapped EEK let us decrypt entry content without ever

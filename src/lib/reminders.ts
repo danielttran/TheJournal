@@ -141,33 +141,45 @@ export async function deleteReminder(dbm: DBManager, userId: number, reminderId:
 export async function toggleComplete(dbm: DBManager, userId: number, reminderId: number): Promise<void> {
     await assertOwnership(dbm, userId, reminderId);
 
-    // Read + write inside ONE transaction so concurrent toggles can't observe a stale
-    // RecurInterval and double-spawn next occurrences (the AsyncMutex in DBManager
-    // serializes transactions, making this a true compare-and-swap).
+    // Read + write inside ONE transaction so concurrent toggles can't observe a
+    // stale state and double-spawn (the AsyncMutex in DBManager serializes
+    // transactions, making this a true compare-and-swap). Completing a recurring
+    // reminder spawns the next occurrence and remembers it in NextOccurrenceID;
+    // un-completing deletes that occurrence so the user isn't left with a
+    // duplicate and a silently-stopped recurrence.
     const tx = dbm.transaction(async () => {
         const row = await dbm.prepare(
-            'SELECT IsComplete, DueAt, Title, Notes, EntryID, RecurInterval, RecurEvery, ReminderType, LeadMinutes FROM Reminder WHERE ReminderID = ?'
+            'SELECT IsComplete, DueAt, Title, Notes, EntryID, RecurInterval, RecurEvery, ReminderType, LeadMinutes, NextOccurrenceID FROM Reminder WHERE ReminderID = ?'
         ).get(reminderId) as {
             IsComplete: number; DueAt: string; Title: string; Notes: string | null;
             EntryID: number | null; RecurInterval: RecurInterval | null; RecurEvery: number | null;
-            ReminderType: string | null; LeadMinutes: number | null;
+            ReminderType: string | null; LeadMinutes: number | null; NextOccurrenceID: number | null;
         } | undefined;
         if (!row) return;
 
         if (row.IsComplete) {
+            // Un-complete: reverse the completion. Remove the occurrence this
+            // completion spawned (if any) and clear the link. RecurInterval was
+            // preserved on complete, so the reminder recurs again as before.
+            if (row.NextOccurrenceID) {
+                await dbm.prepare(
+                    'DELETE FROM Reminder WHERE ReminderID = ? AND UserID = ?'
+                ).run(row.NextOccurrenceID, userId);
+            }
             await dbm.prepare(
-                `UPDATE Reminder SET IsComplete = 0, CompletedAt = NULL, Status = 'active' WHERE ReminderID = ?`
+                `UPDATE Reminder SET IsComplete = 0, CompletedAt = NULL, Status = 'active', NextOccurrenceID = NULL WHERE ReminderID = ?`
             ).run(reminderId);
             return;
         }
 
-        await dbm.prepare(
-            `UPDATE Reminder SET IsComplete = 1, CompletedAt = CURRENT_TIMESTAMP, Status = 'done', RecurInterval = NULL, RecurEvery = NULL WHERE ReminderID = ?`
-        ).run(reminderId);
-
-        if (row.RecurInterval && row.RecurEvery && row.RecurEvery >= 1) {
+        // Complete. Spawn the next occurrence only if this reminder recurs and
+        // hasn't already spawned one (the NextOccurrenceID guard makes concurrent
+        // completes idempotent). RecurInterval/RecurEvery are KEPT so un-complete
+        // can restore the recurrence.
+        let spawnedId: number | null = null;
+        if (row.RecurInterval && row.RecurEvery && row.RecurEvery >= 1 && row.NextOccurrenceID == null) {
             const nextDue = advanceDueAt(row.DueAt, row.RecurInterval, row.RecurEvery);
-            await dbm.prepare(
+            const r = await dbm.prepare(
                 `INSERT INTO Reminder (UserID, Title, Notes, DueAt, EntryID, RecurInterval, RecurEvery, ReminderType, Status, LeadMinutes)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
             ).run(
@@ -175,7 +187,11 @@ export async function toggleComplete(dbm: DBManager, userId: number, reminderId:
                 row.RecurInterval, row.RecurEvery,
                 row.ReminderType ?? 'Appointment', row.LeadMinutes ?? 0
             );
+            spawnedId = r.lastInsertRowid as number;
         }
+        await dbm.prepare(
+            `UPDATE Reminder SET IsComplete = 1, CompletedAt = CURRENT_TIMESTAMP, Status = 'done', NextOccurrenceID = ? WHERE ReminderID = ?`
+        ).run(spawnedId, reminderId);
     });
     await tx();
 }

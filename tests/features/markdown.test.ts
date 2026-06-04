@@ -92,6 +92,23 @@ describe('frontmatter', () => {
         // "a, b" must be quoted or YAML reads it as two items.
         expect(fm).toContain('tags: ["a, b", plain, "has:colon"]');
     });
+
+    it('escapes a mood that tries to break out of the frontmatter block', () => {
+        const fm = frontmatter({ title: 'T', tags: [], mood: 'tired: very\ninjected: true' });
+        // The newline + injected key must be escaped onto one quoted line.
+        expect(fm).toContain('mood: "tired: very\\ninjected: true"');
+        expect(fm).not.toContain('\ninjected: true');
+    });
+
+    it('escapes backslashes in title so a double-quoted scalar does not re-parse \\n', () => {
+        const fm = frontmatter({ title: 'C:\\new', tags: [] });
+        expect(fm).toContain('title: "C:\\\\new"');
+    });
+
+    it('quotes titles that begin with a YAML indicator', () => {
+        expect(frontmatter({ title: '- dash lead', tags: [] })).toContain('title: "- dash lead"');
+        expect(frontmatter({ title: '@at lead', tags: [] })).toContain('title: "@at lead"');
+    });
 });
 
 describe('exportEntry / exportCategory', () => {
