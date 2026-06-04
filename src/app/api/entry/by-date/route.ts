@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveInitialEntryContent } from "@/lib/categoryTemplate";
 import { linkEntryAsFutureReminder } from "@/lib/futureEntries";
-import { maybeEncryptForCategory } from "@/lib/entryEncryption";
+import { maybeEncryptForCategory, decryptEntryContent } from "@/lib/entryEncryption";
 
 const RequestSchema = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD
@@ -96,6 +96,18 @@ export async function POST(req: NextRequest) {
 
         const { entry, isNew } = await getOrCreateEntry();
 
+        // Decrypt before returning. For an EXISTING entry in a password-locked
+        // category the stored content is ENC1: ciphertext — returning it raw both
+        // leaked it to the editor and got it double-encrypted on the next
+        // autosave (corruption). decryptEntryContent returns plaintext when the
+        // EEK is cached, or null content + locked=true when it isn't (the editor
+        // then can't render or save ciphertext; a save would 423 anyway). New
+        // entries return plaintext initial content, which passes through
+        // unchanged (not ENC1:-prefixed). Mirrors GET /api/entry/[id].
+        const decrypted = await decryptEntryContent(
+            dbManager, userId, Number(categoryId), entry.HtmlContent, entry.DocumentJson,
+        );
+
         // DavidRM parity: when the user navigates to a future date and a new
         // entry is created, surface it as an Event reminder. linkEntryAsFutureReminder
         // is a no-op for past/now dates so back-fills don't spawn stale reminders.
@@ -117,8 +129,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
             id: entry.EntryID,
             title: entry.Title,
-            html: entry.HtmlContent,
-            documentJson: entry.DocumentJson ?? null,
+            html: decrypted.html,
+            documentJson: decrypted.documentJson ?? null,
+            categoryLocked: decrypted.locked,
             Version: entry.Version ?? 1,
             IsFavorited: entry.IsFavorited ?? 0,
             Mood: entry.Mood ?? null,
