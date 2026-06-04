@@ -121,7 +121,8 @@ function yamlNeedsQuote(v: string): boolean {
         || /^[-?]/.test(v)
         || /[\n\r\t]/.test(v)
         || /^(true|false|null|yes|no|on|off|~)$/i.test(v)
-        || /^[+-]?(\d[\d_]*(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(v);
+        || /^[+-]?(\d[\d_]*(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(v)
+        || /^[+-]?0[xob][0-9a-f_]+$/i.test(v);
 }
 
 function yamlString(v: string): string {

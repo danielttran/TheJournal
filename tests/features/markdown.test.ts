@@ -115,8 +115,10 @@ describe('frontmatter', () => {
         expect(frontmatter({ title: 'null', tags: [] })).toContain('title: "null"');
         expect(frontmatter({ title: '123', tags: [] })).toContain('title: "123"');
         expect(frontmatter({ title: '3.14', tags: [] })).toContain('title: "3.14"');
+        expect(frontmatter({ title: '0x1f', tags: [] })).toContain('title: "0x1f"');
         // A normal word stays unquoted.
         expect(frontmatter({ title: 'Hello', tags: [] })).toContain('title: Hello');
+        expect(frontmatter({ title: 'entry-2', tags: [] })).toContain('title: entry-2');
     });
 });
 

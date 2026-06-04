@@ -50,6 +50,13 @@ const nextConfig: NextConfig = {
       './journal.tjdb',
       './journal.tjdb-shm',
       './journal.tjdb-wal',
+      // Any stray SQLCipher DB in the project root (e.g. a test-*.tjdb left by a
+      // racing test-cleanup) must never be traced into the bundle. verify-
+      // standalone.js is the backstop, but excluding them keeps the build
+      // deterministic regardless of cleanup timing.
+      './*.tjdb',
+      './*.tjdb-shm',
+      './*.tjdb-wal',
       // Source / tooling not needed at runtime.
       './src/**/*',
       './tests/**/*',
