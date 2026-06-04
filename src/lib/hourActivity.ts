@@ -1,5 +1,6 @@
 import type { DBManager } from './db';
 import { countWords } from './wordgoals';
+import { loadEntryHtmlForRead } from './entryEncryption';
 
 export interface HourBucket {
     hour: number;        // 0..23
@@ -17,21 +18,25 @@ export async function hourActivity(dbm: DBManager, userId: number, days: number)
     const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30;
 
     const rows = await dbm.prepare(`
-        SELECT strftime('%H', e.CreatedDate) AS h, ec.HtmlContent
+        SELECT strftime('%H', e.CreatedDate) AS h, e.CategoryID, ec.HtmlContent
         FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID
         LEFT JOIN EntryContent ec ON e.EntryID = ec.EntryID
         WHERE c.UserID = ?
           AND e.IsDeleted = 0
           AND date(e.CreatedDate) >= date('now', 'localtime', ?)
-    `).all(userId, `-${safeDays - 1} days`) as { h: string | null; HtmlContent: string | null }[];
+    `).all(userId, `-${safeDays - 1} days`) as { h: string | null; CategoryID: number; HtmlContent: string | null }[];
 
     const buckets: HourBucket[] = Array.from({ length: 24 }, (_, h) => ({ hour: h, entryCount: 0, wordCount: 0 }));
     for (const row of rows) {
         const h = parseInt(row.h ?? '', 10);
         if (!Number.isFinite(h) || h < 0 || h > 23) continue;
         buckets[h].entryCount += 1;
-        buckets[h].wordCount += countWords(row.HtmlContent);
+        // Decrypt locked-category content when the EEK is cached; count 0 when it
+        // isn't, so ENC1: ciphertext isn't miscounted as ~1 word (matches the
+        // heatmap/wordgoals/stats word-count paths).
+        const html = await loadEntryHtmlForRead(dbm, userId, row.CategoryID, row.HtmlContent);
+        buckets[h].wordCount += html !== null ? countWords(html) : 0;
     }
     return buckets;
 }

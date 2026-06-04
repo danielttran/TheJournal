@@ -14,6 +14,7 @@ import { maybeEncryptForCategory } from '../../src/lib/entryEncryption';
 import { cacheCategoryKey, clearCategoryKey } from '../../src/lib/categoryKeyCache';
 import { computeProgress } from '../../src/lib/wordgoals';
 import { totalWords } from '../../src/lib/stats';
+import { hourActivity } from '../../src/lib/hourActivity';
 
 const PATH = join(process.cwd(), `test-wclock-${Date.now()}.tjdb`);
 const KEY = 'deadbeef'.repeat(8);
@@ -52,11 +53,15 @@ describe('word counts ignore locked ciphertext', () => {
         cacheCategoryKey(USER_ID, catId, eek);
         expect(await totalWords(dbm, USER_ID)).toBe(10);
         expect((await computeProgress(dbm, USER_ID, rangeAll(catId))).current).toBe(10);
+        const hours = await hourActivity(dbm, USER_ID, 30);
+        expect(hours.reduce((s, b) => s + b.wordCount, 0)).toBe(10);
     });
 
     it('counts 0 (not ~1) for ciphertext when the EEK is NOT cached (locked)', async () => {
         clearCategoryKey(USER_ID, catId);
         expect(await totalWords(dbm, USER_ID)).toBe(0);
         expect((await computeProgress(dbm, USER_ID, rangeAll(catId))).current).toBe(0);
+        const hours = await hourActivity(dbm, USER_ID, 30);
+        expect(hours.reduce((s, b) => s + b.wordCount, 0)).toBe(0);
     });
 });
