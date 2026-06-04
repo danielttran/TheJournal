@@ -3,6 +3,7 @@ import { softDeleteEntry, permanentlyDeleteEntry } from "@/lib/trash";
 import { normalizeTag } from "@/lib/tags";
 import { isWriteToLockedEntryBlocked } from "@/lib/entryLock";
 import { decryptEntryContent, maybeEncryptForCategory } from "@/lib/entryEncryption";
+import { isCategoryLocked } from "@/lib/categoryCrypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getUserIdFromRequest } from "@/lib/route-helpers";
@@ -223,12 +224,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             newVersion = (entry.Version ?? 1) + 1;
 
             // PreviewText is the first ~200 chars of the plaintext body and is NOT
-            // decryption-gated on read, so it must never be persisted in plaintext
-            // for a locked category. maybeEncryptForCategory (below, run with the
-            // content) blanks it; the editor always co-sends preview with content,
-            // so this captures the sanitized value. Defaults to the client value
-            // for unlocked categories.
+            // decryption-gated on read (the sidebar/list/on-this-day/random
+            // surfaces return it directly), so it must never be persisted in
+            // plaintext for a password-locked category. Scrub it based on the
+            // category's lock state INDEPENDENT of whether content is co-sent —
+            // a preview-only PUT must be scrubbed too (blanking needs no EEK).
             let previewToWrite = preview;
+            if (preview !== undefined && await isCategoryLocked(dbManager, userId, ownerCheck.CategoryID)) {
+                previewToWrite = '';
+            }
 
             // 4. Update Content (if provided)
             if (html !== undefined || documentJson !== undefined) {
@@ -243,11 +247,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 // otherwise overwrite ciphertext with plaintext).
                 try {
                     const encrypted = await maybeEncryptForCategory(
-                        dbManager, userId, ownerCheck.CategoryID, htmlToWrite, documentJsonString, preview ?? null,
+                        dbManager, userId, ownerCheck.CategoryID, htmlToWrite, documentJsonString,
                     );
                     htmlToWrite = encrypted.html;
                     documentJsonString = encrypted.documentJson;
-                    if (preview !== undefined) previewToWrite = encrypted.previewText ?? '';
                 } catch (err) {
                     if ((err as Error & { code?: string }).code === 'CATEGORY_LOCKED') {
                         throw Object.assign(new Error('category_locked'), {
