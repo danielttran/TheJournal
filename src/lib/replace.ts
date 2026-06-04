@@ -130,8 +130,13 @@ export async function executeReplace(
             const plain = codec.decode(row.HtmlContent ?? '');
             const { newHtml, count } = replaceTextOnly(plain, regex, params.replace);
             if (count > 0) {
+                // Null DocumentJson so the change is actually visible: the editor
+                // loads DocumentJson in preference to HtmlContent, so a stale JSON
+                // would render the OLD text and revert the replacement on the next
+                // autosave. Clearing it makes the editor re-derive the doc from the
+                // updated HtmlContent (same pattern as the per-entry lock path).
                 await dbm.prepare(
-                    `UPDATE EntryContent SET HtmlContent = ? WHERE EntryID = ?`
+                    `UPDATE EntryContent SET HtmlContent = ?, DocumentJson = NULL WHERE EntryID = ?`
                 ).run(codec.encode(newHtml), row.EntryID);
                 await dbm.prepare(
                     `UPDATE Entry SET Version = Version + 1, ModifiedDate = CURRENT_TIMESTAMP WHERE EntryID = ?`

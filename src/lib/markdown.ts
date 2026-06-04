@@ -114,10 +114,14 @@ function yamlNeedsQuote(v: string): boolean {
     // Quote when the value carries a YAML special/indicator char anywhere, leads
     // with an indicator, has surrounding whitespace, is empty, or contains a
     // line-breaking control char. Conservative — over-quoting is always valid YAML.
+    // Also quote values that YAML would otherwise read as a bool/null/number so a
+    // title like "true" or "123" round-trips as the string it is.
     return v === '' || v !== v.trim()
         || /[:#"'\\[\]{},&*!|>%@`]/.test(v)
         || /^[-?]/.test(v)
-        || /[\n\r\t]/.test(v);
+        || /[\n\r\t]/.test(v)
+        || /^(true|false|null|yes|no|on|off|~)$/i.test(v)
+        || /^[+-]?(\d[\d_]*(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(v);
 }
 
 function yamlString(v: string): string {

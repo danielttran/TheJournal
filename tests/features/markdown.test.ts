@@ -109,6 +109,15 @@ describe('frontmatter', () => {
         expect(frontmatter({ title: '- dash lead', tags: [] })).toContain('title: "- dash lead"');
         expect(frontmatter({ title: '@at lead', tags: [] })).toContain('title: "@at lead"');
     });
+
+    it('quotes bool/null/number-like titles so they round-trip as strings', () => {
+        expect(frontmatter({ title: 'true', tags: [] })).toContain('title: "true"');
+        expect(frontmatter({ title: 'null', tags: [] })).toContain('title: "null"');
+        expect(frontmatter({ title: '123', tags: [] })).toContain('title: "123"');
+        expect(frontmatter({ title: '3.14', tags: [] })).toContain('title: "3.14"');
+        // A normal word stays unquoted.
+        expect(frontmatter({ title: 'Hello', tags: [] })).toContain('title: Hello');
+    });
 });
 
 describe('exportEntry / exportCategory', () => {
