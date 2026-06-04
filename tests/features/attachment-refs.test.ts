@@ -5,7 +5,25 @@
  * single-pass remapper must rewrite each full id exactly once.
  */
 import { describe, it, expect } from 'vitest';
-import { remapAttachmentRefs } from '../../src/lib/attachmentRefs';
+import { remapAttachmentRefs, remapEntryRefs } from '../../src/lib/attachmentRefs';
+
+describe('remapEntryRefs', () => {
+    it('rewrites journal://entry/{id} hrefs and data-entry-id to new ids', () => {
+        const map = new Map([[3, 100], [30, 7]]);
+        const html = '<a href="journal://entry/3" data-entry-id="3">x</a> <a href="journal://entry/30" data-entry-id="30">y</a>';
+        expect(remapEntryRefs(html, map)).toBe(
+            '<a href="journal://entry/100" data-entry-id="100">x</a> <a href="journal://entry/7" data-entry-id="7">y</a>'
+        );
+    });
+    it('does not collide on shared id prefixes (3 vs 30)', () => {
+        const map = new Map([[3, 100], [30, 7]]);
+        expect(remapEntryRefs('journal://entry/30', map)).toBe('journal://entry/7');
+    });
+    it('leaves unmapped ids untouched', () => {
+        expect(remapEntryRefs('journal://entry/9 data-entry-id="9"', new Map([[3, 100]])))
+            .toBe('journal://entry/9 data-entry-id="9"');
+    });
+});
 
 describe('remapAttachmentRefs', () => {
     it('rewrites each id to its mapped value', () => {

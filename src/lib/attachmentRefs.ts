@@ -15,3 +15,21 @@ export function remapAttachmentRefs(s: string, attIdMap: Map<number, number>): s
         return newId ? `/api/attachment/${newId}` : full;
     });
 }
+
+/**
+ * Rewrite internal entry-link references — `journal://entry/{id}` hrefs and the
+ * paired `data-entry-id="{id}"` attribute (see internalLinks.ts) — to their new
+ * post-import entry ids. Without this, a manually-authored internal link points
+ * at a stale/wrong entry after restore (entry ids are reassigned on import).
+ */
+export function remapEntryRefs(s: string, entryIdMap: Map<number, number>): string {
+    return s
+        .replace(/journal:\/\/entry\/(\d+)/g, (full, idStr) => {
+            const newId = entryIdMap.get(Number(idStr));
+            return newId ? `journal://entry/${newId}` : full;
+        })
+        .replace(/data-entry-id="(\d+)"/g, (full, idStr) => {
+            const newId = entryIdMap.get(Number(idStr));
+            return newId ? `data-entry-id="${newId}"` : full;
+        });
+}
