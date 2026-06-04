@@ -397,6 +397,12 @@ export class DBManager {
             // roots rather than cascading (no surprise data loss).
             `ALTER TABLE Category ADD COLUMN ParentCategoryID INTEGER REFERENCES Category(CategoryID) ON DELETE SET NULL`,
             `CREATE INDEX IF NOT EXISTS "Idx_Category_Parent" ON "Category" ("UserID", "ParentCategoryID")`,
+            // Data migration: scrub any plaintext PreviewText left in a password-
+            // locked category by a build that predates preview-scrubbing. Entry
+            // content is encrypted, but PreviewText (a ~200-char body excerpt) is
+            // NOT decryption-gated on read, so a stale plaintext preview would leak
+            // locked content. Idempotent — entries already scrubbed are set to ''.
+            `UPDATE Entry SET PreviewText = '' WHERE PreviewText IS NOT NULL AND PreviewText <> '' AND CategoryID IN (SELECT CategoryID FROM Category WHERE PasswordHash IS NOT NULL)`,
         ];
 
         for (const migration of migrations) {
