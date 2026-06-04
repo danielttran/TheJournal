@@ -55,4 +55,19 @@ describe('import remaps attachment refs in templates and snippets', () => {
         expect(t.DocumentJson).toContain('/api/attachment/42');
         expect(s.Content).toBe('<img src="/api/attachment/5">');
     });
+
+    it('remaps Category.SmartbookQuery.categoryIds to the new category ids', () => {
+        // Mirror of the importer's smartbook remap (route step C2): source category
+        // ids 2,5 map to new ids 52,55; unmapped ids are dropped.
+        const catIdMap = new Map<number, number>([[2, 52], [5, 55]]);
+        const src = JSON.stringify({ categoryIds: [2, 5, 999], matchType: 'any' });
+
+        const parsed = JSON.parse(src) as { categoryIds?: number[]; matchType?: string };
+        parsed.categoryIds = (parsed.categoryIds ?? [])
+            .map((id) => catIdMap.get(id))
+            .filter((id): id is number => typeof id === 'number');
+
+        expect(parsed.categoryIds).toEqual([52, 55]);   // remapped, unmapped 999 dropped
+        expect(parsed.matchType).toBe('any');           // other fields preserved
+    });
 });

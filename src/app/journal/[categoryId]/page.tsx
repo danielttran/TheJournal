@@ -64,14 +64,23 @@ export default async function JournalPage({ params, searchParams }: {
         const folderId = typeof sp.folder === 'string' ? sp.folder : sp.folder[0];
         dataUrl = `/api/entry/children?parentId=${folderId}`;
         gridMode = 'section';
+        // SECURITY: scope to the verified-owned category (categoryId was checked
+        // by getCategory above). folderId is an attacker-controlled query param —
+        // without the category/UserID join, any user could read another user's
+        // entry titles + plaintext PreviewText by iterating folder ids.
         gridEntries = await db.prepare(`
-            SELECT EntryID, Title, CreatedDate, Icon, PreviewText, EntryType
-            FROM Entry
-            WHERE ParentEntryID = ?
-            ORDER BY SortOrder ASC, CreatedDate DESC
-        `).all(folderId) as GridEntryRow[];
+            SELECT e.EntryID, e.Title, e.CreatedDate, e.Icon, e.PreviewText, e.EntryType
+            FROM Entry e
+            JOIN Category c ON e.CategoryID = c.CategoryID
+            WHERE e.ParentEntryID = ? AND e.CategoryID = ? AND c.UserID = ?
+            ORDER BY e.SortOrder ASC, e.CreatedDate DESC
+        `).all(folderId, categoryId, userId) as GridEntryRow[];
 
-        const folder = await db.prepare('SELECT Title FROM Entry WHERE EntryID = ?').get(folderId) as { Title: string } | undefined;
+        const folder = await db.prepare(`
+            SELECT e.Title FROM Entry e
+            JOIN Category c ON e.CategoryID = c.CategoryID
+            WHERE e.EntryID = ? AND e.CategoryID = ? AND c.UserID = ?
+        `).get(folderId, categoryId, userId) as { Title: string } | undefined;
         gridTitle = folder ? folder.Title : "Folder";
 
     } else if (sp.year) {

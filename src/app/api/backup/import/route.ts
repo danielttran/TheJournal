@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getUserIdFromRequest } from '@/lib/route-helpers';
-import { remapAttachmentRefs } from '@/lib/attachmentRefs';
+import { remapAttachmentRefs, remapEntryRefs } from '@/lib/attachmentRefs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // seconds
@@ -233,6 +233,24 @@ export async function POST(req: NextRequest) {
                 }
             }
 
+            // C2. Smartbook source-category ids: SmartbookQuery is JSON like
+            // {"categoryIds":[2,5]} naming the categories a smartbook collects
+            // from. Those ids were just remapped (catIdMap), so rewrite them or the
+            // restored smartbook would collect from the wrong categories / none.
+            for (const cat of importedCats) {
+                if (!cat.SmartbookQuery) continue;
+                const newId = catIdMap.get(cat.CategoryID);
+                if (!newId) continue;
+                let parsed: { categoryIds?: number[] } & Record<string, unknown>;
+                try { parsed = JSON.parse(cat.SmartbookQuery); } catch { continue; }
+                if (!Array.isArray(parsed.categoryIds)) continue;
+                parsed.categoryIds = parsed.categoryIds
+                    .map((id) => catIdMap.get(id))
+                    .filter((id): id is number => typeof id === 'number');
+                await db.prepare('UPDATE main.Category SET SmartbookQuery = ? WHERE CategoryID = ?')
+                    .run(JSON.stringify(parsed), newId);
+            }
+
             // D. Topics (hierarchical) — second pass re-links ParentTopicID.
             const importedTopics = await safeAll<ImportedTopicRow>("SELECT * FROM imported.Topic");
             const topicIdMap = new Map<number, number>();
@@ -297,8 +315,8 @@ export async function POST(req: NextRequest) {
                 // shared prefixes ("/api/attachment/1" is a substring of
                 // "/api/attachment/15"), silently corrupting longer ids. Match
                 // the full numeric id once and substitute its mapped value.
-                html = remapAttachmentRefs(html, attIdMap);
-                if (docJson) docJson = remapAttachmentRefs(docJson, attIdMap);
+                html = remapEntryRefs(remapAttachmentRefs(html, attIdMap), entryIdMap);
+                if (docJson) docJson = remapEntryRefs(remapAttachmentRefs(docJson, attIdMap), entryIdMap);
 
                 await db.prepare(`
                     INSERT INTO main.EntryContent(EntryID, HtmlContent, DocumentJson)
@@ -311,12 +329,15 @@ export async function POST(req: NextRequest) {
             // /api/attachment/{id} refs. Remap those to the new attachment ids now
             // so a template made from an entry-with-image isn't left pointing at a
             // stale (deleted) id after restore.
+            const hasRemappableRef = (s: string | null | undefined) =>
+                !!s && (s.includes('/api/attachment/') || s.includes('journal://entry/') || s.includes('data-entry-id='));
+            const remapRefs = (s: string) => remapEntryRefs(remapAttachmentRefs(s, attIdMap), entryIdMap);
             for (const t of importedTemplates) {
                 const newTemplateId = templateIdMap.get(t.TemplateID);
                 if (!newTemplateId) continue;
-                if (!(t.HtmlContent?.includes('/api/attachment/') || t.DocumentJson?.includes('/api/attachment/'))) continue;
-                const newHtml = t.HtmlContent != null ? remapAttachmentRefs(t.HtmlContent, attIdMap) : null;
-                const newJson = t.DocumentJson != null ? remapAttachmentRefs(t.DocumentJson, attIdMap) : null;
+                if (!(hasRemappableRef(t.HtmlContent) || hasRemappableRef(t.DocumentJson))) continue;
+                const newHtml = t.HtmlContent != null ? remapRefs(t.HtmlContent) : null;
+                const newJson = t.DocumentJson != null ? remapRefs(t.DocumentJson) : null;
                 await db.prepare(
                     'UPDATE main.Template SET HtmlContent = ?, DocumentJson = ? WHERE TemplateID = ?'
                 ).run(newHtml, newJson, newTemplateId);
@@ -399,8 +420,8 @@ export async function POST(req: NextRequest) {
             // from content with an image), so remap them to the new attachment ids.
             const importedSnippets = await safeAll<ImportedSnippetRow>("SELECT * FROM imported.Snippet");
             for (const s of importedSnippets) {
-                const content = s.Content?.includes('/api/attachment/')
-                    ? remapAttachmentRefs(s.Content, attIdMap)
+                const content = hasRemappableRef(s.Content)
+                    ? remapRefs(s.Content)
                     : s.Content;
                 await db.prepare(`
                     INSERT INTO main.Snippet (UserID, Name, Content, Shortcut, CreatedAt) VALUES (?, ?, ?, ?, ?)
