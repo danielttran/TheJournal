@@ -69,7 +69,10 @@ export function applyBuiltins(text: string, ctx: BuiltinContext): string {
         let replacement: string | null = null;
         switch (v.key) {
             case 'date':
-                replacement = v.arg ? formatDate(now, v.arg) : now.toISOString().slice(0, 10);
+                // Local date (matches formatDate and the rest of the app's
+                // naive-local convention) — toISOString() would be a day off near
+                // midnight in non-UTC zones, disagreeing with {{time}} below.
+                replacement = formatDate(now, v.arg || 'yyyy-MM-dd');
                 break;
             case 'time':
                 replacement = v.arg ? formatDate(now, v.arg) : now.toTimeString().slice(0, 5);
