@@ -267,10 +267,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 `).run(htmlToWrite, documentJsonString, entryId);
 
                 if (updateContent.changes === 0) {
+                    // Use htmlToWrite (the encrypted value for a locked category),
+                    // NOT the raw html — otherwise this fallback INSERT would store
+                    // plaintext HtmlContent alongside ciphertext DocumentJson,
+                    // leaking content and desyncing the two columns.
                     await db.prepare(`
                         INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson)
                         VALUES (?, ?, ?)
-                    `).run(entryId, html || '', documentJsonString);
+                    `).run(entryId, htmlToWrite ?? '', documentJsonString);
                 }
             }
 
