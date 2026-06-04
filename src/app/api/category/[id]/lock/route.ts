@@ -128,6 +128,13 @@ export const POST = authedHandler<[NextRequest, Params]>(
             try {
                 await transformCategoryEntries(
                     dbManager, userId, categoryId, encryptIfPlaintext(eek),
+                    // Scrub the plaintext PreviewText of every existing entry in the
+                    // same transaction. It holds the first ~200 chars of the body and
+                    // is NOT decryption-gated on read, so leaving it would leak locked
+                    // content in the sidebar/list/on-this-day surfaces.
+                    () => dbManager.prepare(
+                        `UPDATE Entry SET PreviewText = '' WHERE CategoryID = ?`
+                    ).run(categoryId).then(() => undefined),
                 );
             } catch (err) {
                 console.error('[lock route] encrypt-all failed during initial lock:', err);

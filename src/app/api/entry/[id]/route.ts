@@ -222,6 +222,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
             newVersion = (entry.Version ?? 1) + 1;
 
+            // PreviewText is the first ~200 chars of the plaintext body and is NOT
+            // decryption-gated on read, so it must never be persisted in plaintext
+            // for a locked category. maybeEncryptForCategory (below, run with the
+            // content) blanks it; the editor always co-sends preview with content,
+            // so this captures the sanitized value. Defaults to the client value
+            // for unlocked categories.
+            let previewToWrite = preview;
+
             // 4. Update Content (if provided)
             if (html !== undefined || documentJson !== undefined) {
                 let documentJsonString: string | null = documentJson !== undefined
@@ -235,10 +243,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 // otherwise overwrite ciphertext with plaintext).
                 try {
                     const encrypted = await maybeEncryptForCategory(
-                        dbManager, userId, ownerCheck.CategoryID, htmlToWrite, documentJsonString,
+                        dbManager, userId, ownerCheck.CategoryID, htmlToWrite, documentJsonString, preview ?? null,
                     );
                     htmlToWrite = encrypted.html;
                     documentJsonString = encrypted.documentJson;
+                    if (preview !== undefined) previewToWrite = encrypted.previewText ?? '';
                 } catch (err) {
                     if ((err as Error & { code?: string }).code === 'CATEGORY_LOCKED') {
                         throw Object.assign(new Error('category_locked'), {
@@ -270,7 +279,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             const values: (string | number | null)[] = [newVersion];
 
             if (title !== undefined) { updates.push("Title = ?"); values.push(title); }
-            if (preview !== undefined) { updates.push("PreviewText = ?"); values.push(preview); }
+            if (preview !== undefined) { updates.push("PreviewText = ?"); values.push(previewToWrite ?? ''); }
             if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
             if (sortOrder !== undefined) { updates.push("SortOrder = ?"); values.push(sortOrder); }
             if (parentEntryId !== undefined) { updates.push("ParentEntryID = ?"); values.push(parentEntryId); }

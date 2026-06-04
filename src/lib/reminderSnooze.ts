@@ -22,7 +22,10 @@ export async function snoozeReminder(
     if (row.IsComplete) throw new Error('Cannot snooze a completed reminder');
 
     const newDue = new Date(new Date(row.DueAt).getTime() + minutes * 60_000).toISOString();
+    // Clear NotifiedAt so the reminder fires again at the new time. Without this,
+    // a reminder that already notified would be excluded forever by
+    // findDueReminders (NotifiedAt IS NULL) and the snooze would silently no-op.
     await dbm.prepare(
-        `UPDATE Reminder SET DueAt = ? WHERE ReminderID = ? AND UserID = ?`
+        `UPDATE Reminder SET DueAt = ?, NotifiedAt = NULL WHERE ReminderID = ? AND UserID = ?`
     ).run(newDue, reminderId, userId);
 }

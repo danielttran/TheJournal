@@ -46,10 +46,12 @@ export const POST = authedHandler<[NextRequest, { params: Promise<{ id: string }
 
             let storedHtml: string;
             let storedJson: string;
+            let storedPreview: string;
             try {
-                const enc = await maybeEncryptForCategory(dbManager, userId, categoryId, html, '');
+                const enc = await maybeEncryptForCategory(dbManager, userId, categoryId, html, '', preview);
                 storedHtml = enc.html ?? '';
                 storedJson = enc.documentJson ?? '';
+                storedPreview = enc.previewText ?? preview;
             } catch (err) {
                 if ((err as Error & { code?: string }).code === 'CATEGORY_LOCKED') {
                     return NextResponse.json(
@@ -64,7 +66,7 @@ export const POST = authedHandler<[NextRequest, { params: Promise<{ id: string }
                 const r = await db.prepare(`
                     INSERT INTO Entry (CategoryID, Title, PreviewText, EntryType)
                     VALUES (?, ?, ?, 'Page')
-                `).run(categoryId, title, preview);
+                `).run(categoryId, title, storedPreview);
                 await db.prepare(`
                     INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson)
                     VALUES (?, ?, ?)

@@ -61,12 +61,14 @@ export async function POST(req: NextRequest) {
         // category would defeat the lock.
         let storedHtml: string;
         let storedJson: string;
+        let storedPreview: string;
         try {
             const enc = await maybeEncryptForCategory(
-                dbManager, userId, Number(categoryId), initialHtml, initialDocumentJson,
+                dbManager, userId, Number(categoryId), initialHtml, initialDocumentJson, initialPreview,
             );
             storedHtml = enc.html ?? '';
             storedJson = enc.documentJson ?? initialDocumentJson;
+            storedPreview = enc.previewText ?? initialPreview;
         } catch (err) {
             if ((err as Error & { code?: string }).code === 'CATEGORY_LOCKED') {
                 return NextResponse.json(
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest) {
             const result = await db.prepare(`
                 INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType, CreatedDate)
                 VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))
-            `).run(categoryId, title, initialPreview, parentEntryId || null, entryType);
+            `).run(categoryId, title, storedPreview, parentEntryId || null, entryType);
 
             const newEntryId = result.lastInsertRowid;
 

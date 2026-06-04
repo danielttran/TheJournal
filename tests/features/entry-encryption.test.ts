@@ -184,6 +184,21 @@ describe('maybeEncryptForCategory', () => {
         expect(out.documentJson?.startsWith(ENC_PREFIX)).toBe(true);
     });
 
+    it('blanks PreviewText for a locked category (it is not gated on read)', async () => {
+        cacheCategoryKey(USER_ID, CAT_ID, EEK);
+        const out = await maybeEncryptForCategory(
+            dbm, USER_ID, CAT_ID, '<p>secret diary body</p>', '{"type":"doc"}', 'secret diary body',
+        );
+        expect(out.previewText).toBe('');
+    });
+
+    it('passes PreviewText through for an unlocked category', async () => {
+        const out = await maybeEncryptForCategory(
+            dbm, USER_ID, UNLOCKED_CAT_ID, '<p>plain</p>', '{}', 'plain preview',
+        );
+        expect(out.previewText).toBe('plain preview');
+    });
+
     it('passes nulls through (UPDATE with no change to that field)', async () => {
         cacheCategoryKey(USER_ID, CAT_ID, EEK);
         const out = await maybeEncryptForCategory(dbm, USER_ID, CAT_ID, null, null);

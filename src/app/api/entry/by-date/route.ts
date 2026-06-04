@@ -38,14 +38,15 @@ export async function POST(req: NextRequest) {
         // throws CATEGORY_LOCKED when the key isn't available — surface that
         // as 423 so the renderer can prompt for the password rather than
         // silently writing plaintext into a locked category.
-        let encryptedInitial: { html: string; documentJson: string };
+        let encryptedInitial: { html: string; documentJson: string; previewText: string };
         try {
             const enc = await maybeEncryptForCategory(
-                dbManager, userId, Number(categoryId), initial.html, initial.documentJson,
+                dbManager, userId, Number(categoryId), initial.html, initial.documentJson, initial.previewText,
             );
             encryptedInitial = {
                 html: enc.html ?? '',
                 documentJson: enc.documentJson ?? initial.documentJson,
+                previewText: enc.previewText ?? initial.previewText,
             };
         } catch (err) {
             if ((err as Error & { code?: string }).code === 'CATEGORY_LOCKED') {
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest) {
             const newEntryResult = await db.prepare(`
                 INSERT INTO Entry (CategoryID, Title, PreviewText, CreatedDate)
                 VALUES (?, ?, ?, ?)
-            `).run(categoryId, 'New Entry', initial.previewText, `${date} 12:00:00`);
+            `).run(categoryId, 'New Entry', encryptedInitial.previewText, `${date} 12:00:00`);
 
             const newEntryId = newEntryResult.lastInsertRowid;
 

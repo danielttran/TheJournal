@@ -118,7 +118,12 @@ export async function updateReminder(
     const values: (string | number | null)[] = [];
     if (input.title !== undefined) { updates.push('Title = ?'); values.push(input.title); }
     if (input.notes !== undefined) { updates.push('Notes = ?'); values.push(input.notes); }
-    if (input.dueAt !== undefined) { updates.push('DueAt = ?'); values.push(input.dueAt); }
+    if (input.dueAt !== undefined) {
+        // Moving the due time re-arms the notification (clear NotifiedAt) so the
+        // reminder can fire again at the new time — mirrors snoozeReminder.
+        updates.push('DueAt = ?'); values.push(input.dueAt);
+        updates.push('NotifiedAt = NULL');
+    }
     if (input.entryId !== undefined) { updates.push('EntryID = ?'); values.push(input.entryId); }
     if (input.recurInterval !== undefined) { updates.push('RecurInterval = ?'); values.push(input.recurInterval); }
     if (input.recurEvery !== undefined) { updates.push('RecurEvery = ?'); values.push(input.recurEvery); }

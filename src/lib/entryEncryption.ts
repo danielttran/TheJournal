@@ -91,6 +91,12 @@ export async function loadEntryHtmlForRead(
  * Encrypt the html / documentJson before persisting, if the category has
  * a password set. Returns the values to write. Throws when the category
  * is locked but no EEK is cached — the route should map that to 423.
+ *
+ * Also sanitizes the optional PreviewText: it holds the first ~200 chars of the
+ * plaintext body, but (unlike content) it is NOT decryption-gated on read — the
+ * sidebar/list/on-this-day surfaces return it directly. So for a locked category
+ * we must never persist a plaintext preview; it's blanked. Callers that don't
+ * pass previewText are unaffected.
  */
 export async function maybeEncryptForCategory(
     dbm: DBManager,
@@ -98,11 +104,12 @@ export async function maybeEncryptForCategory(
     categoryId: number,
     html: string | null,
     documentJson: string | null,
-): Promise<{ html: string | null; documentJson: string | null }> {
+    previewText?: string | null,
+): Promise<{ html: string | null; documentJson: string | null; previewText: string | null }> {
     const row = await dbm.prepare(
         'SELECT PasswordHash FROM Category WHERE CategoryID = ? AND UserID = ?'
     ).get(categoryId, userId) as { PasswordHash: string | null } | undefined;
-    if (!row || !row.PasswordHash) return { html, documentJson };
+    if (!row || !row.PasswordHash) return { html, documentJson, previewText: previewText ?? null };
 
     const eek = getCategoryKey(userId, categoryId);
     if (!eek) {
@@ -114,5 +121,6 @@ export async function maybeEncryptForCategory(
     return {
         html: html != null ? encryptWithKey(html, eek) : null,
         documentJson: documentJson != null ? encryptWithKey(documentJson, eek) : null,
+        previewText: '',
     };
 }
