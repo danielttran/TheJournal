@@ -33,6 +33,21 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Category not found or unauthorized" }, { status: 403 });
         }
 
+        // If nesting under a parent, the parent must belong to this user and
+        // live in the same category. Without this a client could attach a child
+        // to a foreign/other-category parent id, producing a structurally
+        // invalid tree that the recursive subtree CTEs (trash/bulk/move) walk.
+        if (parentEntryId) {
+            const parent = await db.prepare(`
+                SELECT 1 FROM Entry e
+                JOIN Category c ON e.CategoryID = c.CategoryID
+                WHERE e.EntryID = ? AND c.UserID = ? AND e.CategoryID = ?
+            `).get(parentEntryId, userId, categoryId);
+            if (!parent) {
+                return NextResponse.json({ error: "Parent entry not found or not in this category" }, { status: 400 });
+            }
+        }
+
         const { html: initialHtml, documentJson: initialDocumentJson, previewText: initialPreview }
             = await resolveInitialEntryContent(
                 dbManager,
@@ -46,12 +61,14 @@ export async function POST(req: NextRequest) {
         // category would defeat the lock.
         let storedHtml: string;
         let storedJson: string;
+        let storedPreview: string;
         try {
             const enc = await maybeEncryptForCategory(
-                dbManager, userId, Number(categoryId), initialHtml, initialDocumentJson,
+                dbManager, userId, Number(categoryId), initialHtml, initialDocumentJson, initialPreview,
             );
             storedHtml = enc.html ?? '';
             storedJson = enc.documentJson ?? initialDocumentJson;
+            storedPreview = enc.previewText ?? initialPreview;
         } catch (err) {
             if ((err as Error & { code?: string }).code === 'CATEGORY_LOCKED') {
                 return NextResponse.json(
@@ -64,10 +81,18 @@ export async function POST(req: NextRequest) {
 
         // Create Entry + Content atomically to prevent orphaned rows
         const createEntry = db.transaction(async () => {
+            // Store CreatedDate in LOCAL naive time (matching the by-date journal
+            // path's "YYYY-MM-DD HH:MM:SS" convention) rather than the UTC
+            // CURRENT_TIMESTAMP default. The whole app buckets CreatedDate as
+            // naive-local (stats/heatmap/anniversary/search), so a UTC stamp here
+            // mis-files notebook entries by a day in non-UTC timezones.
+            // ModifiedDate stays on the UTC default — it's only used for recency
+            // sorting and every later UPDATE stamps it with CURRENT_TIMESTAMP, so
+            // keeping it UTC keeps that column internally consistent.
             const result = await db.prepare(`
-                INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType)
-                VALUES (?, ?, ?, ?, ?)
-            `).run(categoryId, title, initialPreview, parentEntryId || null, entryType);
+                INSERT INTO Entry (CategoryID, Title, PreviewText, ParentEntryID, EntryType, CreatedDate)
+                VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))
+            `).run(categoryId, title, storedPreview, parentEntryId || null, entryType);
 
             const newEntryId = result.lastInsertRowid;
 

@@ -95,14 +95,19 @@ export async function habitStreak(dbm: DBManager, userId: number, habitId: numbe
         else { run = 1; }
     }
 
-    // Current streak: ends today or yesterday
+    // Current streak: ends today or yesterday. Habit log dates are stored as the
+    // client's LOCAL YYYY-MM-DD, so "today"/"yesterday" must be derived from local
+    // calendar components — toISOString() (UTC) lags a day in positive-offset
+    // zones and would report a 0 streak for a user who logged today.
+    const localYmd = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().slice(0, 10);
+    const todayStr = localYmd(today);
     let cur = todayStr;
     if (!set.has(cur)) {
         const y = new Date(today.getTime() - 86400000);
-        const yStr = y.toISOString().slice(0, 10);
+        const yStr = localYmd(y);
         if (!set.has(yStr)) return { current: 0, longest };
         cur = yStr;
     }

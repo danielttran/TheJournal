@@ -211,6 +211,11 @@ export async function transformCategoryEntries(
     userId: number,
     categoryId: number,
     transform: EntryContentTransform,
+    // Optional step run INSIDE the same transaction after every row is
+    // transformed (e.g. clearing the category password during "remove password").
+    // Keeping it in-tx means no concurrent save can land between the decrypt and
+    // the password change and write fresh ciphertext that becomes undecryptable.
+    afterTransform?: () => Promise<void>,
 ): Promise<number> {
     const work = dbm.transaction(async () => {
         const rows = await dbm.prepare(`
@@ -241,9 +246,29 @@ export async function transformCategoryEntries(
             );
             touched += 1;
         }
+        if (afterTransform) await afterTransform();
         return touched;
     });
     return await work();
+}
+
+/**
+ * Clear the category's password fields WITHOUT verification or re-encryption.
+ * Internal building block — callers must have already verified the password
+ * (and decrypted the content). Exposed so the clear-password flow can run it
+ * inside the same transaction as the decrypt (see transformCategoryEntries'
+ * afterTransform).
+ */
+export async function clearCategoryPasswordFields(
+    dbm: DBManager,
+    userId: number,
+    categoryId: number,
+): Promise<void> {
+    await dbm.prepare(`
+        UPDATE Category
+        SET PasswordHash = NULL, PasswordSalt = NULL, PasswordWrappedKey = NULL
+        WHERE CategoryID = ? AND UserID = ?
+    `).run(categoryId, userId);
 }
 
 /**
@@ -261,11 +286,7 @@ export async function clearCategoryPassword(
 ): Promise<boolean> {
     const eek = await verifyAndUnwrap(dbm, userId, categoryId, password);
     if (!eek) return false;
-    await dbm.prepare(`
-        UPDATE Category
-        SET PasswordHash = NULL, PasswordSalt = NULL, PasswordWrappedKey = NULL
-        WHERE CategoryID = ? AND UserID = ?
-    `).run(categoryId, userId);
+    await clearCategoryPasswordFields(dbm, userId, categoryId);
     return true;
 }
 

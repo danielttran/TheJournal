@@ -1,4 +1,5 @@
 import Image from '@tiptap/extension-image';
+import { sanitizeCssLength } from '@/lib/cssLength';
 
 const ResizableImage = Image.extend({
     addAttributes() {
@@ -14,7 +15,7 @@ const ResizableImage = Image.extend({
 
     renderHTML({ HTMLAttributes }) {
         // HTMLAttributes['data-width'] is the rendered form of our custom `width` attribute.
-        const width = HTMLAttributes['data-width'] || '100%';
+        const width = sanitizeCssLength(HTMLAttributes['data-width']);
         return ['img', {
             ...HTMLAttributes,
             style: `width:${width};max-width:100%;height:auto;`,

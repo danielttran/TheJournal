@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 const Schema = z.object({
     action: z.enum(['softDelete', 'restore', 'permanentDelete', 'addTag', 'removeTag']),
-    entryIds: z.array(z.number().int().positive()).min(1),
+    entryIds: z.array(z.number().int().positive()).min(1).max(5000),
     tag: z.string().max(60).optional(),
 });
 

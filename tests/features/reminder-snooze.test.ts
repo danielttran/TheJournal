@@ -50,6 +50,16 @@ describe('snoozeReminder', () => {
         expect(row.DueAt).toBe('2026-05-14T08:00:00.000Z');
     });
 
+    it('clears NotifiedAt so the reminder fires again at the new time', async () => {
+        // Regression: a reminder that already notified would be excluded forever
+        // (findDueReminders filters NotifiedAt IS NULL), making snooze a no-op.
+        const id = await createReminder(dbm, USER_ID, { title: 'x', dueAt: '2026-05-13T08:00:00.000Z' });
+        await dbm.prepare('UPDATE Reminder SET NotifiedAt = ? WHERE ReminderID = ?').run('2026-05-13T08:00:00.000Z', id);
+        await snoozeReminder(dbm, USER_ID, id, 30);
+        const row = await dbm.prepare('SELECT NotifiedAt FROM Reminder WHERE ReminderID = ?').get(id) as { NotifiedAt: string | null };
+        expect(row.NotifiedAt).toBeNull();
+    });
+
     it('preserves recurrence settings', async () => {
         const id = await createReminder(dbm, USER_ID, {
             title: 'r', dueAt: '2026-05-13T08:00:00.000Z',

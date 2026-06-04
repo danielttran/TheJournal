@@ -53,11 +53,14 @@ export default function SnippetsPanel({ onClose, onInsert }: Props) {
         });
         setNewName(''); setNewContent(''); setNewShortcut(''); setShowAdd(false);
         refresh();
+        // Let the editor refresh its shortcut → snippet lookup table.
+        window.dispatchEvent(new Event('snippets-changed'));
     };
 
     const remove = async (id: number) => {
         await fetch(`/api/snippet/${id}`, { method: 'DELETE' });
         refresh();
+        window.dispatchEvent(new Event('snippets-changed'));
     };
 
     return (

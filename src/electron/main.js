@@ -51,6 +51,20 @@ async function performAutoBackup() {
         return;
     }
 
+    // Honor "Backup Frequency (Days)": skip if the last auto-backup was more
+    // recent than the configured interval. A value < 1 means "every close".
+    const freqDays = Number(s.backupFrequency);
+    if (Number.isFinite(freqDays) && freqDays >= 1 && s.lastAutoBackup) {
+        const last = Date.parse(s.lastAutoBackup);
+        if (Number.isFinite(last)) {
+            const elapsedDays = (Date.now() - last) / 86_400_000;
+            if (elapsedDays < freqDays) {
+                console.log(`[Electron] performAutoBackup: last backup ${elapsedDays.toFixed(1)}d ago < ${freqDays}d interval, skipping.`);
+                return;
+            }
+        }
+    }
+
     const dbPath = process.env.JOURNAL_DB_PATH || getDatabasePath();
     console.log('[Electron] performAutoBackup: source DB =', dbPath);
 
@@ -103,6 +117,9 @@ async function performAutoBackup() {
             }
         });
 
+        // Record when so the frequency gate above can throttle the next close.
+        settingsManager.saveSettings({ lastAutoBackup: new Date().toISOString() });
+
         console.log('[Electron] ✅ Auto-backup SUCCESS at:', dest);
     } catch (err) {
         console.error('[Electron] ❌ Auto-backup FAILED:', err);
@@ -110,6 +127,11 @@ async function performAutoBackup() {
 }
 
 async function startServer() {
+    // Mark the embedded Next.js process as desktop-hosted. Server routes use
+    // this to enable Electron-only shortcuts (e.g. importing a database by an
+    // OS filesystem path) that would be a cross-tenant vector on multi-user web.
+    process.env.JOURNAL_DESKTOP = '1';
+
     // Set DB Path for Next.js and the renderer to use
     process.env.JOURNAL_DB_PATH = getDatabasePath();
     console.log('[Electron] Database Path:', process.env.JOURNAL_DB_PATH);
@@ -581,6 +603,24 @@ function createMenu() {
 }
 
 
+// Single-instance lock: a second launch would start another embedded Next.js
+// server opening the SAME journal.tjdb with a second SQLCipher writer connection,
+// inviting WAL contention / SQLITE_BUSY. Refuse the second instance and instead
+// surface the already-running window. Calling app.quit() before 'ready' prevents
+// whenReady() below from firing.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            if (!mainWindow.isVisible()) mainWindow.show();
+            mainWindow.focus();
+        }
+    });
+}
+
 app.whenReady().then(async () => {
     try {
         // Initialize settings FIRST — requires app to be ready for getPath('userData')
@@ -600,6 +640,10 @@ app.whenReady().then(async () => {
             'backupPath', 'autoBackupOnClose', 'backupFrequency', 'retentionCount',
             'defaultFontSize', 'idleLockMinutes', 'lockOnMinimize', 'themePreferences',
             'minimizeToTray', 'menuHiddenItems',
+            // UI prefs the renderer persists; without these the keybinding editor
+            // and theme-palette dropdown apply live but reset on restart (the
+            // writes were silently rejected and only web localStorage kept them).
+            'keybindings', 'themePalette',
         ]);
         ipcMain.handle('save-setting', (event, key, value) => {
             if (!RENDERER_WRITABLE_SETTINGS.has(key)) {

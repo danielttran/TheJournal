@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getUserIdFromRequest } from '@/lib/route-helpers';
+import { remapAttachmentRefs } from '@/lib/attachmentRefs';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // seconds
@@ -28,12 +29,29 @@ export async function POST(req: NextRequest) {
     let ownsTempFile = false;
 
     try {
+        // Authenticate before touching the request body, the filesystem, or the
+        // DB — an unauthenticated request must not be able to write a temp file
+        // or resolve a server path.
+        const userId = getUserIdFromRequest(req);
+        if (!userId) {
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
+
         const contentType = req.headers.get('content-type') || '';
 
         if (contentType.includes('application/json')) {
             // Electron shortcut: renderer sends { filePath } — the OS path chosen by the user.
             // We read the file directly in the Next.js process (same machine).
             // No base64 encoding / HTTP body size limits to worry about.
+            //
+            // Desktop-only: this branch ATTACHes an arbitrary server-side path
+            // with the app's master key (which decrypts the whole multi-tenant
+            // DB). On web self-host that would let any authenticated user import
+            // every other user's data by pointing at the live journal.tjdb, so
+            // the branch is refused unless we're the Electron-embedded server.
+            if (process.env.JOURNAL_DESKTOP !== '1') {
+                return NextResponse.json({ error: 'filePath import is not available on web; upload the file instead' }, { status: 400 });
+            }
             const body = await req.json();
             if (!body?.filePath || typeof body.filePath !== 'string') {
                 return NextResponse.json({ error: 'filePath required' }, { status: 400 });
@@ -61,11 +79,6 @@ export async function POST(req: NextRequest) {
             tempPath = join(tmpdir(), `thejournal-import-${Date.now()}-${process.pid}.tjdb`);
             await writeFile(tempPath, buffer);
             ownsTempFile = true;
-        }
-
-        const userId = getUserIdFromRequest(req);
-        if (!userId) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
         // 1. ATTACH the database file
@@ -280,12 +293,12 @@ export async function POST(req: NextRequest) {
 
                 let html: string = content.HtmlContent ?? '';
                 let docJson: string | null = content.DocumentJson ?? null;
-                for (const [oldId, newId] of attIdMap) {
-                    const oldRef = `/api/attachment/${oldId}`;
-                    const newRef = `/api/attachment/${newId}`;
-                    html = html.replaceAll(oldRef, newRef);
-                    if (docJson) docJson = docJson.replaceAll(oldRef, newRef);
-                }
+                // Single-pass remap. A naive per-id replaceAll loop collides on
+                // shared prefixes ("/api/attachment/1" is a substring of
+                // "/api/attachment/15"), silently corrupting longer ids. Match
+                // the full numeric id once and substitute its mapped value.
+                html = remapAttachmentRefs(html, attIdMap);
+                if (docJson) docJson = remapAttachmentRefs(docJson, attIdMap);
 
                 await db.prepare(`
                     INSERT INTO main.EntryContent(EntryID, HtmlContent, DocumentJson)

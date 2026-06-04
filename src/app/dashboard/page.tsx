@@ -11,10 +11,16 @@ async function getUser() {
     return verifiedId === null ? null : String(verifiedId);
 }
 
-async function createInitialCategory(userId: string, type: 'Journal' | 'Notebook', name: string) {
+async function createInitialCategory(type: 'Journal' | 'Notebook', name: string) {
     "use server";
+    // Derive the user from the verified session INSIDE the action — a "use
+    // server" function is an independently-callable endpoint, so taking userId
+    // as an argument would let any caller create a category in another account.
+    const userId = await getUser();
+    if (!userId) redirect("/login");
+    const safeType = type === 'Notebook' ? 'Notebook' : 'Journal';
     const stmt = db.prepare('INSERT INTO Category (UserID, Name, Type, IsPrivate) VALUES (?, ?, ?, ?)');
-    const info = await stmt.run(userId, name, type, 1);
+    const info = await stmt.run(userId, name, safeType, 1);
     const categoryId = info.lastInsertRowid;
 
     redirect(`/journal/${categoryId}`);
@@ -52,7 +58,7 @@ export default async function DashboardPage() {
                 {/* Journal Option */}
                 <form action={async () => {
                     "use server";
-                    await createInitialCategory(userId, 'Journal', 'My Journal');
+                    await createInitialCategory('Journal', 'My Journal');
                 }}
                     className="group cursor-pointer">
                     <button type="submit" className="w-full h-full text-left">
@@ -71,7 +77,7 @@ export default async function DashboardPage() {
                 {/* Notebook Option */}
                 <form action={async () => {
                     "use server";
-                    await createInitialCategory(userId, 'Notebook', 'My Notebook');
+                    await createInitialCategory('Notebook', 'My Notebook');
                 }}
                     className="group cursor-pointer">
                     <button type="submit" className="w-full h-full text-left">

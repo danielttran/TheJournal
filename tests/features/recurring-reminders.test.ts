@@ -76,11 +76,30 @@ describe('Recurring reminders DB integration', () => {
         expect(all.length).toBe(2);
         const [completed, next] = all;
         expect(completed.IsComplete).toBe(1);
-        expect(completed.RecurInterval).toBeNull(); // completed instance is no longer recurring
+        // Recurrence is PRESERVED on the completed instance so un-completing can
+        // reverse it; the spawned occurrence is linked via NextOccurrenceID.
+        expect(completed.RecurInterval).toBe('daily');
+        expect(completed.NextOccurrenceID).toBe(next.ReminderID);
         expect(next.IsComplete).toBe(0);
         expect(next.RecurInterval).toBe('daily');
         expect(next.DueAt).toBe('2026-05-14T08:00:00.000Z');
         expect(next.Title).toBe('water plants');
+    });
+
+    it('un-completing a recurring reminder deletes the spawned occurrence (no duplicate, recurrence intact)', async () => {
+        const id = await createReminder(dbm, USER_ID, {
+            title: 'standup', dueAt: '2026-06-01T09:00:00.000Z', recurInterval: 'daily', recurEvery: 1,
+        });
+        await toggleComplete(dbm, USER_ID, id);       // spawns Jun 2 occurrence
+        expect((await dbm.prepare('SELECT COUNT(*) AS n FROM Reminder').get() as any).n).toBe(2);
+
+        await toggleComplete(dbm, USER_ID, id);       // un-complete → remove the spawn
+        const rows = await dbm.prepare('SELECT * FROM Reminder').all() as any[];
+        expect(rows.length).toBe(1);                  // duplicate is gone
+        expect(rows[0].ReminderID).toBe(id);
+        expect(rows[0].IsComplete).toBe(0);
+        expect(rows[0].RecurInterval).toBe('daily');  // recurrence restored
+        expect(rows[0].NextOccurrenceID).toBeNull();
     });
 
     it('toggleComplete on a non-recurring reminder does NOT spawn a new one', async () => {
@@ -102,9 +121,10 @@ describe('Recurring reminders DB integration', () => {
         const afterFirst = await dbm.prepare('SELECT COUNT(*) AS n FROM Reminder').get() as any;
         expect(afterFirst.n).toBe(2);
 
-        // Toggle the original back to incomplete — should not spawn another
+        // Toggle the original back to incomplete — the spawned occurrence is
+        // removed, leaving just the original (no third occurrence, no duplicate).
         await toggleComplete(dbm, USER_ID, id);
         const afterSecond = await dbm.prepare('SELECT COUNT(*) AS n FROM Reminder').get() as any;
-        expect(afterSecond.n).toBe(2);
+        expect(afterSecond.n).toBe(1);
     });
 });

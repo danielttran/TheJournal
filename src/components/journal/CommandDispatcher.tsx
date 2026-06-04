@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { COMMANDS, eventMatchesBinding, resolveBindingForCommand } from '@/lib/commands';
+import { COMMAND_TRIGGER_MAP } from '@/lib/commandTriggers';
 import { logAction } from '@/lib/actionLog';
 
 type CommandRunner = (commandId: string) => void;
@@ -18,44 +19,9 @@ type CommandRunner = (commandId: string) => void;
  */
 function runCommand(commandId: string) {
     // Map command ids to the existing trigger-* events the editor already
-    // listens for. New ids that don't map cleanly fall through to a
-    // dedicated `command-<id>` CustomEvent for future hooks.
-    const triggerMap: Record<string, string> = {
-        'edit.undo': 'trigger-undo',
-        'edit.redo': 'trigger-redo',
-        'edit.find-next': 'trigger-find-next',
-        'edit.replace': 'trigger-replace',
-        'edit.paste-special': 'trigger-paste-special',
-        'insert.link': 'trigger-link',
-        'insert.bookmark': 'trigger-bookmark',
-        'insert.datetime': 'trigger-datetime',
-        'insert.special-char': 'trigger-special-char',
-        'insert.attachment': 'trigger-attachment',
-        'format.highlight': 'trigger-highlight',
-        'format.code': 'trigger-inline-code',
-        'insert.image-upload': 'trigger-image-upload',
-        'insert.drawing': 'trigger-insert-drawing',
-        'insert.checklist': 'trigger-checklist',
-        'insert.hr': 'trigger-hr',
-        'insert.template': 'trigger-templates',
-        'insert.prompt': 'trigger-prompts',
-        'view.search': 'trigger-search',
-        'view.focus-mode': 'trigger-focus',
-        'view.split': 'trigger-split',
-        'view.toggle-sidebar': 'trigger-toggle-sidebar',
-        'view.sidebar-side': 'trigger-sidebar-side',
-        'view.toggle-toolbar': 'trigger-toggle-toolbar',
-        'nav.today': 'trigger-go-today',
-        'nav.go-to-date': 'trigger-go-to-date',
-        'nav.prev-entry': 'trigger-nav-prev',
-        'nav.next-entry': 'trigger-nav-next',
-        'nav.back': 'trigger-history-back',
-        'nav.forward': 'trigger-history-forward',
-        'entry.save': 'trigger-save',
-        'entry.properties': 'trigger-entry-properties',
-        'entry.new-subentry': 'trigger-new-subentry',
-    };
-    const ev = triggerMap[commandId];
+    // listens for (COMMAND_TRIGGER_MAP — a pure, test-guarded module). Ids that
+    // don't map fall through to a generic `tj-command` CustomEvent.
+    const ev = COMMAND_TRIGGER_MAP[commandId];
     if (ev) {
         logAction('keyboard', commandId, { event: ev });
         window.dispatchEvent(new Event(ev));

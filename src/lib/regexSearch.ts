@@ -21,19 +21,24 @@ export class SafeRegexError extends Error {
 const MAX_PATTERN_LENGTH = 1000;
 
 /**
- * Heuristic for catastrophic-backtracking patterns. We reject anything
- * matching one of these classic ReDoS shapes:
- *   - `(...)+` where ... contains another `+`/`*`
- *   - `(...)*` where ... contains another `+`/`*`
- * It is intentionally conservative — false positives are preferable to
- * locking up the server on a hostile query.
+ * Heuristic for catastrophic-backtracking patterns. We reject a group that is
+ * itself quantified (by `+`, `*`, or `{n,m}`) whose interior already contains a
+ * quantifier (`+`, `*`, `{`) or an alternation (`|`). That covers the classic
+ * ReDoS shapes:
+ *   - nested star/plus:        (a+)+   (a*)*   (.*)*   (\S+)+
+ *   - brace-quantified nest:   (a{1,2})+   (a+){1,50}
+ *   - quantified alternation:  (a|aa)+   (a|ab)*
+ * It is intentionally conservative — false positives are preferable to locking
+ * up the server on a hostile query — but it leaves common safe shapes alone:
+ * a plain `(ab)+`, an unquantified `(foo|bar)`, and non-capturing groups /
+ * lookarounds like `(?:ab)+` (whose `?` is not in the interior set).
  */
 function looksReDoS(pattern: string): boolean {
-    // Strip escape sequences so we don't false-positive on \+, \*, etc.
+    // Strip escape sequences so we don't false-positive on \+, \*, \(, etc.
     const cleaned = pattern.replace(/\\./g, '');
-    // Match an open paren, then anything containing + or *, then a close
-    // paren, then + or *.
-    return /\([^()]*[+*][^()]*\)[+*]/.test(cleaned);
+    // open paren, interior containing a quantifier/alternation, close paren,
+    // then an outer quantifier (+, *, or the start of a {n,m}).
+    return /\([^()]*[+*{|][^()]*\)[+*{]/.test(cleaned);
 }
 
 export function compileSafeRegex(

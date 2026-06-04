@@ -97,7 +97,9 @@ export async function GET(req: NextRequest) {
         const regex = searchParams.get('regex') === '1';
         const parsedLimit = Number.parseInt(searchParams.get('limit') || '50', 10);
         const parsedOffset = Number.parseInt(searchParams.get('offset') || '0', 10);
-        const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
+        // Cap the page size so a hostile ?limit=99999999 can't force a huge
+        // decrypt/snippet pass over every matching row.
+        const limit = Math.min(500, Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50);
         const offset = Number.isFinite(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0;
 
         if (!q) {

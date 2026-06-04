@@ -1,4 +1,5 @@
 import { Node } from '@tiptap/core';
+import { sanitizeCssLength } from '@/lib/cssLength';
 
 /**
  * Block-level video node backed by a stored attachment URL. Renders as a
@@ -43,7 +44,7 @@ export const VideoBlock = Node.create({
     renderHTML({ HTMLAttributes }) {
         const src = (HTMLAttributes as Record<string, string>)['data-src'];
         const mime = (HTMLAttributes as Record<string, string>)['data-mime'] ?? 'video/mp4';
-        const width = (HTMLAttributes as Record<string, string>)['data-width'] ?? '100%';
+        const width = sanitizeCssLength((HTMLAttributes as Record<string, string>)['data-width']);
         return [
             'video',
             {

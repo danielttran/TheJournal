@@ -97,6 +97,21 @@ describe('executeReplace', () => {
         expect(result.totalReplacements).toBe(2);
     });
 
+    it('clears DocumentJson so the replacement is not reverted by a stale doc', async () => {
+        // The editor loads DocumentJson in preference to HtmlContent; a stale doc
+        // would render the OLD text and revert the change on next autosave.
+        const r = await dbm.prepare(`INSERT INTO Entry (CategoryID, Title, PreviewText) VALUES (?, 't', '')`).run(categoryId);
+        const id = r.lastInsertRowid as number;
+        await dbm.prepare('INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson) VALUES (?, ?, ?)')
+            .run(id, '<p>hello world</p>', JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hello world' }] }] }));
+
+        await executeReplace(dbm, USER_ID, { categoryId, find: 'world', replace: 'PLANET', matchCase: false, wholeWord: false });
+
+        const content = await dbm.prepare('SELECT HtmlContent, DocumentJson FROM EntryContent WHERE EntryID = ?').get(id) as any;
+        expect(content.HtmlContent).toBe('<p>hello PLANET</p>');
+        expect(content.DocumentJson).toBeNull();
+    });
+
     it('only touches entries in the requested category', async () => {
         const otherCat = await dbm.prepare('INSERT INTO Category (UserID, Name, Type) VALUES (?, ?, ?)').run(USER_ID, 'O', 'Notebook');
         const inside = await entry('<p>match me</p>');

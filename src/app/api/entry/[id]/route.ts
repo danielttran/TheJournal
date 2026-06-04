@@ -3,6 +3,7 @@ import { softDeleteEntry, permanentlyDeleteEntry } from "@/lib/trash";
 import { normalizeTag } from "@/lib/tags";
 import { isWriteToLockedEntryBlocked } from "@/lib/entryLock";
 import { decryptEntryContent, maybeEncryptForCategory } from "@/lib/entryEncryption";
+import { isCategoryLocked } from "@/lib/categoryCrypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getUserIdFromRequest } from "@/lib/route-helpers";
@@ -222,6 +223,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
             newVersion = (entry.Version ?? 1) + 1;
 
+            // PreviewText is the first ~200 chars of the plaintext body and is NOT
+            // decryption-gated on read (the sidebar/list/on-this-day/random
+            // surfaces return it directly), so it must never be persisted in
+            // plaintext for a password-locked category. Scrub it based on the
+            // category's lock state INDEPENDENT of whether content is co-sent —
+            // a preview-only PUT must be scrubbed too (blanking needs no EEK).
+            let previewToWrite = preview;
+            if (preview !== undefined && await isCategoryLocked(dbManager, userId, ownerCheck.CategoryID)) {
+                previewToWrite = '';
+            }
+
             // 4. Update Content (if provided)
             if (html !== undefined || documentJson !== undefined) {
                 let documentJsonString: string | null = documentJson !== undefined
@@ -258,10 +270,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
                 `).run(htmlToWrite, documentJsonString, entryId);
 
                 if (updateContent.changes === 0) {
+                    // Use htmlToWrite (the encrypted value for a locked category),
+                    // NOT the raw html — otherwise this fallback INSERT would store
+                    // plaintext HtmlContent alongside ciphertext DocumentJson,
+                    // leaking content and desyncing the two columns.
                     await db.prepare(`
                         INSERT INTO EntryContent (EntryID, HtmlContent, DocumentJson)
                         VALUES (?, ?, ?)
-                    `).run(entryId, html || '', documentJsonString);
+                    `).run(entryId, htmlToWrite ?? '', documentJsonString);
                 }
             }
 
@@ -270,7 +286,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             const values: (string | number | null)[] = [newVersion];
 
             if (title !== undefined) { updates.push("Title = ?"); values.push(title); }
-            if (preview !== undefined) { updates.push("PreviewText = ?"); values.push(preview); }
+            if (preview !== undefined) { updates.push("PreviewText = ?"); values.push(previewToWrite ?? ''); }
             if (icon !== undefined) { updates.push("Icon = ?"); values.push(icon); }
             if (sortOrder !== undefined) { updates.push("SortOrder = ?"); values.push(sortOrder); }
             if (parentEntryId !== undefined) { updates.push("ParentEntryID = ?"); values.push(parentEntryId); }

@@ -1,4 +1,5 @@
-import { db } from "@/lib/db";
+import { db, dbManager } from "@/lib/db";
+import { moveEntrySubtreeToCategory } from "@/lib/entryMove";
 import { authedHandler } from "@/lib/route-helpers";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -8,9 +9,12 @@ export const dynamic = 'force-dynamic';
  * PUT /api/entry/[id]/move-category  body: { categoryId }
  * David RM "Move Entry to Category". Reparents the entry to the root of the
  * target category (ParentEntryID cleared, since a parent must live in the same
- * category). Refuses when either the source or target category is password-
- * locked — moving across an encryption boundary would require re-keying the
- * content, which is out of scope for a plain move.
+ * category) AND moves its whole subtree along with it — otherwise descendants
+ * would be stranded in the source category pointing at a cross-category parent,
+ * which orphans them in the tree and breaks the subtree CTEs. Refuses when
+ * either the source or target category is password-locked — moving across an
+ * encryption boundary would require re-keying the content, which is out of
+ * scope for a plain move.
  */
 export const PUT = authedHandler<[NextRequest, { params: Promise<{ id: string }> }]>(
     'PUT /api/entry/[id]/move-category',
@@ -45,9 +49,7 @@ export const PUT = authedHandler<[NextRequest, { params: Promise<{ id: string }>
             );
         }
 
-        await db.prepare(
-            'UPDATE Entry SET CategoryID = ?, ParentEntryID = NULL WHERE EntryID = ?'
-        ).run(targetCategoryId, entryId);
+        await moveEntrySubtreeToCategory(dbManager, entryId, targetCategoryId);
 
         return NextResponse.json({ ok: true, categoryId: targetCategoryId });
     },
