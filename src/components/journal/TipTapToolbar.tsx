@@ -17,6 +17,7 @@ import { LINE_HEIGHTS } from '@/lib/paragraphStyle';
 import { normalizeLinkUrl } from '@/lib/linkUrl';
 import { loadToolbarConfig, isGroupVisible, TOOLBAR_CONFIG_EVENT } from '@/lib/toolbarConfig';
 import PromptModal from './PromptModal';
+import { requestPrompt } from '@/lib/promptService';
 
 export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -196,16 +197,16 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         editor.chain().focus().insertContent(stamp).run();
     }, [editor]);
 
-    const addBookmark = useCallback(() => {
+    const addBookmark = useCallback(async () => {
         if (!editor) return;
-        const name = (window.prompt('Bookmark name (used as link target):') || '').trim();
+        const name = (await requestPrompt({ title: 'Insert Bookmark', message: 'Bookmark name (used as a link target).', placeholder: 'e.g. chapter-2', confirmLabel: 'Insert' }) || '').trim();
         if (!name) return;
         editor.chain().focus().setBookmark(name).run();
     }, [editor]);
 
-    const linkToBookmark = useCallback(() => {
+    const linkToBookmark = useCallback(async () => {
         if (!editor) return;
-        const name = (window.prompt('Link to bookmark name:') || '').trim();
+        const name = (await requestPrompt({ title: 'Link to Bookmark', message: 'Bookmark name to link the selection to.', confirmLabel: 'Link' }) || '').trim();
         if (!name) return;
         editor.chain().focus().extendMarkRange('link')
             .setLink({ href: `#${name}` }).run();
@@ -854,10 +855,10 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                         </button>
                     )}
                     <button
-                        onClick={() => {
+                        onClick={async () => {
                             if (!editor.isActive('image')) return;
                             const current = (editor.getAttributes('image').alt as string | undefined) ?? '';
-                            const next = window.prompt('Image description (alt text — indexed by search):', current);
+                            const next = await requestPrompt({ title: 'Image Description', message: 'Alt text — indexed by search and read by screen readers.', initialValue: current, allowEmpty: true, confirmLabel: 'Save' });
                             if (next === null) return;
                             editor.chain().focus().updateAttributes('image', { alt: next.trim() }).run();
                         }}

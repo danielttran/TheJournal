@@ -5,6 +5,7 @@ import { ToastProvider } from "@/components/Toast";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { LoadingProvider } from "@/contexts/LoadingContext";
 import GlobalIPCManager from "@/components/GlobalIPCManager";
+import PromptHost from "@/components/PromptHost";
 
 export function Providers({ children }: { children: React.ReactNode }) {
     return (
@@ -19,6 +20,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
                 <LoadingProvider>
                     <ToastProvider>
                         <GlobalIPCManager />
+                        <PromptHost />
                         {children}
                     </ToastProvider>
                 </LoadingProvider>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Folder } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useToast } from './Toast';
@@ -17,6 +17,12 @@ import { useEscapeToClose } from '@/hooks/useEscapeToClose';
 interface SettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
+    /**
+     * Scroll the modal to this section when it opens (e.g. 'plugins',
+     * 'keybindings', 'security'). Matches the data-settings-section anchors
+     * below. Menu items like "Manage Plugins…" / "Keyboard Shortcuts" set it.
+     */
+    initialSection?: string | null;
 }
 
 interface Settings {
@@ -44,8 +50,9 @@ export const THEME_PALETTES = [
 type ThemeMode = 'light' | 'dark';
 type ThemePreferences = Partial<Record<ThemeMode, Record<string, string>>>;
 
-export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+export default function SettingsModal({ isOpen, onClose, initialSection }: SettingsModalProps) {
     const { showToast } = useToast();
+    const scrollRef = useRef<HTMLDivElement>(null);
     const [settings, setSettings] = useState<Settings>({
         backupPath: '',
         autoBackupOnClose: false,
@@ -113,6 +120,20 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         };
     }, [isOpen]);
 
+    // Deep-link: when opened via a menu item targeting a section (e.g. Manage
+    // Plugins → 'plugins'), scroll that section into view once content is ready.
+    useEffect(() => {
+        if (!isOpen || loading || !initialSection) return;
+        const id = requestAnimationFrame(() => {
+            const el = scrollRef.current?.querySelector<HTMLElement>(`[data-settings-section="${initialSection}"]`);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            el.classList.add('ring-2', 'ring-accent-primary', 'rounded-lg');
+            window.setTimeout(() => el.classList.remove('ring-2', 'ring-accent-primary', 'rounded-lg'), 1600);
+        });
+        return () => cancelAnimationFrame(id);
+    }, [isOpen, loading, initialSection]);
+
     const handleSave = async (key: keyof Settings, value: Settings[keyof Settings]) => {
         // Update local state immediately via functional update to prevent race conditions
         setSettings(prev => {
@@ -171,7 +192,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
 
                 {/* Content */}
-                <div className="p-6 overflow-y-auto space-y-8 flex-1">
+                <div ref={scrollRef} className="p-6 overflow-y-auto space-y-8 flex-1">
                     {loading ? (
                         <div className="flex justify-center py-8">
                             <div className="w-6 h-6 border-2 border-accent-primary border-t-transparent rounded-full animate-spin"></div>
@@ -179,7 +200,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     ) : (
                         <div className="space-y-6">
                             {/* Editor Preferences */}
-                            <section>
+                            <section data-settings-section="editor">
                                 <h3 className="text-sm font-semibold text-accent-primary uppercase tracking-wider mb-4">Editor Preferences</h3>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium text-text-primary">Default Font Size (px)</label>
@@ -208,17 +229,21 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                             {/* Appearance Section — grouped right after editor prefs so all
                                 theme controls (mode, palette, colors) live together. */}
-                            <ThemeSettings settings={settings} onSave={handleSave} />
+                            <div data-settings-section="appearance">
+                                <ThemeSettings settings={settings} onSave={handleSave} />
+                            </div>
 
                             <div className="h-px bg-border-primary" />
 
                             {/* Menus Section — show/hide menu items (J8 customizable menus). */}
-                            <MenuCustomizeSection />
+                            <div data-settings-section="menus">
+                                <MenuCustomizeSection />
+                            </div>
 
                             <div className="h-px bg-border-primary" />
 
                             {/* Backup Section */}
-                            <section>
+                            <section data-settings-section="backup">
                                 <h3 className="text-sm font-semibold text-accent-primary uppercase tracking-wider mb-4">Backup Preferences</h3>
                                 {/* ... rest of backup section ... */}
                                 <div className="space-y-5">
@@ -381,9 +406,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             <div className="h-px bg-border-primary" />
 
                             {/* Security Section */}
-                            <section>
+                            <section data-settings-section="security">
                                 <h3 className="text-sm font-semibold text-accent-primary uppercase tracking-wider mb-4">Security</h3>
                                 <div className="space-y-4">
+                                    <AutoLoginSection isElectron={isElectron} />
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <label className="text-sm font-medium text-text-primary">Auto-lock when idle</label>
@@ -437,12 +463,16 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             <div className="h-px bg-border-primary" />
 
                             {/* Keyboard Shortcuts Section */}
-                            <KeybindingsSection />
+                            <div data-settings-section="keybindings">
+                                <KeybindingsSection />
+                            </div>
 
                             <div className="h-px bg-border-primary" />
 
                             {/* Plugins Section — same in Electron and web. */}
-                            <PluginsSection />
+                            <div data-settings-section="plugins">
+                                <PluginsSection />
+                            </div>
                         </div>
                     )}
                 </div>
@@ -457,6 +487,61 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </button>
                 </div>
             </div>
+        </div>
+    );
+}
+
+// Automatic Login control (J8 "Set up Automatic Login"). The credential itself
+// is saved at login via "Remember me"; this surfaces the current state and lets
+// the user turn it off / clear it. Electron stores an OS-encrypted password;
+// web only pre-fills the username (no plaintext password is ever stored).
+function AutoLoginSection({ isElectron }: { isElectron: boolean }) {
+    const [enabled, setEnabled] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            if (isElectron && window.electron) {
+                const s = await window.electron.getSettings().catch(() => ({}));
+                if (alive) setEnabled(!!(s as { rememberMe?: boolean })?.rememberMe);
+            } else {
+                let on = false;
+                try { on = !!localStorage.getItem('tj-remember-user'); } catch { /* private mode */ }
+                if (alive) setEnabled(on);
+            }
+        })();
+        return () => { alive = false; };
+    }, [isElectron]);
+
+    const disable = async () => {
+        if (isElectron && window.electron) {
+            await window.electron.saveSetting('rememberMe', false);
+            await window.electron.saveSetting('savedPassword', '');
+        } else {
+            try { localStorage.removeItem('tj-remember-user'); } catch { /* ignore */ }
+        }
+        setEnabled(false);
+    };
+
+    return (
+        <div className="flex items-center justify-between gap-4">
+            <div>
+                <label className="text-sm font-medium text-text-primary">Automatic login</label>
+                <p className="text-xs text-text-muted">
+                    {isElectron
+                        ? 'Enable on the login screen with “Remember me” — your password is stored encrypted by the OS keystore.'
+                        : 'The browser pre-fills your username only; passwords are never stored. Enable via “Remember me” at login.'}
+                    {enabled === true && ' Currently enabled.'}
+                    {enabled === false && ' Currently disabled.'}
+                </p>
+            </div>
+            <button
+                onClick={() => void disable()}
+                disabled={!enabled}
+                className="px-3 py-1.5 text-sm rounded-lg bg-bg-active border border-border-primary text-text-primary disabled:opacity-50 hover:bg-bg-hover transition-colors whitespace-nowrap"
+            >
+                {isElectron ? 'Disable & clear password' : 'Clear saved username'}
+            </button>
         </div>
     );
 }

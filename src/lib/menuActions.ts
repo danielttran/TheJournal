@@ -9,11 +9,27 @@ import type { MenuLeaf } from './menuSpec';
 
 export type MenuActionResult =
     | { kind: 'role'; role: string }        // clipboard/undo — execCommand
-    | { kind: 'event'; event: string }      // window.dispatchEvent(new Event(event))
+    | { kind: 'event'; event: string; detail?: unknown } // window.dispatchEvent(Event / CustomEvent)
     | { kind: 'plugin'; id: string }        // run a registered plugin by id (trigger-run-plugin)
     | { kind: 'open'; url: string }         // window.open(url, '_blank')
     | { kind: 'info'; message: string }     // alert (genuinely desktop-only / informational)
     | { kind: 'close' };                    // window.close()
+
+/**
+ * Menu items that open the Settings modal scrolled to a specific section
+ * (instead of the top). Consumed by BOTH targets so the deep-link is identical:
+ * the web resolver dispatches `trigger-settings` with this section in the event
+ * detail, and the Electron renderer (GlobalIPCManager.dispatchViewAction) does
+ * the same for the native menu. Section ids match the `data-settings-section`
+ * anchors in SettingsModal. (auto-login is handled separately — its listener
+ * opens Settings at the Security section.)
+ */
+export const SETTINGS_SECTION_FOR_ACTION: Record<string, string> = {
+    'help-shortcuts': 'keybindings',
+    'install-plugin': 'plugins',
+    'open-plugins-folder': 'plugins',
+    'manage-plugins': 'plugins',
+};
 
 /**
  * Every `trigger-*` event that some component actually listens for. The
@@ -74,16 +90,12 @@ const WEB_EVENT: Record<string, string> = {
     // Print Preview opens an in-app preview modal (distinct from firing the OS
     // print dialog directly); the modal has its own Print button.
     'print-preview': 'trigger-print-preview',
-    'help-shortcuts': 'trigger-settings',
-    // Web plugin management lives in Settings → Plugins (PluginsSection).
-    'install-plugin': 'trigger-settings',
-    'open-plugins-folder': 'trigger-settings',
-    // Exit on web ends the session (logout) rather than killing a process.
-    'exit': 'trigger-logout',
     // Volumes: a real Volume Manager modal (lists server volumes). Switching the
     // active DB on a shared web server is a deployment concern, surfaced there.
     'new-journal-volume': 'trigger-journal-volumes',
     'open-journal-volume': 'trigger-journal-volumes',
+    // help-shortcuts / install-plugin / open-plugins-folder / manage-plugins open
+    // Settings at a section — see SETTINGS_SECTION_FOR_ACTION (handled below).
     // auto-login / check-updates have real web handlers (Settings / version check).
 };
 
@@ -93,9 +105,16 @@ const WEB_INFO: Record<string, string> = {
 };
 
 export function resolveWebMenuAction(node: MenuLeaf): MenuActionResult {
-    if (node.role) return { kind: 'role', role: node.role };
     const a = node.action ?? '';
+    // Exit on web ends the session (logout). This must precede the role check:
+    // the spec gives Exit role:'quit' for Electron's native menu, but on web
+    // execCommand('quit') is a no-op, so the item would silently do nothing.
+    if (a === 'exit') return { kind: 'event', event: 'trigger-logout' };
+    if (node.role) return { kind: 'role', role: node.role };
     if (a.startsWith('run-plugin-')) return { kind: 'plugin', id: a.slice('run-plugin-'.length) };
+    if (SETTINGS_SECTION_FOR_ACTION[a]) {
+        return { kind: 'event', event: 'trigger-settings', detail: { section: SETTINGS_SECTION_FOR_ACTION[a] } };
+    }
     if (WEB_URL[a]) return { kind: 'open', url: WEB_URL[a] };
     if (WEB_INFO[a] !== undefined) return { kind: 'info', message: WEB_INFO[a] };
     if (WEB_EVENT[a]) return { kind: 'event', event: WEB_EVENT[a] };

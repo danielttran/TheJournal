@@ -557,9 +557,9 @@ function createMenu() {
             case "report-issue":
                 try { await shell.openExternal("https://github.com/danielttran/TheJournal/issues/new"); } catch (e) { console.error(e); }
                 return;
-            case "help-shortcuts":
-                if (mainWindow) mainWindow.webContents.send("open-settings");
-                return;
+            // help-shortcuts falls through to the renderer (default → view-action),
+            // which opens Settings scrolled to the Keyboard Shortcuts section via
+            // SETTINGS_SECTION_FOR_ACTION — same deep-link as the web menu.
             case "check-updates": {
                 const { dialog: upDialog } = require("electron");
                 try {

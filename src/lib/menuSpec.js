@@ -225,7 +225,7 @@ const J8_MENUS = [
             { label: 'Insert Sentence Diagram', action: 'run-plugin-sentence-diagrammer' },
             SEP,
             { label: 'Install Plugin…', action: 'install-plugin' },
-            { label: 'Manage Plugins…', action: 'settings' },
+            { label: 'Manage Plugins…', action: 'manage-plugins' },
             { label: 'Open Plugins Folder', action: 'open-plugins-folder' },
         ],
     },

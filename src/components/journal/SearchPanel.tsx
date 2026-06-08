@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { Search, X, ChevronDown, ChevronUp, SlidersHorizontal, Calendar, Tag, FileText, AlignLeft, BookOpen, Star, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
+import { requestPrompt } from '@/lib/promptService';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -215,7 +216,7 @@ export default function SearchPanel({
                             <div className="absolute top-full right-0 mt-1 w-64 bg-bg-card border border-border-primary rounded shadow-lg z-50 py-1 max-h-80 overflow-y-auto">
                                 <button
                                     onClick={async () => {
-                                        const name = prompt('Name this search:');
+                                        const name = await requestPrompt({ title: 'Save Search', message: 'Name this saved search.', confirmLabel: 'Save' });
                                         if (!name) return;
                                         await fetch('/api/saved-search', {
                                             method: 'POST',

@@ -1,5 +1,117 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Menu correctness audit — 2026-06-08
+
+Goal: go over **every** menu item and verify it fires the right dialog/action,
+sets+saves correctly, and works on **both web and Electron** — not just that an
+event is wired (the prior rounds proved wiring; this round proves behaviour).
+
+### Defects found and fixed
+
+1. **`window.prompt` flows were silently dead in Electron.** `window.prompt()`
+   is a no-op in the Electron renderer (returns `null`, logs a warning), so the
+   following menu items looked wired and worked on web but did **nothing** on the
+   desktop target: **User ▸ Change Password**, **Insert ▸ Bookmark…** (create +
+   link-to), **Topic ▸ Assign Topics…**, **Entry ▸ Move Entry to Category…**,
+   **Insert ▸ Insert from Template…** (when the template has `{{prompt:…}}`
+   variables), image alt-text, and "save current search". Fixed by an app-wide
+   styled-prompt service (`src/lib/promptService.ts` `requestPrompt()` +
+   `<PromptHost>` mounted in providers) that works identically on both targets,
+   and a dedicated `ChangePasswordModal` (current/new/confirm + inline
+   validation). Assign-Topics / Move-Entry now use a **select** of real
+   topics/categories instead of free-text, and warn if no entry is open instead
+   of silently no-op'ing. Guarded by `no-window-prompt.test.ts` (source scan) so
+   the dead call can't return.
+
+2. **Exit did nothing on web.** The spec gives Exit `role:'quit'` for Electron's
+   native menu; the web resolver short-circuited on the role to
+   `execCommand('quit')` — a silent no-op — so the intended logout never fired.
+   `resolveWebMenuAction` now resolves web Exit to `trigger-logout` before the
+   role check (Electron still quits natively).
+
+3. **Settings opened to the wrong place.** "Keyboard Shortcuts", "Install
+   Plugin…", "Manage Plugins…", and "Open Plugins Folder" all opened the single
+   long Settings modal scrolled to the **top**, not their section. Added section
+   deep-linking: `SETTINGS_SECTION_FOR_ACTION` (shared by web + Electron), a
+   `detail.section` on the `trigger-settings` event, `data-settings-section`
+   anchors in `SettingsModal`, and a scroll-into-view + brief highlight on open.
+   "Manage Plugins…" got its own `manage-plugins` action (was reusing `settings`,
+   indistinguishable from Tools ▸ Options).
+
+4. **"Set up Automatic Login…" opened generic Settings with no auto-login
+   control.** Auto-login is real (the login screen's "Remember me" — Electron
+   stores an OS-keystore-encrypted password; web pre-fills the username). Added
+   an **Automatic login** control to Settings ▸ Security (shows enabled/disabled
+   + a disable/clear-credentials button) and deep-linked the menu item there.
+
+5. **Silent no-ops when no entry/category was active.** Assign Topics, Move
+   Entry, Category Properties, and Delete Category all guarded on the active
+   entry/category and did nothing (no feedback) when none was open. They now
+   alert "Open a/an … first." Verified the *correct* ones really work: New
+   Category opens a real creation modal (POST `/api/category`); Category
+   Properties is `CategorySettingsModal` (GET + **PUT** `/api/category/:id`,
+   round-trips); Delete Category is a real DB `DELETE` with a 409 entry-count
+   confirm — none were UI-only fakes.
+
+### Per-item verification (every leaf)
+
+Legend: ✓ correct as-is · ★ fixed this round. "Both" = web + Electron route to
+the same handler (Electron `default → view-action → trigger-*`).
+
+| Menu | Item | Action → handler | Status |
+|---|---|---|---|
+| File | New/Open Journal Volume… | web: Volume Manager modal · Electron: native file dialog | ✓ |
+| File | Backup/Restore/Check Integrity/Optimize | download / file-input / `/api/db/*` | ✓ |
+| File | Print Setup/Preview/Entries | EntryPrintBridge (preview modal / print) | ✓ |
+| File | Exit | web→`trigger-logout`; Electron→native quit | ★ |
+| Edit | Undo/Redo/Cut/Copy/Paste/Select All | native roles / execCommand | ✓ |
+| Edit | Paste Special… | TipTapToolbar strip-format paste | ✓ |
+| Search | Find… / Search Across All | global SearchPanel (cross-category) | ✓ |
+| Search | Find in Entry… / Find Next | in-entry FindBar | ✓ |
+| Search | Replace… / Global Find and Replace | TabBar replace dialog | ✓ |
+| View | Toolbars/Sidebar/Tabs/Split/Theme/Refresh/Focus | JournalView/TabBar/Editor toggles (persisted) | ✓ |
+| Go | Today/Go to Date/Prev/Next/History | JournalView + Sidebar nav | ✓ |
+| Insert | Attachment/Image/Link/Table/HR/Special/Checklist/Date/Drawing | TipTapToolbar/Editor inserts | ✓ |
+| Insert | Bookmark… | styled prompt (was `window.prompt`) | ★ |
+| Insert | Insert from Template… | template picker; `{{prompt}}` vars via styled prompt | ★ |
+| Format | Font/Paragraph props, Styles, Bullets, Inline Code, Color, Highlight | Editor dialogs + TipTap chains | ✓ |
+| Topic | Assign Topics… | topic **select** modal (was `window.prompt`) | ★ |
+| Topic | Tag Selection with Topic… / Manage Topics… | inline-tag flow / ManageTopicsModal | ✓ |
+| Entry | New/Sub/Save/Delete/Properties/Lock/Sort | Sidebar + Editor | ✓ |
+| Entry | Move Entry to Category… | category **select** modal (was `window.prompt`) | ★ |
+| Category | New/Properties/Delete/Import/Export/Calendar/Looseleaf | TabBar + JournalView | ✓ |
+| Category | Sync Category… | informational alert (carve-out: external sync NOT built) | ✓ |
+| User | Log In as Different User / Manage Users | logout / ManageUsersModal | ✓ |
+| User | Change Password… | `ChangePasswordModal` (was 3× `window.prompt`) | ★ |
+| User | Set up Automatic Login… | Settings ▸ Security auto-login control (deep-link) | ★ |
+| Tools | Reminders/WordCloud/Stats/Prompts/On-This-Day/Goals/Snippets/Trash | TabBar + Editor panels | ✓ |
+| Tools | Options / Preferences… | Settings modal | ✓ |
+| Plugins | Insert Draw.io / Sentence Diagram | `trigger-run-plugin` | ✓ |
+| Plugins | Install Plugin… | web→Settings▸Plugins · Electron→native folder picker | ★ |
+| Plugins | Manage Plugins… | Settings▸Plugins (deep-link; own action) | ★ |
+| Plugins | Open Plugins Folder | web→Settings▸Plugins · Electron→open folder | ★ |
+| Help | Documentation / Plugin API / Report Issue | external links | ✓ |
+| Help | Keyboard Shortcuts | Settings▸Keyboard Shortcuts (deep-link) | ★ |
+| Help | Check for Updates / About | version check / about dialog | ✓ |
+
+### Verification performed
+
+- `npx tsc --noEmit` clean; `npx vitest run` → **1000 tests pass** (added
+  `prompt-and-dialogs.test.tsx` real-React renders of PromptHost /
+  ChangePasswordModal / SettingsModal-deep-link, `no-window-prompt.test.ts`
+  source guard, and menu-actions resolver regressions for exit + section links).
+- `menu-bar.test.tsx` renders the real `<MenuBar/>` and **clicks every one of
+  the ~80 leaf items**, asserting the resolved behaviour fires.
+- Real Next dev server compiles & serves all touched routes (login 200, gated
+  routes 307); real Chrome renders the hydrated shell (the new `PromptHost` in
+  providers doesn't break client hydration).
+- NOT done at the browser level: a fully **authenticated** click-through on the
+  live server (would require the operator's credentials / would write to the
+  real `journal.tjdb`) and a physical Electron native-menu run. The Electron
+  routes are exercised via the shared `view-action → trigger-*` path the tests
+  cover, and the `window.prompt` removal makes the previously-dead desktop items
+  work by construction.
+
 ## Deferred-gap closure round 5 — 2026-06-03b
 
 Closed the remaining deferred items that fall OUTSIDE the goal's only carve-out

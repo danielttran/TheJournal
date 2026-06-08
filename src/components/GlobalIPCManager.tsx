@@ -6,15 +6,19 @@ import SettingsModal from './SettingsModal';
 import ManageUsersModal from './ManageUsersModal';
 import ManageTopicsModal from './ManageTopicsModal';
 import JournalVolumesModal from './JournalVolumesModal';
+import ChangePasswordModal from './ChangePasswordModal';
 import { logout } from '@/app/actions';
 import { logAction } from '@/lib/actionLog';
+import { SETTINGS_SECTION_FOR_ACTION } from '@/lib/menuActions';
 
 export default function GlobalIPCManager() {
     const { setTheme } = useTheme();
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [settingsSection, setSettingsSection] = useState<string | null>(null);
     const [showManageUsers, setShowManageUsers] = useState(false);
     const [showManageTopics, setShowManageTopics] = useState(false);
     const [showVolumes, setShowVolumes] = useState(false);
+    const [showChangePassword, setShowChangePassword] = useState(false);
     const restoreInputRef = useRef<HTMLInputElement>(null);
 
     const handleExportClick = useCallback(async () => {
@@ -86,24 +90,7 @@ export default function GlobalIPCManager() {
                 } else alert('Optimize failed.');
             } catch { alert('Optimize failed. See console for details.'); }
         };
-        const onChangePassword = async () => {
-            const oldPassword = prompt('Current password:');
-            if (oldPassword == null) return;
-            const newPassword = prompt('New password (at least 8 characters):');
-            if (newPassword == null) return;
-            try {
-                const res = await fetch('/api/user/password', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ oldPassword, newPassword }),
-                });
-                if (res.ok) { alert('Password changed.'); return; }
-                const d = await res.json().catch(() => ({}));
-                alert(d.reason === 'wrong-password' ? 'Current password is incorrect.'
-                    : d.reason === 'weak' ? 'New password must be at least 8 characters.'
-                    : 'Could not change password.');
-            } catch { alert('Could not change password. See console for details.'); }
-        };
+        const onChangePassword = () => setShowChangePassword(true);
         const onSwitchUser = async () => {
             if (!confirm('Log out and switch to a different user?')) return;
             await handleLogout();
@@ -111,7 +98,9 @@ export default function GlobalIPCManager() {
         const onManageUsers = () => setShowManageUsers(true);
         const onManageTopics = () => setShowManageTopics(true);
         const onToggleTheme = () => setTheme((cur) => (cur === 'dark' ? 'light' : 'dark'));
-        const onAutoLogin = () => setIsSettingsOpen(true);
+        // "Set up Automatic Login…" — auto-login is the Remember-Me credential
+        // saved at login; its on/off control lives in Settings ▸ Security.
+        const onAutoLogin = () => { setSettingsSection('security'); setIsSettingsOpen(true); };
         const onRestoreDb = () => restoreInputRef.current?.click();
         const onVolumes = () => setShowVolumes(true);
         const onLogout = () => { void handleLogout(); };
@@ -165,6 +154,13 @@ export default function GlobalIPCManager() {
             window.dispatchEvent(new CustomEvent('trigger-run-plugin', { detail: { id: action.slice('run-plugin-'.length) } }));
             return;
         }
+        // Menu items that open Settings at a specific section (Manage Plugins,
+        // Keyboard Shortcuts) carry the target section so the modal scrolls there.
+        const section = SETTINGS_SECTION_FOR_ACTION[action];
+        if (section) {
+            window.dispatchEvent(new CustomEvent('trigger-settings', { detail: { section } }));
+            return;
+        }
         window.dispatchEvent(new CustomEvent(`trigger-${action}`));
     }, []);
 
@@ -200,7 +196,11 @@ export default function GlobalIPCManager() {
             });
         }
 
-        const handleOpenSettings = () => setIsSettingsOpen(true);
+        const handleOpenSettings = (e: Event) => {
+            const section = (e as CustomEvent<{ section?: string }>).detail?.section;
+            setSettingsSection(typeof section === 'string' ? section : null);
+            setIsSettingsOpen(true);
+        };
         window.addEventListener('trigger-settings', handleOpenSettings);
 
         if (!window.electron) return () => {
@@ -250,10 +250,15 @@ export default function GlobalIPCManager() {
 
     return (
         <>
-            <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+            <SettingsModal
+                isOpen={isSettingsOpen}
+                initialSection={settingsSection}
+                onClose={() => { setIsSettingsOpen(false); setSettingsSection(null); }}
+            />
             {showManageUsers && <ManageUsersModal onClose={() => setShowManageUsers(false)} />}
             {showManageTopics && <ManageTopicsModal onClose={() => setShowManageTopics(false)} />}
             {showVolumes && <JournalVolumesModal onClose={() => setShowVolumes(false)} />}
+            {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
             <input
                 ref={restoreInputRef}
                 type="file"

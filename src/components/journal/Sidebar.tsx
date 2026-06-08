@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen, Star, Hash, Pin, ArrowUpDown } from 'lucide-react';
 import { sortEntries, type SortMode } from '@/lib/sort';
 import { adjacentEntryId } from '@/lib/navOrder';
+import { requestPrompt } from '@/lib/promptService';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTheme } from 'next-themes';
@@ -757,11 +758,15 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
             return;
         }
         const nameOf = (t: { Name?: string; name?: string }) => t.Name ?? t.name ?? '';
-        const pick = window.prompt('Assign which topic?\nAvailable: ' + topics.map(nameOf).join(', '));
-        if (!pick) return;
-        const t = topics.find((x: { Name?: string; name?: string }) => nameOf(x).toLowerCase() === pick.trim().toLowerCase());
-        if (!t) { window.alert(`No topic named "${pick}".`); return; }
-        const topicId = (t as { TopicID?: number; id?: number }).TopicID ?? (t as { id?: number }).id;
+        const idOf = (t: { TopicID?: number; id?: number }) => t.TopicID ?? t.id;
+        const options = topics
+            .map((t: { Name?: string; name?: string; TopicID?: number; id?: number }) => ({ value: String(idOf(t) ?? ''), label: nameOf(t) }))
+            .filter((o: { value: string; label: string }) => o.value && o.label);
+        if (options.length === 0) { window.alert('No topics defined yet. Create topics before assigning them.'); return; }
+        const pick = await requestPrompt({ title: 'Assign Topic', message: 'Tag this entry with a topic.', options, confirmLabel: 'Assign' });
+        if (pick == null) return;
+        const topicId = parseInt(pick, 10);
+        if (!Number.isFinite(topicId)) return;
         const r = await fetch(`/api/entry/${entryId}/topic`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ topicId }) });
         window.alert(r.ok ? 'Topic assigned.' : 'Could not assign topic.');
     };
@@ -769,9 +774,9 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         const res = await fetch('/api/category');
         const cats = res.ok ? await res.json() : [];
         if (!Array.isArray(cats) || cats.length === 0) return;
-        const list = cats.map((c: { CategoryID: number; Name: string }) => `${c.CategoryID}: ${c.Name}`).join('\n');
-        const pick = window.prompt('Move entry to which category? Enter the category ID:\n' + list);
-        if (!pick) return;
+        const options = cats.map((c: { CategoryID: number; Name: string }) => ({ value: String(c.CategoryID), label: c.Name }));
+        const pick = await requestPrompt({ title: 'Move Entry to Category', message: 'Choose the destination category.', options, confirmLabel: 'Move' });
+        if (pick == null) return;
         const cid = parseInt(pick, 10);
         if (!Number.isFinite(cid)) return;
         const r = await fetch(`/api/entry/${entryId}/move-category`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryId: cid }) });
@@ -785,8 +790,8 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
             'trigger-new-entry': () => onCreateEntry(null, 'Page'),
             'trigger-delete-entry': () => { if (urlEntryId) handleDelete(urlEntryId); },
             'trigger-sort-subentries': () => setShowSortMenu(true),
-            'trigger-assign-topics': () => { if (urlEntryId) void assignTopicsFlow(urlEntryId); },
-            'trigger-move-entry': () => { if (urlEntryId) void moveEntryFlow(urlEntryId); },
+            'trigger-assign-topics': () => { if (urlEntryId) void assignTopicsFlow(urlEntryId); else window.alert('Open an entry first to assign a topic.'); },
+            'trigger-move-entry': () => { if (urlEntryId) void moveEntryFlow(urlEntryId); else window.alert('Open an entry first to move it.'); },
         };
     });
     useEffect(() => {

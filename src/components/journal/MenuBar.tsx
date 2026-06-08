@@ -41,7 +41,7 @@ function runAction(node: MenuLeaf) {
             try { document.execCommand(r.role === 'selectAll' ? 'selectAll' : r.role); }
             catch { /* browsers gate programmatic paste; the native Ctrl+key still works */ }
             return;
-        case 'event': window.dispatchEvent(new Event(r.event)); return;
+        case 'event': window.dispatchEvent(r.detail !== undefined ? new CustomEvent(r.event, { detail: r.detail }) : new Event(r.event)); return;
         case 'plugin': window.dispatchEvent(new CustomEvent('trigger-run-plugin', { detail: { id: r.id } })); return;
         case 'open': window.open(r.url, '_blank'); return;
         case 'close': window.close(); return;

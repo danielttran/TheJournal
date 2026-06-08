@@ -50,14 +50,37 @@ describe('every menu item resolves to a real behaviour on web (no dead items)', 
         }
     });
 
-    it('install-plugin works on web (opens Settings → Plugins), not a desktop-only failure', () => {
+    it('install-plugin works on web (opens Settings → Plugins section)', () => {
         const install = ALL_LEAVES.find(l => l.action === 'install-plugin')!;
-        expect(resolveWebMenuAction(install)).toEqual({ kind: 'event', event: 'trigger-settings' });
+        expect(resolveWebMenuAction(install)).toEqual({ kind: 'event', event: 'trigger-settings', detail: { section: 'plugins' } });
         expect(HANDLED_WEB_EVENTS.has('trigger-settings')).toBe(true);
     });
 
+    it('Settings deep-link items open the modal scrolled to the right section', () => {
+        const cases: Record<string, string> = {
+            'help-shortcuts': 'keybindings',
+            'install-plugin': 'plugins',
+            'open-plugins-folder': 'plugins',
+            'manage-plugins': 'plugins',
+        };
+        for (const [action, section] of Object.entries(cases)) {
+            const leaf = ALL_LEAVES.find(l => l.action === action)!;
+            expect(leaf, `menu item for ${action} exists`).toBeTruthy();
+            const r = resolveWebMenuAction(leaf);
+            expect(r, action).toEqual({ kind: 'event', event: 'trigger-settings', detail: { section } });
+        }
+    });
+
+    it('Exit logs out on web instead of a no-op quit role', () => {
+        // The spec gives Exit role:"quit" for Electron's native menu; on web that
+        // role would be a silent execCommand no-op, so it must resolve to logout.
+        const exit = ALL_LEAVES.find(l => l.action === 'exit')!;
+        expect(resolveWebMenuAction(exit)).toEqual({ kind: 'event', event: 'trigger-logout' });
+        expect(HANDLED_WEB_EVENTS.has('trigger-logout')).toBe(true);
+    });
+
     it('clipboard/undo items use native roles', () => {
-        for (const action of ['undo', 'redo', 'cut', 'copy', 'paste', 'select-all', 'exit']) {
+        for (const action of ['undo', 'redo', 'cut', 'copy', 'paste', 'select-all']) {
             const leaf = ALL_LEAVES.find(l => l.action === action)!;
             const r = resolveWebMenuAction(leaf);
             expect(['role', 'close']).toContain(r.kind);

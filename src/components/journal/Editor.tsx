@@ -15,6 +15,7 @@ import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
 import FindBar from './FindBar';
 import PromptModal, { type PromptConfig } from './PromptModal';
+import { requestPrompt } from '@/lib/promptService';
 import { useToast } from '@/components/Toast';
 
 import { useEditor, EditorContent, type Editor as TipTapEditor, type JSONContent } from '@tiptap/react';
@@ -1422,17 +1423,18 @@ function PluginLoadedEditor({
         if (entryIdRef.current) performSave(entryIdRef.current, true);
     }, [editor, performSave]);
 
-    const applyTemplate = useCallback((template: Template) => {
+    const applyTemplate = useCallback(async (template: Template) => {
         if (!editor) return;
         try {
             // Smart template substitution: scan for {{prompt:Question?}} placeholders first.
-            // For each, ask the user via prompt(). Then apply built-in {{date}}, {{title}}, etc.
+            // For each, ask via the styled modal (window.prompt is a no-op in Electron).
+            // Then apply built-in {{date}}, {{title}}, etc.
             const rawHtml = template.HtmlContent ?? '';
             const vars = parseTemplateVariables(rawHtml);
             const promptValues: Record<string, string> = {};
             for (const v of vars) {
                 if (v.key === 'prompt' && v.arg) {
-                    const answer = window.prompt(v.arg, '');
+                    const answer = await requestPrompt({ title: 'Template', message: v.arg, allowEmpty: true, confirmLabel: 'Next' });
                     if (answer !== null) {
                         const placeholder = v.raw.replace(/^\{\{|\}\}$/g, '').trim();
                         promptValues[placeholder] = answer;
