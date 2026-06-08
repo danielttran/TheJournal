@@ -71,6 +71,19 @@ describe('every menu item resolves to a real behaviour on web (no dead items)', 
         }
     });
 
+    it('"Search Across All Categories" is distinct from "Find" (scoped to all)', () => {
+        const findItem = ALL_LEAVES.find(l => l.label === 'Find…')!;
+        const allItem = ALL_LEAVES.find(l => l.label.startsWith('Search Across All'))!;
+        // Find… opens the panel (current scope); Search Across All fires a
+        // distinct event so the panel opens pre-scoped to all categories.
+        expect(findItem.action).toBe('search');
+        expect(allItem.action).toBe('search-all');
+        expect(resolveWebMenuAction(allItem)).toEqual({ kind: 'event', event: 'trigger-search-all' });
+        expect(HANDLED_WEB_EVENTS.has('trigger-search-all')).toBe(true);
+        // and the old duplicate "Global Find and Replace…" is gone
+        expect(ALL_LEAVES.find(l => l.label.startsWith('Global Find'))).toBeUndefined();
+    });
+
     it('Exit logs out on web instead of a no-op quit role', () => {
         // The spec gives Exit role:"quit" for Electron's native menu; on web that
         // role would be a silent execCommand no-op, so it must resolve to logout.

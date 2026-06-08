@@ -532,7 +532,6 @@ function createMenu() {
                 return;
             }
             case "print-entries":
-            case "print-setup":
                 if (mainWindow) mainWindow.webContents.send("print-current-entry");
                 return;
             case "print-preview":

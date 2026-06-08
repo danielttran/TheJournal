@@ -33,7 +33,9 @@ const J8_MENUS = [
                 ],
             },
             SEP,
-            { label: 'Print Setup…', action: 'print-setup' },
+            // "Print Preview" = in-app preview (with its own Print button);
+            // "Print Entries…" = direct print. (No separate "Print Setup…": there
+            // is no page-setup dialog, so it would just duplicate one of these.)
             { label: 'Print Preview', action: 'print-preview' },
             { label: 'Print Entries…', action: 'print-entries', accel: 'CmdOrCtrl+P' },
             SEP,
@@ -62,8 +64,9 @@ const J8_MENUS = [
             { label: 'Find Next', action: 'find-next', accel: 'F3' },
             { label: 'Replace…', action: 'replace', accel: 'CmdOrCtrl+H' },
             SEP,
-            { label: 'Search Across All Categories…', action: 'search', accel: 'CmdOrCtrl+Shift+F' },
-            { label: 'Global Find and Replace…', action: 'replace' },
+            // Distinct from "Find…": opens the search panel pre-scoped to ALL
+            // categories (Find… scopes to the current category).
+            { label: 'Search Across All Categories…', action: 'search-all', accel: 'CmdOrCtrl+Shift+F' },
         ],
     },
     {

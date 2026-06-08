@@ -25,6 +25,8 @@ interface SearchPanelProps {
     /** The currently active categoryId (used to scope simple searches). */
     currentCategoryId: string;
     currentCategoryType: string;
+    /** Initial search scope. "Search Across All Categories…" opens with 'all'. */
+    initialScope?: 'all' | 'current';
     onClose: () => void;
     /** Called when user clicks a result — navigate to that entry. */
     onNavigate: (categoryId: number, entryId: number, categoryType: string) => void;
@@ -53,6 +55,7 @@ function HighlightedText({ text, term }: { text: string; term: string }) {
 export default function SearchPanel({
     currentCategoryId,
     currentCategoryType: _currentCategoryType,
+    initialScope = 'current',
     onClose,
     onNavigate,
 }: SearchPanelProps) {
@@ -66,7 +69,7 @@ export default function SearchPanel({
 
     // Advanced filters
     const [searchIn, setSearchIn] = useState<'both' | 'title' | 'content'>('both');
-    const [scopeCategory, setScopeCategory] = useState<'all' | 'current'>('current');
+    const [scopeCategory, setScopeCategory] = useState<'all' | 'current'>(initialScope);
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [entryType, setEntryType] = useState<'' | 'Page' | 'Folder'>('');

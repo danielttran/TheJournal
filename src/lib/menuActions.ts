@@ -56,6 +56,7 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
     'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry',
     'trigger-tag-selection',
     // JournalView (navigation / layout / category view-mode)
+    'trigger-search-all',
     'trigger-go-today', 'trigger-go-to-date', 'trigger-history-back', 'trigger-history-forward',
     'trigger-find-next', 'trigger-find-in-entry', 'trigger-toggle-sidebar', 'trigger-sidebar-side', 'trigger-sidebar-left',
     'trigger-sidebar-right', 'trigger-sidebar-hidden', 'trigger-refresh', 'trigger-category-calendar',
@@ -86,7 +87,6 @@ const WEB_URL: Record<string, string> = {
 // menu item maps to a REAL action on web (no dead "desktop only" dialogs):
 const WEB_EVENT: Record<string, string> = {
     'print-entries': 'trigger-print-entry',
-    'print-setup': 'trigger-print-entry',
     // Print Preview opens an in-app preview modal (distinct from firing the OS
     // print dialog directly); the modal has its own Print button.
     'print-preview': 'trigger-print-preview',

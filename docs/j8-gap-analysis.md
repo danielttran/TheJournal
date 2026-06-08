@@ -53,6 +53,63 @@ event is wired (the prior rounds proved wiring; this round proves behaviour).
    round-trips); Delete Category is a real DB `DELETE` with a 409 entry-count
    confirm — none were UI-only fakes.
 
+### Real-browser re-audit (2026-06-08, second pass)
+
+The first pass above was verified by handler-reading + jsdom — NOT by clicking a
+running app, and I wrongly declared the goal met. A real authenticated browser
+drive (puppeteer-core + Chrome, isolated throwaway tenant on the dev server,
+every leaf clicked via its real onClick) found two more genuine defects that
+code-reading missed:
+
+6. **Toggle Theme did nothing on the first click.** `onToggleTheme` compared the
+   `theme` setting (`'system'`) instead of the *resolved* theme, so toggling from
+   system→dark was a no-op when the OS was already dark. Now reads `resolvedTheme`
+   (via a ref) → reliably flips dark↔light. (Browser-confirmed: dark→light→dark.)
+
+7. **Two menu items were exact duplicates (didn't make sense).** "Search Across
+   All Categories…" fired the same `search` action as "Find…" and opened the
+   panel scoped to the *current* category — so it didn't search across all.
+   "Global Find and Replace…" fired the same `replace` action as "Replace…"
+   (per-category; there is no cross-category replace). Fixed: "Search Across All
+   Categories…" now uses a distinct `search-all` action that opens the panel
+   pre-scoped to **all** categories (`SearchPanel initialScope`); the misleading
+   "Global Find and Replace…" was removed rather than left lying.
+
+8. **"Print Setup…" was a third duplicate** — it fired the same `print-entries`
+   action (direct print) despite implying a configuration step, and there is no
+   page-setup dialog. Removed (Print Preview + Print Entries… cover the real
+   capabilities) so it can't lie like the Search/Replace pair did.
+
+9. **"Find Next" didn't advance.** Both `find-next` and `find-in-entry` only
+   opened the in-entry find bar; clicking "Find Next" with the bar already open
+   did nothing. `FindBar` now listens for `trigger-find-next` and advances to the
+   next match (matching its F3 / Next-button behaviour).
+
+**Honest verification framing:** all of the above were exercised on the **web**
+target in a real browser. The Electron native-menu path was NOT physically run —
+renderer-handled items go through the same `view-action → trigger-*` path the
+browser drive covered, and the `window.prompt` removal fixes the desktop-dead
+items by construction, but `main.js`'s native handlers (volume/restore dialogs,
+plugin folder picker, print, about, updates) are syntax-checked only. The
+Settings section *scroll* and the search-all *scope* are verified by their
+event→component plumbing + unit tests (jsdom stubs scrollIntoView; the scope chip
+lives in the panel's advanced drawer) rather than visually observed.
+
+Everything else was exercised in the real browser and confirmed working: modals
+(Journal Volumes, Print Preview, Find/Replace, Go-to-date, Drawing, Template,
+Font/Paragraph, Manage Topics/Users, Entry Properties, Lock, Move-Entry select,
+Change Password, Settings, Reminders/WordCloud/Stats/Goals/Snippets/Trash,
+Install/Manage Plugins, Keyboard Shortcuts); editor ops (Undo/Redo, Table, HR,
+Checklist, all Styles, Inline Code, Highlight, Date&Time, plugins insert);
+toolbar popovers (Special Char, Sort sub-entries); layout toggles (toolbars,
+sidebar left/right/hidden, tabs top/bottom/vertical, split, focus, refresh);
+navigation (Today, Go-to-date, prev/next, history); native dialogs (Delete
+Category, Sync, Switch User, Check Updates, About, Paste-Special); external links
+(Docs, Plugin API, Report Issue → new tab). Items that open an OS-native picker
+(File Attachment, Image, Text Color, Import) or operate on the whole DB / end the
+session (Backup, Restore, Integrity, Optimize, Print, Exit) were not clicked in
+the shared dev DB — verified by code + unit tests.
+
 ### Per-item verification (every leaf)
 
 Legend: ✓ correct as-is · ★ fixed this round. "Both" = web + Electron route to

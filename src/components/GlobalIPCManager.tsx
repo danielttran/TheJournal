@@ -12,7 +12,12 @@ import { logAction } from '@/lib/actionLog';
 import { SETTINGS_SECTION_FOR_ACTION } from '@/lib/menuActions';
 
 export default function GlobalIPCManager() {
-    const { setTheme } = useTheme();
+    const { setTheme, resolvedTheme } = useTheme();
+    // Read the *resolved* theme at toggle time. Without this, toggling compared
+    // the `theme` setting (often 'system'), so the first toggle from system→dark
+    // was a no-op when the OS was already dark.
+    const resolvedThemeRef = useRef<string | undefined>(resolvedTheme);
+    useLayoutEffect(() => { resolvedThemeRef.current = resolvedTheme; });
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [settingsSection, setSettingsSection] = useState<string | null>(null);
     const [showManageUsers, setShowManageUsers] = useState(false);
@@ -97,7 +102,7 @@ export default function GlobalIPCManager() {
         };
         const onManageUsers = () => setShowManageUsers(true);
         const onManageTopics = () => setShowManageTopics(true);
-        const onToggleTheme = () => setTheme((cur) => (cur === 'dark' ? 'light' : 'dark'));
+        const onToggleTheme = () => setTheme(resolvedThemeRef.current === 'dark' ? 'light' : 'dark');
         // "Set up Automatic Login…" — auto-login is the Remember-Me credential
         // saved at login; its on/off control lives in Settings ▸ Security.
         const onAutoLogin = () => { setSettingsSection('security'); setIsSettingsOpen(true); };

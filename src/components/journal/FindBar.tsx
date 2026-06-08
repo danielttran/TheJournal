@@ -87,6 +87,14 @@ export default function FindBar({ editor, secondaryEditor, onClose }: {
         scrollActiveIntoView();
     }, [editor, secondaryEditor, count, active, scrollActiveIntoView]);
 
+    // "Find Next" (menu / F3 / Electron) advances to the next match when the bar
+    // is already open — not just re-opens it (Editor opens the bar on first fire).
+    useEffect(() => {
+        const onFindNext = () => go(1);
+        window.addEventListener('trigger-find-next', onFindNext);
+        return () => window.removeEventListener('trigger-find-next', onFindNext);
+    }, [go]);
+
     const onKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') { e.preventDefault(); go(e.shiftKey ? -1 : 1); }
         else if (e.key === 'Escape') { e.preventDefault(); onClose(); }
