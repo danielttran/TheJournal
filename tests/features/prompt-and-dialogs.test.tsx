@@ -44,6 +44,30 @@ describe('requestPrompt + PromptHost (Electron-safe replacement for window.promp
         expect(result).toBeNull();
     });
 
+    it('cancels a pending prompt when a second request supersedes it (no hung promise, fresh state)', async () => {
+        render(<PromptHost />);
+        let first: string | null | undefined = 'unset';
+        let second: string | null | undefined;
+        const firstDone = requestPrompt({ title: 'First', initialValue: '' }).then(v => { first = v; });
+        const input1 = await screen.findByRole('textbox');
+        fireEvent.change(input1, { target: { value: 'typed-into-first' } });
+        // A second prompt fires while the first is still open (e.g. Electron's
+        // native menu, which the DOM overlay does not block).
+        const secondDone = requestPrompt({ title: 'Second', initialValue: 'seeded' }).then(v => { second = v; });
+        await firstDone; // must settle (null), not hang forever
+        expect(first).toBeNull();
+        // The replacement modal must mount fresh: its own initialValue, not the
+        // text typed into the superseded prompt.
+        await screen.findByText('Second');
+        await waitFor(() => {
+            const input2 = screen.getByRole('textbox') as HTMLInputElement;
+            expect(input2.value).toBe('seeded');
+        });
+        fireEvent.click(screen.getByText('OK'));
+        await secondDone;
+        expect(second).toBe('seeded');
+    });
+
     it('supports a select prompt (topic / category picker)', async () => {
         render(<PromptHost />);
         let result: string | null | undefined;

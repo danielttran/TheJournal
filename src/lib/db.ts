@@ -653,6 +653,19 @@ const globalForDb = global as unknown as { dbManager: DBManager | undefined };
 export const dbManager = globalForDb.dbManager ?? new DBManager();
 if (process.env.NODE_ENV !== 'production') globalForDb.dbManager = dbManager;
 
+// Web-target scheduled backups (Settings ▸ Backup): start the hourly
+// due-schedule sweep once per server process. Started here rather than in
+// instrumentation.ts because the instrumentation entry's file trace ignores
+// outputFileTracingExcludes — importing this module graph from there pulled
+// the live journal.tjdb into the standalone bundle. Skipped during `next
+// build` page-data collection and under vitest (tests use their own DBManager
+// instances; the sweep would only add noise).
+if (process.env.NEXT_PHASE !== 'phase-production-build' && !process.env.VITEST) {
+    import('./backupRunner')
+        .then(m => m.startBackupSweep(dbManager))
+        .catch(err => console.error('[backup] failed to start scheduled-backup sweep:', err));
+}
+
 /**
  * Module-level convenience: ensure the singleton is unlocked. Equivalent to
  * `dbManager.ensureUnlocked()` — exported because some old code may import it.

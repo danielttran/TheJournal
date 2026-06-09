@@ -9,6 +9,7 @@ import PluginsSection from './PluginsSection';
 import {
     TOOLBAR_GROUPS, loadToolbarConfig, saveToolbarConfig, toggleGroup, isGroupVisible,
 } from '@/lib/toolbarConfig';
+import { isSpellcheckEnabled, setSpellcheckEnabled } from '@/lib/spellcheck';
 import { J8_MENUS } from '@/lib/menuSpec';
 import { listMenuItems } from '@/lib/menuCustomization';
 import { loadMenuHidden, saveMenuHidden } from '@/lib/menuCustomConfig';
@@ -222,6 +223,8 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
                                     </div>
                                 </div>
 
+                                <SpellcheckSetting />
+
                                 <ToolbarCustomizeSection />
                             </section>
 
@@ -311,11 +314,7 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
                                             </div>
                                         </>
                                     ) : (
-                                        <div className="p-4 bg-accent-primary/10 border border-accent-primary/20 rounded-lg">
-                                            <p className="text-sm text-accent-primary">
-                                                <strong>Web Mode:</strong> Database auto-backup and folder selection are only available in the Desktop version. You can manually export and import your database below.
-                                            </p>
-                                        </div>
+                                        <ScheduledBackupsSection />
                                     )}
 
                                     {/* Manual Actions */}
@@ -542,6 +541,136 @@ function AutoLoginSection({ isElectron }: { isElectron: boolean }) {
             >
                 {isElectron ? 'Disable & clear password' : 'Clear saved username'}
             </button>
+        </div>
+    );
+}
+
+// Web-target scheduled backups: server-side snapshots of the database into a
+// directory on the host, run by the hourly sweep in src/lib/backupRunner.ts.
+// Admin-only (whole-DB snapshots); non-admin users see the manual-export note.
+function ScheduledBackupsSection() {
+    const { showToast } = useToast();
+    interface Row { BackupScheduleID: number; IntervalDays: number; DestPath: string; LastRun: string | null; Enabled: number }
+    const [rows, setRows] = useState<Row[] | null>(null);
+    const [forbidden, setForbidden] = useState(false);
+    const [destPath, setDestPath] = useState('');
+    const [intervalDays, setIntervalDays] = useState(7);
+
+    const reload = async () => {
+        const res = await fetch('/api/backup/schedule');
+        if (res.status === 403) { setForbidden(true); return; }
+        if (res.ok) setRows((await res.json()).items ?? []);
+    };
+    useEffect(() => { void reload(); }, []);
+
+    if (forbidden) {
+        return (
+            <div className="p-4 bg-accent-primary/10 border border-accent-primary/20 rounded-lg">
+                <p className="text-sm text-accent-primary">
+                    Scheduled server backups are managed by the first (admin) account. You can manually export and import your database below.
+                </p>
+            </div>
+        );
+    }
+
+    const add = async () => {
+        const path = destPath.trim();
+        if (!path) { showToast('Enter a destination folder on the server', 'error'); return; }
+        const res = await fetch('/api/backup/schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ intervalDays: Math.max(1, Math.min(365, intervalDays || 7)), destPath: path }),
+        });
+        if (res.ok) { setDestPath(''); showToast('Backup schedule added', 'success'); void reload(); }
+        else showToast('Could not add the schedule', 'error');
+    };
+
+    return (
+        <div className="space-y-3">
+            <div>
+                <label className="text-sm font-medium text-text-primary block">Scheduled Server Backups</label>
+                <p className="text-xs text-text-muted mt-0.5">
+                    Snapshots the database into a folder on the server (hourly check; keeps the 5 newest per folder).
+                </p>
+            </div>
+            {rows === null ? (
+                <p className="text-xs text-text-muted">Loading…</p>
+            ) : rows.length === 0 ? (
+                <p className="text-xs text-text-muted italic">No schedules yet.</p>
+            ) : (
+                <div className="space-y-1.5">
+                    {rows.map(r => (
+                        <div key={r.BackupScheduleID} className="flex items-center gap-2 text-sm bg-bg-app border border-border-secondary rounded-lg px-3 py-2">
+                            <span className="flex-1 truncate font-mono text-xs text-text-secondary" title={r.DestPath}>{r.DestPath}</span>
+                            <span className="text-xs text-text-muted whitespace-nowrap">every {r.IntervalDays}d</span>
+                            <span className="text-xs text-text-muted whitespace-nowrap">{r.LastRun ? `last ${r.LastRun.slice(0, 10)}` : 'never run'}</span>
+                            <button
+                                onClick={async () => {
+                                    await fetch(`/api/backup/schedule/${r.BackupScheduleID}`, {
+                                        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ enabled: !r.Enabled }),
+                                    });
+                                    void reload();
+                                }}
+                                className={`text-xs px-2 py-0.5 rounded ${r.Enabled ? 'bg-accent-primary/15 text-accent-primary' : 'bg-bg-hover text-text-muted'}`}
+                            >
+                                {r.Enabled ? 'On' : 'Off'}
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    await fetch(`/api/backup/schedule/${r.BackupScheduleID}`, { method: 'DELETE' });
+                                    void reload();
+                                }}
+                                className="text-xs px-1.5 py-0.5 rounded text-text-muted hover:text-red-400 hover:bg-bg-hover"
+                                title="Delete schedule"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <div className="flex items-center gap-2">
+                <input
+                    type="text"
+                    value={destPath}
+                    onChange={e => setDestPath(e.target.value)}
+                    placeholder="/var/backups/thejournal"
+                    className="flex-1 bg-bg-app border border-border-secondary rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none font-mono"
+                />
+                <div className="flex items-center bg-bg-app border border-border-secondary rounded-lg px-2 py-2">
+                    <input
+                        type="number" min="1" max="365"
+                        value={intervalDays}
+                        onChange={e => setIntervalDays(parseInt(e.target.value) || 7)}
+                        className="bg-transparent w-12 text-sm text-text-primary focus:outline-none"
+                    />
+                    <span className="text-xs text-text-muted ml-1">d</span>
+                </div>
+                <button onClick={() => void add()} className="px-3 py-2 bg-accent-primary/10 hover:bg-accent-primary/20 text-accent-primary border border-accent-primary/30 rounded-lg text-sm">
+                    Add
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// Spell-check toggle (J8 configurable spell checking — the checker itself is
+// the platform's native one). Persists via spellcheck lib + live event.
+function SpellcheckSetting() {
+    const [enabled, setEnabled] = useState(() => isSpellcheckEnabled());
+    return (
+        <div className="mt-5">
+            <label className="flex items-center gap-2 text-sm font-medium text-text-primary cursor-pointer select-none">
+                <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => { setEnabled(e.target.checked); setSpellcheckEnabled(e.target.checked); }}
+                    className="accent-[color:var(--color-accent-primary)]"
+                />
+                Check spelling as you type
+            </label>
+            <p className="text-xs text-text-muted mt-1 ml-6">Underlines misspelled words in entries using your system dictionary.</p>
         </div>
     );
 }

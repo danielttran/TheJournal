@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, safeStorage, globalShortcut } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
@@ -485,12 +485,38 @@ function ensureTray(url) {
         };
         tray.setContextMenu(Menu.buildFromTemplate([
             { label: 'Open TheJournal', click: showWindow },
+            {
+                label: 'New Entry',
+                click: () => {
+                    showWindow();
+                    // The renderer routes this exactly like the Entry ▸ New Entry
+                    // menu item (view-action → trigger-new-entry).
+                    if (mainWindow) mainWindow.webContents.send('view-action', 'new-entry');
+                },
+            },
             { type: 'separator' },
             { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
         ]));
         tray.on('click', showWindow);
     } catch (err) {
         console.error('[Electron] tray init failed (continuing without tray):', err);
+    }
+}
+
+// J8's global hot-key (Ctrl+Alt+J) summons The Journal from anywhere — even
+// when minimized to the tray. Guarded: registration can fail if another app
+// owns the combo; the app must still start.
+function registerGlobalHotkey(url) {
+    try {
+        const ok = globalShortcut.register('Control+Alt+J', () => {
+            if (!mainWindow) { createWindow(url); return; }
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        });
+        if (!ok) console.warn('[Electron] Ctrl+Alt+J global hotkey unavailable (in use by another app).');
+    } catch (err) {
+        console.error('[Electron] global hotkey registration failed (continuing):', err);
     }
 }
 
@@ -844,6 +870,7 @@ app.whenReady().then(async () => {
 
         createWindow(url);
         ensureTray(url);
+        registerGlobalHotkey(url);
 
         app.on('activate', () => {
             if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
@@ -919,6 +946,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+    try { globalShortcut.unregisterAll(); } catch { /* already gone */ }
     if (backupIntervalHandle) {
         clearInterval(backupIntervalHandle);
         backupIntervalHandle = null;

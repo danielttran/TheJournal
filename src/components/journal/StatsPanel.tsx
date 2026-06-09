@@ -19,6 +19,10 @@ interface MoodTimelineResponse {
     months: number;
     timeline: { month: string; counts: Record<string, number>; total: number }[];
 }
+interface HeatmapResponse {
+    year: number;
+    cells: { date: string; entryCount: number; wordCount: number; intensity: 0 | 1 | 2 | 3 | 4 }[];
+}
 
 interface Props { onClose: () => void; }
 
@@ -28,11 +32,13 @@ export default function StatsPanel({ onClose }: Props) {
     const [data, setData]   = useState<StatsResponse | null>(null);
     const [tod, setTod]     = useState<TimeOfDayResponse | null>(null);
     const [mood, setMood]   = useState<MoodTimelineResponse | null>(null);
+    const [heat, setHeat]   = useState<HeatmapResponse | null>(null);
+    const [heatYear, setHeatYear] = useState(() => new Date().getFullYear());
 
     useEffect(() => {
         const ctl = new AbortController();
         const opts = { signal: ctl.signal };
-        // Three parallel fetches — they're independent and the panel doesn't
+        // Parallel fetches — they're independent and the panel doesn't
         // need any one before showing the others.
         fetch('/api/stats?days=30',           opts).then(r => r.json()).then(d => { if (!ctl.signal.aborted) setData(d); })
             .catch(err => { if (err?.name !== 'AbortError') throw err; });
@@ -42,6 +48,14 @@ export default function StatsPanel({ onClose }: Props) {
             .catch(err => { if (err?.name !== 'AbortError') throw err; });
         return () => ctl.abort();
     }, []);
+
+    useEffect(() => {
+        const ctl = new AbortController();
+        fetch(`/api/stats/heatmap?year=${heatYear}`, { signal: ctl.signal })
+            .then(r => r.json()).then(d => { if (!ctl.signal.aborted) setHeat(d); })
+            .catch(err => { if (err?.name !== 'AbortError') throw err; });
+        return () => ctl.abort();
+    }, [heatYear]);
 
     const maxCount    = data ? Math.max(1, ...data.series.map(s => s.count)) : 1;
     const maxHour     = tod  ? Math.max(1, ...tod.byHour.map(b => b.count))    : 1;
@@ -90,6 +104,41 @@ export default function StatsPanel({ onClose }: Props) {
                                 })}
                             </div>
                         </div>
+
+                        {/* Year activity heatmap — writing density, GitHub-style */}
+                        {heat && (
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-xs uppercase tracking-wider text-text-muted">Writing activity</h3>
+                                    <div className="flex items-center gap-1 text-xs text-text-muted">
+                                        <button onClick={() => setHeatYear(y => y - 1)} className="px-1.5 py-0.5 rounded hover:bg-bg-hover" title="Previous year">‹</button>
+                                        <span className="tabular-nums text-text-primary">{heat.year}</span>
+                                        <button
+                                            onClick={() => setHeatYear(y => y + 1)}
+                                            disabled={heatYear >= new Date().getFullYear()}
+                                            className="px-1.5 py-0.5 rounded hover:bg-bg-hover disabled:opacity-30"
+                                            title="Next year"
+                                        >›</button>
+                                    </div>
+                                </div>
+                                <div className="bg-bg-sidebar rounded p-2 overflow-x-auto">
+                                    <div className="grid grid-flow-col grid-rows-7 gap-[2px] w-max">
+                                        {heat.cells.map(c => (
+                                            <div
+                                                key={c.date}
+                                                className="w-[9px] h-[9px] rounded-[2px]"
+                                                style={{
+                                                    background: c.intensity === 0
+                                                        ? 'var(--color-border-primary, #333)'
+                                                        : `color-mix(in srgb, var(--color-accent-primary) ${25 * c.intensity}%, transparent)`,
+                                                }}
+                                                title={`${c.date}: ${c.entryCount} ${c.entryCount === 1 ? 'entry' : 'entries'} · ${c.wordCount}w`}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Time-of-day distributions — David RM "when do you write?" */}
                         {tod && (

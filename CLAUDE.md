@@ -249,6 +249,18 @@ shipping to production.
   fixed an asar `files` packaging bug (round-4 libs `windowState.js` +
   `menuCustomization.js` weren't whitelisted → would crash the packaged app).
 
+- **Parity audit round (2026-06-09)**: fixed the SearchPanel scope-resync
+  no-op + the PromptHost concurrent-prompt hang; closed verified J8 gaps
+  (Change Entry Date/Time with editor version-sync, spell-check toggle,
+  Ctrl+Alt+J global hotkey + tray New Entry); wired four stranded features
+  (Favorites panel, Habit Tracker panel, web scheduled backups with verified
+  snapshots + admin gate + hourly sweep started from db.ts — NOT
+  instrumentation.ts, whose file trace ignores outputFileTracingExcludes and
+  shipped journal.tjdb into the bundle — and min-words-per-entry); wired the
+  stats year heatmap; removed superseded orphans (api/autolink/outline/
+  hourActivity libs + route). To-do carry-forward confirmed NOT a J8 feature
+  (davidrm.com) — not built.
+
 ## What's intentionally NOT done
 
 - **Importers (Outlook / Penzu / Diaro / WordPress) + external Category Sync**:
@@ -267,7 +279,7 @@ shipping to production.
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 933 tests as of the last commit.
+# Baseline: 982 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

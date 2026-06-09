@@ -16,6 +16,7 @@ import TipTapToolbar from './TipTapToolbar';
 import FindBar from './FindBar';
 import PromptModal, { type PromptConfig } from './PromptModal';
 import { requestPrompt } from '@/lib/promptService';
+import { isSpellcheckEnabled, SPELLCHECK_EVENT } from '@/lib/spellcheck';
 import { useToast } from '@/components/Toast';
 
 import { useEditor, EditorContent, type Editor as TipTapEditor, type JSONContent } from '@tiptap/react';
@@ -201,6 +202,28 @@ function PluginLoadedEditor({
 
     const [isFloatingToolbar, setIsFloatingToolbar] = useState(false);
     const [wordCount, setWordCount] = useState(0);
+    // Minimum-words-per-entry goal (Tools › Word Goals). 0 = disabled. The
+    // footer shows a "to go" hint while the open entry is below it.
+    const [minWordsPerEntry, setMinWordsPerEntry] = useState(0);
+    useEffect(() => {
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const res = await fetch('/api/settings');
+                if (!res.ok) return;
+                const data = await res.json();
+                const n = parseInt(data?.settings?.minWordsPerEntry ?? '0', 10);
+                if (!cancelled) setMinWordsPerEntry(Number.isFinite(n) && n > 0 ? n : 0);
+            } catch { /* footer hint only — never break the editor */ }
+        };
+        void load();
+        const onChanged = (e: Event) => {
+            const n = Number((e as CustomEvent<number>).detail);
+            setMinWordsPerEntry(Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+        };
+        window.addEventListener('min-words-changed', onChanged);
+        return () => { cancelled = true; window.removeEventListener('min-words-changed', onChanged); };
+    }, []);
 
     // Sprint 2: mood, favorites, tags, writing prompts
     const [mood, setMood] = useState<string | null>(null);
@@ -249,6 +272,20 @@ function PluginLoadedEditor({
     const cacheKeyRef = useRef<string>('');
     const versionRef = useRef<number | null>(null);
     const isFullyLoadedRef = useRef(false);
+
+    // An out-of-editor metadata write (e.g. Sidebar's Change Entry Date/Time)
+    // bumps the entry's Version server-side; adopt the new version so the next
+    // optimistic-concurrency autosave doesn't 409 against a stale snapshot.
+    useEffect(() => {
+        const onVersionSynced = (e: Event) => {
+            const detail = (e as CustomEvent<{ entryId: number; version: number }>).detail;
+            if (detail && detail.entryId === entryIdRef.current && versionRef.current !== null) {
+                versionRef.current = detail.version;
+            }
+        };
+        window.addEventListener('entry-version-synced', onVersionSynced);
+        return () => window.removeEventListener('entry-version-synced', onVersionSynced);
+    }, []);
     const renderAbortRef = useRef<AbortController | null>(null);
     const splitContainerRef = useRef<HTMLDivElement>(null);
     const [splitRatio, setSplitRatio] = useState(50);
@@ -322,7 +359,7 @@ function PluginLoadedEditor({
         content: '',
         immediatelyRender: false,
         editorProps: {
-            attributes: { spellcheck: 'true' },
+            attributes: { spellcheck: isSpellcheckEnabled() ? 'true' : 'false' },
         },
         onUpdate: ({ editor: e, transaction }) => {
             if (!transaction.docChanged) return;
@@ -342,7 +379,7 @@ function PluginLoadedEditor({
         content: '',
         immediatelyRender: false,
         editorProps: {
-            attributes: { spellcheck: 'true' },
+            attributes: { spellcheck: isSpellcheckEnabled() ? 'true' : 'false' },
         },
         onUpdate: ({ editor: e, transaction }) => {
             if (!transaction.docChanged) return;
@@ -355,6 +392,21 @@ function PluginLoadedEditor({
             }
         }
     });
+
+    // Apply the spell-check preference (Settings → Editor Preferences) to both
+    // panes, and re-apply live when it changes. The editorProps attribute above
+    // is only the initial value — TipTap doesn't re-read it after creation.
+    useEffect(() => {
+        const apply = () => {
+            const on = isSpellcheckEnabled() ? 'true' : 'false';
+            for (const ed of [editor, editor2]) {
+                ed?.view?.dom?.setAttribute('spellcheck', on);
+            }
+        };
+        apply();
+        window.addEventListener(SPELLCHECK_EVENT, apply);
+        return () => window.removeEventListener(SPELLCHECK_EVENT, apply);
+    }, [editor, editor2]);
 
     // Keep refs in sync with the actual editor instances
     useEffect(() => { editor1Ref.current = editor; }, [editor]);
@@ -1501,6 +1553,14 @@ function PluginLoadedEditor({
                                 {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
                                 <span className="mx-1 opacity-50">·</span>
                                 {readingTimeMinutesFromWords(wordCount)} min read
+                            </span>
+                        )}
+                        {minWordsPerEntry > 0 && wordCount < minWordsPerEntry && (
+                            <span
+                                className="text-[10px] text-amber-500 tabular-nums select-none"
+                                title="Minimum words per entry (Tools › Word Goals)"
+                            >
+                                {minWordsPerEntry - wordCount} to go
                             </span>
                         )}
 

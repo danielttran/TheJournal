@@ -1,5 +1,98 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Parity + stranded-feature audit round — 2026-06-09
+
+Fresh-eyes audit (two independent passes: a skeptical diff review of the
+2026-06-08 commits, and a feature-parity sweep beyond the menu level).
+Findings and fixes:
+
+### Defects fixed
+
+1. **"Search Across All Categories…" no-op'd when the panel was already open**
+   — `initialScope` only seeded `useState`, so re-firing the menu action on a
+   mounted SearchPanel changed nothing (the exact defect the 2026-06-08 fix #7
+   claimed to close recurred in this path). Fixed with a `scopeRequestSeq`
+   bumped on every open action + a resync effect; works in both directions
+   (all→current too). Guarded by `search-scope-resync.test.tsx`.
+2. **Concurrent `requestPrompt()` stranded the first caller forever** — a
+   second prompt while one was open (reachable via Electron's native menu,
+   which the DOM overlay doesn't block) replaced the host's request without
+   settling it: the awaiting flow (e.g. a template's `{{prompt}}` loop) hung,
+   and the replacement modal inherited the superseded prompt's typed text.
+   PromptHost now cancels (resolves null) any pending request before accepting
+   a new one, and `PromptModal` is keyed per request id so it mounts fresh.
+   Covered in `prompt-and-dialogs.test.tsx`.
+
+### J8 gaps closed (verified against davidrm.com feature pages)
+
+3. **Change Entry Date/Time** (J8: entries can be placed on/moved to any date)
+   — new `Entry ▸ Change Entry Date/Time…` menu item; styled datetime prompt
+   (PromptModal gained `date`/`datetime-local` input types); `PUT
+   /api/entry/[id]` accepts `createdDate` validated by the pure
+   `src/lib/entryDate.ts` (`entry-date.test.ts`: noon convention for bare
+   dates, Feb-30/hour-24 rejection). The editor adopts the bumped Version via
+   an `entry-version-synced` event so its next optimistic-concurrency autosave
+   doesn't 409.
+4. **Spell-check toggle** (J8 ships configurable live spell check) — Settings ▸
+   Editor Preferences ▸ "Check spelling as you type"; pure `spellcheck.ts`
+   (default-on, junk-safe) + live re-apply to both editor panes
+   (`spellcheck.test.ts`). The checker itself is the platform's native one.
+5. **Global hotkey + tray quick entry** (J8: Ctrl+Alt+J summons the app from
+   the tray) — Electron registers `Ctrl+Alt+J` (guarded: a conflict can't
+   break startup, unregistered on quit) and the tray menu gained **New Entry**
+   (routes through the same `view-action → trigger-new-entry` path as the menu).
+
+### Stranded features wired (built API/lib layers that had no UI)
+
+6. **Favorites panel** — `FavoritesPanel.tsx` existed but nothing opened it
+   (and its navigation used a wrong `?entryId=` param — fixed to `?entry=`).
+   Now at **Tools ▸ Favorites…** (with "Surprise me" random-entry jump).
+7. **Habit tracker** — full lib/routes/tests existed with zero UI. New
+   `HabitsPanel.tsx` (14-day click-to-toggle day grid, current/best streaks,
+   color-coded habits) at **Tools ▸ Habit Tracker…**.
+8. **Web scheduled backups** — `BackupSchedule` CRUD existed with no executor
+   and no UI. New `src/lib/backupRunner.ts` (hourly sweep started from the
+   server's db module; WAL-checkpointed snapshot per due schedule, SHA-256
+   verified via the previously-orphaned `backupVerify.ts` — a torn copy is
+   deleted and retried, never silently kept; keeps 5 newest per destination;
+   LastRun only stamped on success) + a Settings ▸ Backup management UI on the
+   web target. The schedule routes are now **admin-gated** (a schedule
+   snapshots the whole DB file — same trust level as `backup/export`).
+   `backup-runner.test.ts` covers copy/verify/prune/failure-retry.
+   Note: the sweep is started from `db.ts` module scope, NOT instrumentation.ts
+   — the instrumentation entry's file trace ignores `outputFileTracingExcludes`
+   and shipped the live `journal.tjdb` into the standalone bundle (caught by
+   `verify-standalone.js`).
+9. **Minimum words per entry** — wired as a real feature: Tools ▸ Word Goals
+   gained the setting (persisted via `/api/settings` with route-side
+   validation), and the editor footer shows an amber "N to go" hint while the
+   open entry is under the minimum. The orphaned `minWordGoal.ts` wrapper was
+   superseded and removed.
+10. **Stats: year activity heatmap** — the built-but-unreachable
+    `/api/stats/heatmap` now renders in Text Statistics as a GitHub-style
+    year grid with year navigation. The locked-category word-count regression
+    test (`wordcount-locked.test.ts`) now exercises `buildHeatmap`.
+
+### Dead code removed (superseded, kept failing fresh audits)
+
+- `src/lib/api.ts` (unused fetch wrapper), `autolink.ts` (TipTap Link's own
+  `autolink` covers it), `outline.ts` (no consumer), `hourActivity.ts` +
+  `/api/stats/hour-activity` (duplicated `time-of-day`'s by-hour chart), each
+  with their orphan tests where applicable.
+
+### Decisions (not gaps)
+
+- **To-do carry-forward**: checked DavidRM's published feature set — NOT a J8
+  feature; not built (building it would diverge, and the goal is parity).
+- Custom spell-check dictionaries: the platform-native checker manages its own
+  dictionary; only the on/off control is app-level.
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**982/982** (was 1001; −19 removed orphan tests, +tests for every item above) ·
+`npm run build` + standalone verify clean · `node --check` on all Electron
+main-process files · menu spec loads with 0 accelerator conflicts and
+`menu-bar.test.tsx` still clicks every leaf.
+
 ## Menu correctness audit — 2026-06-08
 
 Goal: go over **every** menu item and verify it fires the right dialog/action,

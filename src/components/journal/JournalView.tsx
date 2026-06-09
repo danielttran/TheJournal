@@ -56,6 +56,8 @@ export default function JournalView({
     // "Find…" scopes to the current category; "Search Across All Categories…"
     // opens the same panel pre-scoped to all categories.
     const [searchScope, setSearchScope] = useState<'all' | 'current'>('current');
+    // Bumped on every open-search action so an already-mounted panel re-scopes.
+    const [searchScopeSeq, setSearchScopeSeq] = useState(0);
     const [showSmartbookSettings, setShowSmartbookSettings] = useState(false);
 
     const [showDatePicker, setShowDatePicker] = useState(false);
@@ -120,12 +122,12 @@ export default function JournalView({
     }, [categoryId, router]);
 
     const toggleSplitMode = useCallback(() => setIsSplitMode(v => !v), []);
-    const openSearch = useCallback(() => { setSearchScope('current'); setShowSearch(true); }, []);
+    const openSearch = useCallback(() => { setSearchScope('current'); setSearchScopeSeq(s => s + 1); setShowSearch(true); }, []);
     const closeSearch = useCallback(() => setShowSearch(false), []);
 
     // "Search Across All Categories…" opens the search panel pre-scoped to all.
     useEffect(() => {
-        const onSearchAll = () => { setSearchScope('all'); setShowSearch(true); };
+        const onSearchAll = () => { setSearchScope('all'); setSearchScopeSeq(s => s + 1); setShowSearch(true); };
         window.addEventListener('trigger-search-all', onSearchAll);
         return () => window.removeEventListener('trigger-search-all', onSearchAll);
     }, []);
@@ -283,6 +285,7 @@ export default function JournalView({
                             currentCategoryId={categoryId}
                             currentCategoryType={categoryType}
                             initialScope={searchScope}
+                            scopeRequestSeq={searchScopeSeq}
                             onClose={closeSearch}
                             onNavigate={handleSearchNavigate}
                         />

@@ -784,6 +784,40 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         else { const d = await r.json().catch(() => ({})); window.alert('Move failed: ' + (d.error || r.status)); }
     };
 
+    // J8 "Change Entry Date/Time" — redate an existing entry (the calendar
+    // groups by CreatedDate, so this moves it to another day).
+    const redateEntryFlow = async (entryId: number) => {
+        const existing = journalEntries.find(e => e.EntryID === entryId)?.CreatedDate;
+        const seed = existing ? new Date(existing) : new Date();
+        const initialValue = Number.isNaN(seed.getTime()) ? '' : format(seed, "yyyy-MM-dd'T'HH:mm");
+        const pick = await requestPrompt({
+            title: 'Change Entry Date & Time',
+            message: 'Move this entry to a different date. Calendar categories group entries by this date.',
+            inputType: 'datetime-local',
+            initialValue,
+            confirmLabel: 'Change Date',
+        });
+        if (pick == null) return;
+        const createdDate = pick.replace('T', ' ');
+        const r = await fetch(`/api/entry/${entryId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ createdDate }),
+        });
+        if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            window.alert('Could not change the entry date: ' + (typeof d.error === 'string' ? d.error : r.status));
+            return;
+        }
+        // The PUT bumped the entry's Version; tell an open editor so its next
+        // optimistic-concurrency save doesn't 409 against its stale snapshot.
+        const data = await r.json().catch(() => ({}));
+        if (data.version) {
+            window.dispatchEvent(new CustomEvent('entry-version-synced', { detail: { entryId, version: data.version } }));
+        }
+        if (type === 'Journal') fetchJournalEntries(); else fetchPages();
+    };
+
     const entryActionsRef = useRef<Record<string, () => void>>({});
     useEffect(() => {
         entryActionsRef.current = {
@@ -792,10 +826,11 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
             'trigger-sort-subentries': () => setShowSortMenu(true),
             'trigger-assign-topics': () => { if (urlEntryId) void assignTopicsFlow(urlEntryId); else window.alert('Open an entry first to assign a topic.'); },
             'trigger-move-entry': () => { if (urlEntryId) void moveEntryFlow(urlEntryId); else window.alert('Open an entry first to move it.'); },
+            'trigger-change-entry-date': () => { if (urlEntryId) void redateEntryFlow(urlEntryId); else window.alert('Open an entry first to change its date.'); },
         };
     });
     useEffect(() => {
-        const events = ['trigger-new-entry', 'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry'];
+        const events = ['trigger-new-entry', 'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry', 'trigger-change-entry-date'];
         const subs = events.map(e => { const h = () => entryActionsRef.current[e]?.(); window.addEventListener(e, h); return [e, h] as const; });
         return () => subs.forEach(([e, h]) => window.removeEventListener(e, h));
     }, []);

@@ -13,7 +13,19 @@ export default function PromptHost() {
     const [req, setReq] = useState<PromptRequestDetail | null>(null);
 
     useEffect(() => {
-        const onRequest = (e: Event) => setReq((e as CustomEvent<PromptRequestDetail>).detail);
+        const onRequest = (e: Event) => {
+            const next = (e as CustomEvent<PromptRequestDetail>).detail;
+            setReq((prev) => {
+                // A second prompt while one is open (Electron's native menu isn't
+                // blocked by the DOM overlay) must not strand the first caller's
+                // promise — cancel it so the awaiting flow continues.
+                if (prev && !prev.settled) {
+                    prev.settled = true;
+                    prev.resolve(null);
+                }
+                return next;
+            });
+        };
         window.addEventListener(APP_PROMPT_EVENT, onRequest);
         return () => window.removeEventListener(APP_PROMPT_EVENT, onRequest);
     }, []);
@@ -31,6 +43,7 @@ export default function PromptHost() {
 
     return (
         <PromptModal
+            key={req.id}
             config={{ ...req.config, onConfirm: (value) => { settle(value); } }}
             onClose={() => settle(null)}
         />

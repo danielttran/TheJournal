@@ -13,6 +13,8 @@ import ReplacePanel from './ReplacePanel';
 import OnThisDayPanel from './OnThisDayPanel';
 import WordCloudPanel from './WordCloudPanel';
 import SnippetsPanel from './SnippetsPanel';
+import FavoritesPanel from './FavoritesPanel';
+import HabitsPanel from './HabitsPanel';
 import CategorySettingsModal from './CategorySettingsModal';
 import CategoryTree from './CategoryTree';
 import { Scissors } from 'lucide-react';
@@ -285,6 +287,8 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isOnThisDayOpen, setIsOnThisDayOpen] = useState(false);
     const [isWordCloudOpen, setIsWordCloudOpen] = useState(false);
     const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
+    const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
+    const [isHabitsOpen, setIsHabitsOpen] = useState(false);
     const [settingsCategoryId, setSettingsCategoryId] = useState<number | null>(null);
     const [isClient, setIsClient] = useState(false);
     const [mainToolbarHidden, setMainToolbarHidden] = useState(false);
@@ -520,6 +524,8 @@ export default function TabBar({ userId }: { userId: string }) {
             'trigger-stats': () => setIsStatsOpen(true),
             'trigger-goals': () => setIsGoalsOpen(true),
             'trigger-snippets': () => setIsSnippetsOpen(true),
+            'trigger-favorites': () => setIsFavoritesOpen(true),
+            'trigger-habits': () => setIsHabitsOpen(true),
             'trigger-trash': () => setIsTrashOpen(true),
             'trigger-on-this-day': () => setIsOnThisDayOpen(true),
             'trigger-new-category': () => setIsAddMenuOpen(true),
@@ -910,6 +916,14 @@ export default function TabBar({ userId }: { userId: string }) {
                     categoryId={activeId ? parseInt(activeId, 10) : undefined}
                     onClose={() => setIsWordCloudOpen(false)}
                 />
+            )}
+
+            {isFavoritesOpen && (
+                <FavoritesPanel onClose={() => setIsFavoritesOpen(false)} />
+            )}
+
+            {isHabitsOpen && (
+                <HabitsPanel onClose={() => setIsHabitsOpen(false)} />
             )}
 
             {isSnippetsOpen && (

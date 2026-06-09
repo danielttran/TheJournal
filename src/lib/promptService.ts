@@ -15,16 +15,20 @@ export const APP_PROMPT_EVENT = 'app-prompt-request';
 export type PromptRequestConfig = Omit<PromptConfig, 'onConfirm'>;
 
 export interface PromptRequestDetail {
+    /** Unique per request — keys the modal so a superseding prompt mounts fresh. */
+    id: number;
     config: PromptRequestConfig;
     resolve: (value: string | null) => void;
     /** Host-internal guard so confirm + the trailing onClose resolve only once. */
     settled?: boolean;
 }
 
+let nextRequestId = 1;
+
 export function requestPrompt(config: PromptRequestConfig): Promise<string | null> {
     if (typeof window === 'undefined') return Promise.resolve(null);
     return new Promise<string | null>((resolve) => {
-        const detail: PromptRequestDetail = { config, resolve };
+        const detail: PromptRequestDetail = { id: nextRequestId++, config, resolve };
         window.dispatchEvent(new CustomEvent<PromptRequestDetail>(APP_PROMPT_EVENT, { detail }));
     });
 }

@@ -54,7 +54,7 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
     // Sidebar (entry tree)
     'trigger-nav-prev', 'trigger-nav-next', 'trigger-new-subentry', 'trigger-new-entry',
     'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry',
-    'trigger-tag-selection',
+    'trigger-tag-selection', 'trigger-change-entry-date',
     // JournalView (navigation / layout / category view-mode)
     'trigger-search-all',
     'trigger-go-today', 'trigger-go-to-date', 'trigger-history-back', 'trigger-history-forward',
@@ -66,7 +66,8 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
     'trigger-new-category', 'trigger-category-properties', 'trigger-delete-category',
     'trigger-import-entries', 'trigger-export-entries', 'trigger-sync-category',
     'trigger-toggle-main-toolbar', 'trigger-tabs-top', 'trigger-tabs-bottom', 'trigger-tabs-vertical',
-    'trigger-trash', 'trigger-goals', 'trigger-stats', 'trigger-snippets',
+    'trigger-trash', 'trigger-goals', 'trigger-stats', 'trigger-snippets', 'trigger-favorites',
+    'trigger-habits',
     // GlobalIPCManager (db / users / topics / settings / account / volumes)
     'trigger-settings', 'trigger-check-integrity', 'trigger-optimize-db', 'trigger-change-password',
     'trigger-switch-user', 'trigger-manage-users', 'trigger-manage-topics', 'trigger-auto-login',

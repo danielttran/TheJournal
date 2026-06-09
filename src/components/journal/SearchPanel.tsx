@@ -27,6 +27,12 @@ interface SearchPanelProps {
     currentCategoryType: string;
     /** Initial search scope. "Search Across All Categories…" opens with 'all'. */
     initialScope?: 'all' | 'current';
+    /**
+     * Bumped each time a menu action (re)opens the panel, so a scope request
+     * re-applies even when the panel is already mounted (or the user changed
+     * the scope chip since the last request).
+     */
+    scopeRequestSeq?: number;
     onClose: () => void;
     /** Called when user clicks a result — navigate to that entry. */
     onNavigate: (categoryId: number, entryId: number, categoryType: string) => void;
@@ -56,6 +62,7 @@ export default function SearchPanel({
     currentCategoryId,
     currentCategoryType: _currentCategoryType,
     initialScope = 'current',
+    scopeRequestSeq = 0,
     onClose,
     onNavigate,
 }: SearchPanelProps) {
@@ -91,6 +98,14 @@ export default function SearchPanel({
     const offsetRef = useRef(0);
 
     useEffect(() => { inputRef.current?.focus(); }, []);
+
+    // Re-apply the requested scope when "Find…" / "Search Across All
+    // Categories…" fires while the panel is already open — initialScope only
+    // seeds the initial state, so without this the menu action would no-op.
+    useEffect(() => {
+        setScopeCategory(initialScope);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialScope, scopeRequestSeq]);
 
     // Abort any in-flight search when the panel unmounts (e.g. user closes it
     // while a slow query is still running) to avoid state updates on dead component.

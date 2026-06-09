@@ -24,6 +24,38 @@ export default function GoalsPanel({ onClose }: GoalsPanelProps) {
     const [type, setType] = useState<'daily' | 'total'>('daily');
     const [target, setTarget] = useState(500);
     const [endDate, setEndDate] = useState('');
+    // Minimum words per entry (0 = off) — persisted as a user setting; the
+    // editor footer shows a "to go" hint while an entry is below it.
+    const [minWords, setMinWords] = useState(0);
+    const [minWordsSaved, setMinWordsSaved] = useState(false);
+
+    useEffect(() => {
+        const ctl = new AbortController();
+        fetch('/api/settings', { signal: ctl.signal })
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+                if (!d || ctl.signal.aborted) return;
+                const n = parseInt(d?.settings?.minWordsPerEntry ?? '0', 10);
+                setMinWords(Number.isFinite(n) && n > 0 ? n : 0);
+            })
+            .catch(() => {});
+        return () => ctl.abort();
+    }, []);
+
+    const saveMinWords = async (n: number) => {
+        const safe = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+        setMinWords(safe);
+        const res = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'minWordsPerEntry', value: String(safe) }),
+        });
+        if (res.ok) {
+            window.dispatchEvent(new CustomEvent('min-words-changed', { detail: safe }));
+            setMinWordsSaved(true);
+            setTimeout(() => setMinWordsSaved(false), 1500);
+        }
+    };
 
     const refresh = useCallback(async (signal?: AbortSignal) => {
         try {
@@ -112,6 +144,19 @@ export default function GoalsPanel({ onClose }: GoalsPanelProps) {
                         </div>
                     </div>
                 )}
+
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-border-primary bg-bg-sidebar/60">
+                    <label className="text-xs text-text-muted whitespace-nowrap">Minimum words per entry:</label>
+                    <input
+                        type="number"
+                        min="0"
+                        value={minWords || ''}
+                        placeholder="off"
+                        onChange={e => void saveMinWords(parseInt(e.target.value, 10) || 0)}
+                        className="w-20 bg-bg-card border border-border-primary rounded px-2 py-1 text-sm text-text-primary"
+                    />
+                    <span className="text-[10px] text-text-muted">{minWordsSaved ? 'Saved' : '0 = off · shown in the editor footer'}</span>
+                </div>
 
                 <div className="flex-1 overflow-y-auto p-3 space-y-3">
                     {goals.length === 0 && (

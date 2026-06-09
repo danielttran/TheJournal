@@ -7,6 +7,7 @@ import { isCategoryLocked } from "@/lib/categoryCrypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getUserIdFromRequest } from "@/lib/route-helpers";
+import { CREATED_DATE_SHAPE, normalizeCreatedDate } from "@/lib/entryDate";
 
 /**
  * Tags arrive as a JSON-encoded array of user-entered strings. Normalize each
@@ -45,6 +46,9 @@ const UpdateSchema = z.object({
     isFavorited: z.boolean().optional(),
     tags: z.string().optional(),
     expectedVersion: z.number().optional(),
+    // J8 "change entry date": accepts YYYY-MM-DD (noon, matching by-date's
+    // timezone-safe convention) or a full YYYY-MM-DD HH:MM[:SS] timestamp.
+    createdDate: z.string().regex(CREATED_DATE_SHAPE).optional(),
 });
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -145,7 +149,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             return NextResponse.json({ error: result.error.issues }, { status: 400 });
         }
 
-        const { html, documentJson, title, preview, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, mood, isFavorited, tags, expectedVersion } = result.data;
+        const { html, documentJson, title, preview, icon, sortOrder, parentEntryId, isLocked, entryType, isExpanded, mood, isFavorited, tags, expectedVersion, createdDate } = result.data;
+
+        let createdDateToWrite: string | undefined;
+        if (createdDate !== undefined) {
+            const normalized = normalizeCreatedDate(createdDate);
+            if (!normalized) {
+                return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+            }
+            createdDateToWrite = normalized;
+        }
 
         // 2. Ownership check — quick pre-flight (authoritative re-check is inside the transaction)
         const ownerCheck = await db.prepare(`
@@ -296,6 +309,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             if (mood !== undefined) { updates.push("Mood = ?"); values.push(mood ?? null); }
             if (isFavorited !== undefined) { updates.push("IsFavorited = ?"); values.push(isFavorited ? 1 : 0); }
             if (tags !== undefined) { updates.push("Tags = ?"); values.push(normalizeTagsPayload(tags)); }
+            if (createdDateToWrite !== undefined) { updates.push("CreatedDate = ?"); values.push(createdDateToWrite); }
 
             values.push(entryId);
             const updateResult = await db.prepare(`UPDATE Entry SET ${updates.join(", ")} WHERE EntryID = ?`).run(...values);
