@@ -397,6 +397,8 @@ export class DBManager {
             // roots rather than cascading (no surprise data loss).
             `ALTER TABLE Category ADD COLUMN ParentCategoryID INTEGER REFERENCES Category(CategoryID) ON DELETE SET NULL`,
             `CREATE INDEX IF NOT EXISTS "Idx_Category_Parent" ON "Category" ("UserID", "ParentCategoryID")`,
+            // J8 per-category week-start day for the calendar (0=Sunday..6=Saturday).
+            `ALTER TABLE Category ADD COLUMN WeekStartDay INTEGER NOT NULL DEFAULT 0`,
             // Data migration: scrub any plaintext PreviewText left in a password-
             // locked category by a build that predates preview-scrubbing. Entry
             // content is encrypted, but PreviewText (a ~200-char body excerpt) is
@@ -652,6 +654,19 @@ export class DBManager {
 const globalForDb = global as unknown as { dbManager: DBManager | undefined };
 export const dbManager = globalForDb.dbManager ?? new DBManager();
 if (process.env.NODE_ENV !== 'production') globalForDb.dbManager = dbManager;
+
+// Web-target scheduled backups (Settings ▸ Backup): start the hourly
+// due-schedule sweep once per server process. Started here rather than in
+// instrumentation.ts because the instrumentation entry's file trace ignores
+// outputFileTracingExcludes — importing this module graph from there pulled
+// the live journal.tjdb into the standalone bundle. Skipped during `next
+// build` page-data collection and under vitest (tests use their own DBManager
+// instances; the sweep would only add noise).
+if (process.env.NEXT_PHASE !== 'phase-production-build' && !process.env.VITEST) {
+    import('./backupRunner')
+        .then(m => m.startBackupSweep(dbManager))
+        .catch(err => console.error('[backup] failed to start scheduled-backup sweep:', err));
+}
 
 /**
  * Module-level convenience: ensure the singleton is unlocked. Equivalent to

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, safeStorage, globalShortcut } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
@@ -485,12 +485,48 @@ function ensureTray(url) {
         };
         tray.setContextMenu(Menu.buildFromTemplate([
             { label: 'Open TheJournal', click: showWindow },
+            {
+                label: 'New Entry',
+                click: () => {
+                    showWindow();
+                    // The renderer routes this exactly like the Entry ▸ New Entry
+                    // menu item (view-action → trigger-new-entry).
+                    if (mainWindow) mainWindow.webContents.send('view-action', 'new-entry');
+                },
+            },
             { type: 'separator' },
             { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
         ]));
         tray.on('click', showWindow);
     } catch (err) {
         console.error('[Electron] tray init failed (continuing without tray):', err);
+    }
+}
+
+// J8 "launches with Windows". Guarded: setLoginItemSettings is a no-op on
+// unsupported platforms/sandboxes and must never break startup or settings.
+function applyOpenAtLogin(enabled) {
+    try {
+        app.setLoginItemSettings({ openAtLogin: !!enabled });
+    } catch (err) {
+        console.error('[Electron] setLoginItemSettings failed (continuing):', err);
+    }
+}
+
+// J8's global hot-key (Ctrl+Alt+J) summons The Journal from anywhere — even
+// when minimized to the tray. Guarded: registration can fail if another app
+// owns the combo; the app must still start.
+function registerGlobalHotkey(url) {
+    try {
+        const ok = globalShortcut.register('Control+Alt+J', () => {
+            if (!mainWindow) { createWindow(url); return; }
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        });
+        if (!ok) console.warn('[Electron] Ctrl+Alt+J global hotkey unavailable (in use by another app).');
+    } catch (err) {
+        console.error('[Electron] global hotkey registration failed (continuing):', err);
     }
 }
 
@@ -638,7 +674,7 @@ app.whenReady().then(async () => {
             'theme', 'userName', 'rememberMe', 'savedPassword',
             'backupPath', 'autoBackupOnClose', 'backupFrequency', 'retentionCount',
             'defaultFontSize', 'idleLockMinutes', 'lockOnMinimize', 'themePreferences',
-            'minimizeToTray', 'menuHiddenItems',
+            'minimizeToTray', 'menuHiddenItems', 'openAtLogin',
             // UI prefs the renderer persists; without these the keybinding editor
             // and theme-palette dropdown apply live but reset on restart (the
             // writes were silently rejected and only web localStorage kept them).
@@ -653,6 +689,10 @@ app.whenReady().then(async () => {
             // Rebuild the native menu live when the user changes its customization.
             if (success && key === 'menuHiddenItems') {
                 try { createMenu(); } catch (e) { console.error('[Electron] menu rebuild failed:', e); }
+            }
+            // J8 "launch with Windows" — apply immediately, not just at next boot.
+            if (success && key === 'openAtLogin') {
+                applyOpenAtLogin(!!value);
             }
             return success ? settingsManager.getSettings() : false;
         });
@@ -755,30 +795,6 @@ app.whenReady().then(async () => {
             return null;
         });
 
-        ipcMain.handle('read-file-for-import', async (_event, filePath) => {
-            const fs = require('fs');
-            const path = require('path');
-            try {
-                // Defense in depth: the renderer should only invoke this after
-                // a user picked a .tjdb file via the OS open-file dialog, but
-                // a compromised renderer (e.g. XSS in pasted content) could
-                // pass an arbitrary path. Restrict to the journal extension so
-                // this IPC can't be abused to exfiltrate other files.
-                if (typeof filePath !== 'string' || filePath.length === 0) return null;
-                const resolved = path.resolve(filePath);
-                if (path.extname(resolved).toLowerCase() !== '.tjdb') {
-                    console.warn('[Electron] read-file-for-import rejected non-.tjdb path');
-                    return null;
-                }
-                if (!fs.existsSync(resolved)) return null;
-                const buffer = fs.readFileSync(resolved);
-                return buffer.toString('base64');
-            } catch (err) {
-                console.error('[Electron] read-file-for-import failed:', err);
-                return null;
-            }
-        });
-
         // David RM parity — export current entry to PDF. The renderer
         // resolves the entry's HTML via the /api/entry/:id/print route, then
         // hands the document here. We spawn a hidden BrowserWindow, load the
@@ -844,6 +860,10 @@ app.whenReady().then(async () => {
 
         createWindow(url);
         ensureTray(url);
+        registerGlobalHotkey(url);
+        // Re-assert the login item: an installer update can drop the registry
+        // entry while the saved setting still says enabled.
+        applyOpenAtLogin(!!settingsManager.getSettings().openAtLogin);
 
         app.on('activate', () => {
             if (BrowserWindow.getAllWindows().length === 0) createWindow(url);
@@ -919,6 +939,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+    try { globalShortcut.unregisterAll(); } catch { /* already gone */ }
     if (backupIntervalHandle) {
         clearInterval(backupIntervalHandle);
         backupIntervalHandle = null;

@@ -8,6 +8,7 @@ declare module '@tiptap/core' {
             unsetLineHeight: () => ReturnType;
             indentBlock: () => ReturnType;
             outdentBlock: () => ReturnType;
+            toggleRtlParagraph: () => ReturnType;
         };
     }
 }
@@ -36,6 +37,13 @@ export const ParagraphStyle = Extension.create<{ types: string[] }>({
                         parseHTML: (el) => el.style.lineHeight || null,
                         renderHTML: (attrs) =>
                             attrs.lineHeight ? { style: `line-height: ${attrs.lineHeight}` } : {},
+                    },
+                    // J8 right-to-left paragraph. Stored as the standard `dir`
+                    // attribute so exports/imports and screen readers get it.
+                    dir: {
+                        default: null,
+                        parseHTML: (el) => (el.getAttribute('dir') === 'rtl' ? 'rtl' : null),
+                        renderHTML: (attrs) => (attrs.dir === 'rtl' ? { dir: 'rtl' } : {}),
                     },
                     indent: {
                         default: 0,
@@ -95,6 +103,17 @@ export const ParagraphStyle = Extension.create<{ types: string[] }>({
                         if (editor.isActive(type)) {
                             const cur = clampIndent(Number(editor.getAttributes(type).indent) || 0);
                             return commands.updateAttributes(type, { indent: clampIndent(cur - 1) });
+                        }
+                    }
+                    return false;
+                },
+            toggleRtlParagraph:
+                () =>
+                ({ commands, editor }) => {
+                    for (const type of this.options.types) {
+                        if (editor.isActive(type)) {
+                            const cur = editor.getAttributes(type).dir === 'rtl';
+                            return commands.updateAttributes(type, { dir: cur ? null : 'rtl' });
                         }
                     }
                     return false;

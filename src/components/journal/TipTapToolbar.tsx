@@ -166,14 +166,27 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         });
     }, [editor]);
 
-    const applyLink = useCallback((url: string, newTab: boolean) => {
+    const applyLink = useCallback(async (url: string, newTab: boolean) => {
         if (!editor) return;
         if (url.trim() === '') {
             editor.chain().focus().extendMarkRange('link').unsetLink().run();
             setLinkDialog(null);
             return;
         }
-        const res = normalizeLinkUrl(url);
+        // J8 entry references: `entry:Category\Title` (with * / ? wildcards)
+        // resolves to an internal journal:// link via the lookup route.
+        let resolved = url;
+        if (/^entry:/i.test(url.trim())) {
+            const ref = url.trim().replace(/^entry:/i, '');
+            const r = await fetch(`/api/entry/lookup?ref=${encodeURIComponent(ref)}`).catch(() => null);
+            const d = r?.ok ? await r.json() : null;
+            if (!d?.id) {
+                setLinkDialog(dlg => (dlg ? { ...dlg, error: 'No entry matches that reference.' } : dlg));
+                return;
+            }
+            resolved = `journal://entry/${d.id}`;
+        }
+        const res = normalizeLinkUrl(resolved);
         if (!res.ok) {
             setLinkDialog(d => (d ? { ...d, error: res.reason } : d));
             return;
@@ -350,6 +363,8 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         const onSpecialChar = () => setShowSpecialChars(v => !v);
         const onAttachment = () => attachInputRef.current?.click();
         const onFormatPainter = () => toggleFormatPainter();
+        const onImageUrl = () => setShowImageUrl(true);
+        window.addEventListener('trigger-image-url', onImageUrl);
         window.addEventListener('trigger-link', onLink);
         window.addEventListener('trigger-paste-special', onPasteSpecial);
         window.addEventListener('trigger-bookmark', onBookmark);
@@ -358,6 +373,7 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
         window.addEventListener('trigger-attachment', onAttachment);
         window.addEventListener('trigger-format-painter', onFormatPainter);
         return () => {
+            window.removeEventListener('trigger-image-url', onImageUrl);
             window.removeEventListener('trigger-link', onLink);
             window.removeEventListener('trigger-paste-special', onPasteSpecial);
             window.removeEventListener('trigger-bookmark', onBookmark);
@@ -846,13 +862,22 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                         </button>
                     )}
                     {isAttachedImage && !isDrawing && (
-                        <button
-                            onClick={() => window.dispatchEvent(new Event('trigger-crop-image'))}
-                            className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
-                            title="Crop image"
-                        >
-                            Crop
-                        </button>
+                        <>
+                            <button
+                                onClick={() => window.dispatchEvent(new Event('trigger-crop-image'))}
+                                className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
+                                title="Crop or rotate image"
+                            >
+                                Crop / Rotate
+                            </button>
+                            <button
+                                onClick={() => window.dispatchEvent(new Event('trigger-annotate-image'))}
+                                className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
+                                title="Draw on this image"
+                            >
+                                Doodle
+                            </button>
+                        </>
                     )}
                     <button
                         onClick={async () => {
@@ -1059,6 +1084,9 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                             placeholder="https://example.com"
                             className="w-full rounded border border-border-primary bg-bg-app px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent-primary"
                         />
+                        <p className="mt-1 text-[10px] text-text-muted">
+                            Also accepts entry references: <code>entry:Category\Title</code> (wildcards * and ?).
+                        </p>
                         {linkDialog.error && <p className="mt-1 text-xs text-red-400">{linkDialog.error}</p>}
                         <label className="mt-3 flex items-center gap-2 text-sm text-text-primary">
                             <input

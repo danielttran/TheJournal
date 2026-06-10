@@ -13,18 +13,23 @@ interface WordEntry { word: string; count: number; }
 export default function WordCloudPanel({ categoryId, onClose }: Props) {
     const [words, setWords] = useState<WordEntry[]>([]);
     const [loading, setLoading] = useState(true);
+    // J8: clouds from entry text or from assigned topics.
+    const [source, setSource] = useState<'text' | 'topics'>('text');
 
     useEffect(() => {
         const ctl = new AbortController();
-        const qs = categoryId !== undefined ? `?categoryId=${categoryId}` : '';
+        const qs = new URLSearchParams();
+        if (categoryId !== undefined) qs.set('categoryId', String(categoryId));
+        if (source === 'topics') qs.set('source', 'topics');
+        const query = qs.toString() ? `?${qs}` : '';
         setLoading(true);
-        fetch(`/api/wordcloud${qs}`, { signal: ctl.signal })
+        fetch(`/api/wordcloud${query}`, { signal: ctl.signal })
             .then(r => r.ok ? r.json() : { words: [] })
             .then(d => { if (!ctl.signal.aborted) setWords(d.words ?? []); })
             .catch(err => { if (err?.name !== 'AbortError') throw err; })
             .finally(() => { if (!ctl.signal.aborted) setLoading(false); });
         return () => ctl.abort();
-    }, [categoryId]);
+    }, [categoryId, source]);
 
     const max = Math.max(1, ...words.map(w => w.count));
     const min = Math.min(...words.map(w => w.count), 1);
@@ -42,16 +47,32 @@ export default function WordCloudPanel({ categoryId, onClose }: Props) {
                         <Cloud className="w-4 h-4 text-text-muted" />
                         <h2 className="font-semibold text-text-primary">Word cloud{categoryId !== undefined ? ' · this category' : ' · all entries'}</h2>
                     </div>
-                    <button onClick={onClose} className="p-1 hover:bg-bg-hover rounded text-text-muted">
-                        <X className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <div className="flex rounded overflow-hidden border border-border-primary text-xs">
+                            <button
+                                onClick={() => setSource('text')}
+                                className={`px-2.5 py-1 transition-colors ${source === 'text' ? 'bg-accent-primary text-white' : 'text-text-secondary hover:bg-bg-hover'}`}
+                            >
+                                Entry text
+                            </button>
+                            <button
+                                onClick={() => setSource('topics')}
+                                className={`px-2.5 py-1 transition-colors ${source === 'topics' ? 'bg-accent-primary text-white' : 'text-text-secondary hover:bg-bg-hover'}`}
+                            >
+                                Topics
+                            </button>
+                        </div>
+                        <button onClick={onClose} className="p-1 hover:bg-bg-hover rounded text-text-muted">
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-6">
                     {loading && <div className="text-center text-text-muted py-6">Crunching words…</div>}
                     {!loading && words.length === 0 && (
                         <div className="text-center text-text-muted py-12">
                             <Cloud className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                            <div>Not enough text yet.</div>
+                            <div>{source === 'topics' ? 'No topics assigned to entries yet.' : 'Not enough text yet.'}</div>
                         </div>
                     )}
                     {!loading && words.length > 0 && (

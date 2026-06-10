@@ -12,14 +12,57 @@ import { buildDrawingSvg } from '@/lib/drawing';
 interface DrawingModalProps {
     /** Existing drawing's editable paths, when editing an inserted drawing. */
     initialPaths?: CanvasPath[] | null;
-    /** Receives the uploaded attachment URL of the saved SVG. */
+    /**
+     * J8 "doodle on a photograph": draw over this image instead of a blank
+     * canvas. The save composites strokes onto the photo (PNG), so the result
+     * replaces the original image node.
+     */
+    backgroundImage?: string | null;
+    /** Receives the uploaded attachment URL of the saved SVG / annotated PNG. */
     onConfirm: (url: string) => void;
     onClose: () => void;
 }
 
+function loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`could not load ${src}`));
+        img.src = src;
+    });
+}
+
+/**
+ * Composite the strokes layer onto the photo at the photo's NATURAL size.
+ * react-sketch-canvas's own exportWithBackgroundImage draws the photo
+ * unscaled at (0,0) while displaying it scaled/centered ("xMidYMid meet"),
+ * so its output never matches what the user drew. Instead we export the
+ * strokes alone (transparent canvas at display size), reproduce the meet
+ * math, and map the photo's on-screen rect back onto full resolution.
+ */
+async function compositeAnnotation(strokesDataUrl: string, photoSrc: string): Promise<Blob> {
+    const [strokes, photo] = await Promise.all([loadImage(strokesDataUrl), loadImage(photoSrc)]);
+    const cw = strokes.width, ch = strokes.height;
+    const iw = photo.naturalWidth, ih = photo.naturalHeight;
+    const scale = Math.min(cw / iw, ch / ih);
+    const ox = (cw - iw * scale) / 2;
+    const oy = (ch - ih * scale) / 2;
+    const out = document.createElement('canvas');
+    out.width = iw;
+    out.height = ih;
+    const ctx = out.getContext('2d');
+    if (!ctx) throw new Error('Could not get canvas context');
+    ctx.drawImage(photo, 0, 0);
+    // Strokes outside the photo's displayed rect fall off the edges, exactly
+    // as they appeared to fall off the photo on screen.
+    ctx.drawImage(strokes, ox, oy, iw * scale, ih * scale, 0, 0, iw, ih);
+    return new Promise((resolve, reject) =>
+        out.toBlob(b => b ? resolve(b) : reject(new Error('Canvas toBlob returned null')), 'image/png'));
+}
+
 const PALETTE = ['#111827', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff'];
 
-export default function DrawingModal({ initialPaths, onConfirm, onClose }: DrawingModalProps) {
+export default function DrawingModal({ initialPaths, backgroundImage, onConfirm, onClose }: DrawingModalProps) {
     const canvasRef = useRef<ReactSketchCanvasRef>(null);
     const [strokeColor, setStrokeColor] = useState('#111827');
     const [strokeWidth, setStrokeWidth] = useState(4);
@@ -52,9 +95,18 @@ export default function DrawingModal({ initialPaths, onConfirm, onClose }: Drawi
                 setIsSaving(false);
                 return;
             }
-            const rawSvg = await canvasRef.current.exportSvg();
-            const svg = buildDrawingSvg(rawSvg, paths);
-            const file = new File([svg], 'drawing.svg', { type: 'image/svg+xml' });
+            let file: File;
+            if (backgroundImage) {
+                // Annotation mode: strokes-only export, then composite onto the
+                // photo at its natural resolution (see compositeAnnotation).
+                const strokesDataUrl = await canvasRef.current.exportImage('png');
+                const blob = await compositeAnnotation(strokesDataUrl, backgroundImage);
+                file = new File([blob], 'annotated.png', { type: 'image/png' });
+            } else {
+                const rawSvg = await canvasRef.current.exportSvg();
+                const svg = buildDrawingSvg(rawSvg, paths);
+                file = new File([svg], 'drawing.svg', { type: 'image/svg+xml' });
+            }
             const formData = new FormData();
             formData.append('file', file);
             const res = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -63,17 +115,19 @@ export default function DrawingModal({ initialPaths, onConfirm, onClose }: Drawi
             onConfirm(data.url as string);
         } catch (e) {
             console.error('[DrawingModal] save failed:', e);
-            setError('Could not save the drawing. Please try again.');
+            setError(backgroundImage
+                ? 'Could not save the annotation (cross-origin images are read-only).'
+                : 'Could not save the drawing. Please try again.');
             setIsSaving(false);
         }
-    }, [onConfirm]);
+    }, [onConfirm, backgroundImage]);
 
     return (
         <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4">
             <div className="bg-bg-card border border-border-primary rounded-lg shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh]">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border-primary">
                     <h2 className="text-text-primary font-semibold">
-                        {initialPaths && initialPaths.length > 0 ? 'Edit drawing' : 'New drawing'}
+                        {backgroundImage ? 'Doodle on image' : initialPaths && initialPaths.length > 0 ? 'Edit drawing' : 'New drawing'}
                     </h2>
                     <button onClick={onClose} className="p-1 rounded hover:bg-bg-hover text-text-muted" title="Close">
                         <X className="w-4 h-4" />
@@ -147,7 +201,12 @@ export default function DrawingModal({ initialPaths, onConfirm, onClose }: Drawi
                         strokeColor={strokeColor}
                         strokeWidth={strokeWidth}
                         eraserWidth={strokeWidth * 3}
-                        canvasColor="#ffffff"
+                        canvasColor={backgroundImage ? 'transparent' : '#ffffff'}
+                        backgroundImage={backgroundImage ?? undefined}
+                        preserveBackgroundImageAspectRatio="xMidYMid meet"
+                        // Export strokes only; compositeAnnotation does the photo
+                        // merge itself (the library's export misplaces the photo).
+                        exportWithBackgroundImage={false}
                         style={{ borderRadius: 8, border: '1px solid var(--border-primary)' }}
                     />
                 </div>

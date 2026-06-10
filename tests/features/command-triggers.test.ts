@@ -20,19 +20,24 @@ describe('command trigger wiring', () => {
         expect(COMMAND_TRIGGER_MAP['style.code-block']).toBe('trigger-style-code');
     });
 
-    it('every command WITH a default keybinding has a dispatch path', () => {
-        // Commands handled outside the trigger map: TipTap StarterKit marks
-        // (bold/italic/underline/strikethrough), the editor's own Ctrl+F find,
-        // and LockGate's hardcoded lock shortcut.
-        const handledElsewhere = new Set([
-            'format.bold', 'format.italic', 'format.underline', 'format.strikethrough',
-            'edit.find', 'security.lock',
-        ]);
+    it('EVERY command has a dispatch path (rebinding must never be a silent no-op)', () => {
+        // No carve-outs. The old "handled elsewhere" set (TipTap keymap,
+        // hardcoded editor keydown, LockGate hotkey) covered only the DEFAULT
+        // keys — rebinding those commands dispatched a dead tj-command event.
         const unwired = COMMANDS
-            .filter(c => c.defaultBinding && !handledElsewhere.has(c.id))
             .filter(c => !COMMAND_TRIGGER_MAP[c.id])
             .map(c => c.id);
-        expect(unwired, `commands with a keybinding but no dispatch target: ${unwired.join(', ')}`).toEqual([]);
+        expect(unwired, `commands with no dispatch target: ${unwired.join(', ')}`).toEqual([]);
+    });
+
+    it('no two commands share the same default binding', () => {
+        const seen = new Map<string, string>();
+        for (const c of COMMANDS) {
+            if (!c.defaultBinding) continue;
+            const prev = seen.get(c.defaultBinding);
+            expect(prev, `${c.id} and ${prev} both default to ${c.defaultBinding}`).toBeUndefined();
+            seen.set(c.defaultBinding, c.id);
+        }
     });
 
     it('maps only to non-empty event names and references real command ids', () => {

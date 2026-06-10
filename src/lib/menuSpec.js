@@ -116,6 +116,8 @@ const J8_MENUS = [
             SEP,
             { label: 'Back in History', action: 'history-back', accel: 'Alt+Left' },
             { label: 'Forward in History', action: 'history-forward', accel: 'Alt+Right' },
+            SEP,
+            { label: 'Recent Entries…', action: 'recent-entries' },
         ],
     },
     {
@@ -152,6 +154,7 @@ const J8_MENUS = [
             },
             { label: 'Bullets and Numbering…', action: 'bullets-numbering' },
             { label: 'Inline Code', action: 'inline-code', accel: 'CmdOrCtrl+E' },
+            { label: 'Right-to-Left Paragraph', action: 'rtl-paragraph' },
             SEP,
             { label: 'Text Color', action: 'text-color' },
             { label: 'Highlight Background', action: 'highlight' },
@@ -171,9 +174,13 @@ const J8_MENUS = [
             { label: 'New Entry', action: 'new-entry', accel: 'CmdOrCtrl+N' },
             { label: 'New Sub-Entry', action: 'new-subentry', accel: 'CmdOrCtrl+Shift+Return' },
             { label: 'Save Entry', action: 'save', accel: 'CmdOrCtrl+S' },
-            { label: 'Delete Entry', action: 'delete-entry', accel: 'CmdOrCtrl+Delete' },
+            // No accelerator: Ctrl+Delete is the universal "delete next word"
+            // editing key — a native accel here hijacked it while typing.
+            { label: 'Delete Entry', action: 'delete-entry' },
             SEP,
             { label: 'Entry Properties…', action: 'entry-properties' },
+            { label: 'Duplicate Entry', action: 'duplicate-entry' },
+            { label: 'Change Entry Date/Time…', action: 'change-entry-date' },
             { label: 'Lock / Unlock Entry', action: 'lock-entry' },
             { label: 'Move Entry to Category…', action: 'move-entry' },
             { label: 'Sort Sub-Entries', action: 'sort-subentries' },
@@ -185,6 +192,11 @@ const J8_MENUS = [
             { label: 'New Category…', action: 'new-category', accel: 'CmdOrCtrl+Shift+N' },
             { label: 'Category Properties…', action: 'category-properties', accel: 'CmdOrCtrl+Shift+P' },
             { label: 'Delete Category…', action: 'delete-category' },
+            // J8 Ctrl+Tab tab-cycling. Browsers reserve Ctrl+Tab, so the web
+            // keyboard path is the rebindable nav.prev/next-category commands
+            // (Ctrl+Alt+PageUp/PageDown); these accels work natively on Electron.
+            { label: 'Next Category', action: 'next-category', accel: 'CmdOrCtrl+Tab' },
+            { label: 'Previous Category', action: 'prev-category', accel: 'CmdOrCtrl+Shift+Tab' },
             SEP,
             { label: 'Import Entries…', action: 'import-entries' },
             { label: 'Export Entries…', action: 'export-entries' },
@@ -209,8 +221,13 @@ const J8_MENUS = [
             { label: 'Reminders & Tasks Manager', action: 'reminders' },
             { label: 'Word Cloud', action: 'wordcloud' },
             { label: 'Text Statistics', action: 'stats' },
+            { label: 'Thesaurus…', action: 'thesaurus' },
+            { label: 'Writing Timer…', action: 'timer' },
+            { label: 'Voice Memos…', action: 'voice-memos' },
             { label: 'Writing Prompts Generator', action: 'prompts' },
             { label: 'Memory Inclusions / On This Day…', action: 'on-this-day' },
+            { label: 'Favorites…', action: 'favorites' },
+            { label: 'Habit Tracker…', action: 'habits' },
             { label: 'Word Goals…', action: 'goals' },
             { label: 'Snippets…', action: 'snippets' },
             SEP,

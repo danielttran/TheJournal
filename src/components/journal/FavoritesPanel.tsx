@@ -46,8 +46,8 @@ export default function FavoritesPanel({ onClose }: Props) {
     }, []);
 
     function go(entry: { EntryID: number; CategoryID: number }) {
-        // Match the existing journal route shape.
-        router.push(`/journal/${entry.CategoryID}?entryId=${entry.EntryID}` as never);
+        // Match the existing journal route shape (?entry=, not ?entryId=).
+        router.push(`/journal/${entry.CategoryID}?entry=${entry.EntryID}` as never);
         onClose();
     }
 

@@ -27,6 +27,8 @@ const UpdateCategorySchema = z.object({
     lastSelectedEntryId: z.number().int().nullable().optional(),
     // Hierarchical categories: re-parent (null = move to top level).
     parentCategoryId: z.number().int().positive().nullable().optional(),
+    // J8 per-category calendar week start (0 = Sunday … 6 = Saturday).
+    weekStartDay: z.number().int().min(0).max(6).optional(),
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -111,7 +113,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         }
         const { name, type, icon, color, viewSettings, lastSelectedEntryId,
             sortMode, autoTemplateId, entryFrequency, isSmartbook, smartbookQuery,
-            parentCategoryId } = parsed.data;
+            parentCategoryId, weekStartDay } = parsed.data;
 
         // Construct dynamic update
         const simpleUpdates: string[] = [];
@@ -147,6 +149,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         }
         if (entryFrequency !== undefined) {
             simpleUpdates.push("EntryFrequency = ?"); simpleValues.push(entryFrequency);
+        }
+        if (weekStartDay !== undefined) {
+            simpleUpdates.push("WeekStartDay = ?"); simpleValues.push(weekStartDay);
         }
         if (isSmartbook !== undefined) {
             simpleUpdates.push("IsSmartbook = ?"); simpleValues.push(isSmartbook ? 1 : 0);

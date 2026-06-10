@@ -5,10 +5,17 @@
  * with per-category passwords and ParentCategoryID). This test fails if a
  * user-owned table exists in the schema but the importer never references it,
  * forcing whoever adds a table to also teach restore about it.
+ *
+ * The guard is also COLUMN-level: a new column on a user-owned table that the
+ * importer's explicit column lists don't mention is silently dropped on
+ * restore (it happened with Category.WeekStartDay) — table-level coverage
+ * alone can't catch that.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'fs';
+import { unlink } from 'fs/promises';
 import { join } from 'path';
+import { DBManager } from '../../src/lib/db';
 
 const importSrc = readFileSync(
     join(process.cwd(), 'src/app/api/backup/import/route.ts'), 'utf8',
@@ -23,10 +30,65 @@ const USER_OWNED_TABLES = [
     'UserSetting', 'BackupSchedule',
 ];
 
+const TEST_DB_PATH = join(process.cwd(), `test-import-cov-${Date.now()}.tjdb`);
+let dbm: DBManager;
+
+beforeAll(async () => {
+    dbm = new DBManager(TEST_DB_PATH);
+    await dbm.unlock('deadbeef'.repeat(8));
+});
+
+afterAll(async () => {
+    await dbm.close();
+    for (const suffix of ['', '-shm', '-wal']) {
+        await unlink(TEST_DB_PATH + suffix).catch(() => {});
+    }
+});
+
 describe('backup importer table coverage', () => {
     it.each(USER_OWNED_TABLES)('restores the %s table', (table) => {
         expect(importSrc).toContain(`imported.${table}`);
         expect(importSrc).toContain(`main.${table}`);
+    });
+
+    // Columns the importer legitimately does NOT carry over. Every entry here
+    // needs a reason — anything else missing fails the guard.
+    const EXCLUDED_COLUMNS = new Set([
+        // Optimistic-concurrency counter; restored rows are fresh, version 1.
+        'Entry.Version',
+        // Dead legacy column from the Quill era; nothing reads it anywhere.
+        'EntryContent.QuillDelta',
+    ]);
+
+    /**
+     * Columns a table's restore actually WRITES: the union of its
+     * `INSERT INTO main.<table> (...)` column lists and any second-pass
+     * `UPDATE main.<table> SET <col>` statements (hierarchy/recurrence
+     * remaps). A whole-file substring check is NOT enough — CreatedAt
+     * appearing in the Reminder insert must not vouch for Attachment's.
+     */
+    function writtenColumns(table: string): Set<string> {
+        const written = new Set<string>();
+        const insertRe = new RegExp(`INSERT (?:OR \\w+ )?INTO main\\.${table}\\s*\\(([^)]*)\\)`, 'g');
+        for (const m of importSrc.matchAll(insertRe)) {
+            for (const col of m[1].split(',')) written.add(col.trim());
+        }
+        const updateRe = new RegExp(`UPDATE main\\.${table} SET (\\w+)`, 'g');
+        for (const m of importSrc.matchAll(updateRe)) written.add(m[1]);
+        return written;
+    }
+
+    it.each(USER_OWNED_TABLES)('writes every live %s column on restore (column-level drift guard)', async (table) => {
+        const cols = await dbm.prepare(`PRAGMA table_info(${table})`).all() as { name: string; pk: number }[];
+        const written = writtenColumns(table);
+        const missing = cols
+            // Primary keys get fresh ids; cross-row references are remapped
+            // through the importer's id maps, not copied verbatim.
+            .filter(c => !c.pk)
+            .map(c => c.name)
+            .filter(name => !EXCLUDED_COLUMNS.has(`${table}.${name}`))
+            .filter(name => !written.has(name));
+        expect(missing, `restore never writes ${table} column(s): ${missing.join(', ')} — they would be dropped`).toEqual([]);
     });
 
     it('restores per-category password material (locked entries stay decryptable)', () => {

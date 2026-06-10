@@ -8,7 +8,7 @@ import ReactCrop, {
     makeAspectCrop,
 } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
-import { X, Check, Loader } from 'lucide-react';
+import { X, Check, Loader, RotateCw } from 'lucide-react';
 
 interface ImageCropModalProps {
     /** src attribute of the image node currently selected in the editor. */
@@ -54,6 +54,13 @@ export default function ImageCropModal({ imageSrc, onConfirm, onClose }: ImageCr
 
     const [crop, setCrop] = useState<Crop>();
     const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
+    // J8 image rotation: true once the loaded image has been rotated, so
+    // Apply can save a rotation even without a crop selection.
+    const [rotated, setRotated] = useState(false);
+    // After a rotate, skip re-seeding the default 80% selection: react-image-crop
+    // auto-fires onComplete for it, which would make Apply silently crop a
+    // rotation-only save to 80%.
+    const skipDefaultCropRef = useRef(false);
     const imgRef = useRef<HTMLImageElement>(null);
     const objectUrlRef = useRef<string | null>(null);
 
@@ -103,6 +110,10 @@ export default function ImageCropModal({ imageSrc, onConfirm, onClose }: ImageCr
 
     const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
         setIsImageLoading(false);
+        if (skipDefaultCropRef.current) {
+            skipDefaultCropRef.current = false;
+            return; // rotated image: no selection until the user drags one
+        }
         const { naturalWidth, naturalHeight } = e.currentTarget;
         // Start with a centered 80% width selection keeping the image's aspect ratio
         const initial = centerCrop(
@@ -118,11 +129,48 @@ export default function ImageCropModal({ imageSrc, onConfirm, onClose }: ImageCr
         setCrop(initial);
     };
 
+    // Rotate the working image 90° clockwise (off-screen canvas → new blob
+    // URL). The crop selection resets because its coordinates no longer apply.
+    const handleRotate = useCallback(async () => {
+        const img = imgRef.current;
+        if (!img) return;
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalHeight;
+            canvas.height = img.naturalWidth;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Could not get canvas context');
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(Math.PI / 2);
+            ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+            const blob: Blob = await new Promise((resolve, reject) =>
+                canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas toBlob returned null')), 'image/png'));
+            const url = URL.createObjectURL(blob);
+            if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+            objectUrlRef.current = url;
+            setIsImageLoading(true);
+            setCrop(undefined);
+            setCompletedCrop(undefined);
+            skipDefaultCropRef.current = true;
+            setRotated(true);
+            setObjectUrl(url);
+        } catch (err) {
+            // Cross-origin images taint the canvas — same limitation as crop.
+            console.error('[ImageCropModal] rotate failed:', err);
+            window.alert('This image cannot be rotated (cross-origin images are read-only).');
+        }
+    }, []);
+
     const handleConfirm = useCallback(async () => {
-        if (!completedCrop || !imgRef.current) return;
+        const img = imgRef.current;
+        if (!img) return;
+        const effectiveCrop: PixelCrop = (completedCrop && completedCrop.width > 0 && completedCrop.height > 0)
+            ? completedCrop
+            // Rotation-only save: the "crop" is the whole image.
+            : { unit: 'px', x: 0, y: 0, width: img.width, height: img.height };
         setIsSaving(true);
         try {
-            const blob = await cropToBlob(imgRef.current, completedCrop);
+            const blob = await cropToBlob(img, effectiveCrop);
             const formData = new FormData();
             formData.append('file', blob, 'cropped.png');
             const res = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -138,6 +186,7 @@ export default function ImageCropModal({ imageSrc, onConfirm, onClose }: ImageCr
     }, [completedCrop, onConfirm]);
 
     const hasCrop = completedCrop && completedCrop.width > 0 && completedCrop.height > 0;
+    const canApply = (hasCrop || rotated) && !isImageLoading && !loadError;
 
     return (
         <div
@@ -150,15 +199,24 @@ export default function ImageCropModal({ imageSrc, onConfirm, onClose }: ImageCr
             >
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-border-primary flex-shrink-0">
-                    <h2 className="font-semibold text-text-primary">Crop Image</h2>
+                    <h2 className="font-semibold text-text-primary">Crop &amp; Rotate Image</h2>
                     <div className="flex items-center gap-2">
                         <button
+                            onClick={() => void handleRotate()}
+                            disabled={isImageLoading || loadError || isSaving}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border-primary text-text-primary text-sm disabled:opacity-40 hover:bg-bg-hover transition-colors"
+                            title="Rotate 90° clockwise"
+                        >
+                            <RotateCw className="w-3.5 h-3.5" />
+                            Rotate
+                        </button>
+                        <button
                             onClick={handleConfirm}
-                            disabled={!hasCrop || isSaving}
+                            disabled={!canApply || isSaving}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-primary text-white text-sm font-medium disabled:opacity-40 hover:bg-accent-primary/80 transition-colors"
                         >
                             {isSaving ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                            {isSaving ? 'Saving…' : 'Apply Crop'}
+                            {isSaving ? 'Saving…' : 'Apply'}
                         </button>
                         <button
                             onClick={onClose}
@@ -207,7 +265,7 @@ export default function ImageCropModal({ imageSrc, onConfirm, onClose }: ImageCr
                 </div>
 
                 <p className="text-center text-xs text-text-muted px-4 py-2 border-t border-border-primary flex-shrink-0">
-                    Drag corners to select the crop area. The result is saved as a new image attachment.
+                    Drag corners to select the crop area, or rotate in 90° steps. The result is saved as a new image attachment.
                 </p>
             </div>
         </div>

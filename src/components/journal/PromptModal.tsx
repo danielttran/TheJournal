@@ -12,7 +12,7 @@ export interface PromptConfig {
     message?: string;
     initialValue?: string;
     placeholder?: string;
-    inputType?: 'text' | 'password';
+    inputType?: 'text' | 'password' | 'date' | 'datetime-local';
     /** When set, render a <select> of these options instead of a text input. */
     options?: PromptOption[];
     confirmLabel?: string;

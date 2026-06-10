@@ -13,6 +13,11 @@ import ReplacePanel from './ReplacePanel';
 import OnThisDayPanel from './OnThisDayPanel';
 import WordCloudPanel from './WordCloudPanel';
 import SnippetsPanel from './SnippetsPanel';
+import FavoritesPanel from './FavoritesPanel';
+import HabitsPanel from './HabitsPanel';
+import RecentEntriesPanel from './RecentEntriesPanel';
+import VoiceMemosPanel from './VoiceMemosPanel';
+import { adjacentCategoryId } from '@/lib/categoryCycle';
 import CategorySettingsModal from './CategorySettingsModal';
 import CategoryTree from './CategoryTree';
 import { Scissors } from 'lucide-react';
@@ -285,6 +290,10 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isOnThisDayOpen, setIsOnThisDayOpen] = useState(false);
     const [isWordCloudOpen, setIsWordCloudOpen] = useState(false);
     const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
+    const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
+    const [isHabitsOpen, setIsHabitsOpen] = useState(false);
+    const [isRecentOpen, setIsRecentOpen] = useState(false);
+    const [isVoiceMemosOpen, setIsVoiceMemosOpen] = useState(false);
     const [settingsCategoryId, setSettingsCategoryId] = useState<number | null>(null);
     const [isClient, setIsClient] = useState(false);
     const [mainToolbarHidden, setMainToolbarHidden] = useState(false);
@@ -506,6 +515,24 @@ export default function TabBar({ userId }: { userId: string }) {
 
     const activeId = pathname.split('/')[2];
 
+    // Category (tab) cycling — J8 Ctrl+Tab (Electron native accel) and the
+    // rebindable nav.prev/next-category commands on web.
+    useEffect(() => {
+        const num = activeId ? Number(activeId) : null;
+        const cycle = (direction: 1 | -1) => {
+            const target = adjacentCategoryId(tabs.map(t => t.CategoryID), num, direction);
+            if (target !== null) router.push(`/journal/${target}`);
+        };
+        const onNext = () => cycle(1);
+        const onPrev = () => cycle(-1);
+        window.addEventListener('trigger-next-category', onNext);
+        window.addEventListener('trigger-prev-category', onPrev);
+        return () => {
+            window.removeEventListener('trigger-next-category', onNext);
+            window.removeEventListener('trigger-prev-category', onPrev);
+        };
+    }, [activeId, tabs, router]);
+
     // Menu actions owned by the TabBar (Tools panels + Categories ops + main
     // toolbar visibility). Dispatched by the MenuBar / Electron native menu.
     useEffect(() => {
@@ -520,6 +547,10 @@ export default function TabBar({ userId }: { userId: string }) {
             'trigger-stats': () => setIsStatsOpen(true),
             'trigger-goals': () => setIsGoalsOpen(true),
             'trigger-snippets': () => setIsSnippetsOpen(true),
+            'trigger-favorites': () => setIsFavoritesOpen(true),
+            'trigger-habits': () => setIsHabitsOpen(true),
+            'trigger-recent-entries': () => setIsRecentOpen(true),
+            'trigger-voice-memos': () => setIsVoiceMemosOpen(true),
             'trigger-trash': () => setIsTrashOpen(true),
             'trigger-on-this-day': () => setIsOnThisDayOpen(true),
             'trigger-new-category': () => setIsAddMenuOpen(true),
@@ -761,7 +792,7 @@ export default function TabBar({ userId }: { userId: string }) {
                                     className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
                                 >
                                     <span>Show / Hide Sidebar</span>
-                                    <kbd className="text-[10px] opacity-70 font-sans">Ctrl+Shift+B</kbd>
+                                    <kbd className="text-[10px] opacity-70 font-sans">Ctrl+Alt+B</kbd>
                                 </button>
                                 <button onClick={() => { dispatchViewAction('sidebar-side'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Move Sidebar Left / Right</button>
                                 <button onClick={() => { dispatchViewAction('toggle-toolbar'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Show / Hide Formatting Toolbar</button>
@@ -910,6 +941,22 @@ export default function TabBar({ userId }: { userId: string }) {
                     categoryId={activeId ? parseInt(activeId, 10) : undefined}
                     onClose={() => setIsWordCloudOpen(false)}
                 />
+            )}
+
+            {isFavoritesOpen && (
+                <FavoritesPanel onClose={() => setIsFavoritesOpen(false)} />
+            )}
+
+            {isHabitsOpen && (
+                <HabitsPanel onClose={() => setIsHabitsOpen(false)} />
+            )}
+
+            {isRecentOpen && (
+                <RecentEntriesPanel onClose={() => setIsRecentOpen(false)} />
+            )}
+
+            {isVoiceMemosOpen && (
+                <VoiceMemosPanel onClose={() => setIsVoiceMemosOpen(false)} />
             )}
 
             {isSnippetsOpen && (

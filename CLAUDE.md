@@ -249,11 +249,89 @@ shipping to production.
   fixed an asar `files` packaging bug (round-4 libs `windowState.js` +
   `menuCustomization.js` weren't whitelisted → would crash the packaged app).
 
+- **Audit round 2 — keyboard layer (2026-06-10)**: fixed the per-target
+  Ctrl+Shift+P split, the Ctrl+Delete delete-word hijack, the Ctrl+Shift+L
+  TextAlign/lock collision (align-then-logout), the dead `tj-command`
+  fallthrough (EVERY command now maps in commandTriggers — rebinding works;
+  test requires full coverage), duplicate Ctrl+F defaults, and false web menu
+  accel labels (new registry commands for print/search-all/toggle-theme +
+  `isAccelShownOnWeb` hides browser-reserved combos). Added J8 features:
+  category cycling (Ctrl+Tab native + rebindable commands, `categoryCycle.ts`),
+  Thesaurus (web lookup), Writing Timer (`timerFormat.ts` + TimerWidget),
+  RTL paragraph (`dir` attr in ParagraphStyle). Wired remaining stranded
+  clusters: recent entries (touchEntry now stamped on entry GET + panel),
+  voice memos panel, duplicate entry, backlinks in Entry Properties, reminder
+  snooze, daily prompt, tag rename (right-click chip), trash bulk ops,
+  `entry:Category\Title` refs in the hyperlink dialog. Removed orphan
+  ThemeProvider + useElectronIPC. Calendar charms verified already present
+  (entry icons on calendar days).
+
+- **Audit round 7 (2026-06-10f)**: Electron theme toggle now persists
+  (saveSetting on toggle; startup re-applies settings.theme, and the only
+  persisting path listened on a never-sent IPC channel). Removed dead IPC
+  surface: readFileForImport + the toggle-theme/logout-request/open-settings/
+  export-current-entry-pdf channels, their renderer subscriptions, and types.
+
+- **Audit round 6 (2026-06-10e)**: destructive-flow sweep clean (delete
+  cascade, permanent delete, purge, restore validation, transform atomicity).
+  Fixed round-5's own guard work: Attachment.CreatedAt now restores
+  (COALESCE for old backups), and the column drift guard parses per-table
+  INSERT/UPDATE column lists (PKs auto-excluded) instead of a whole-file
+  substring check that passed false positives.
+
+- **Audit round 5 (2026-06-10d)**: round-4 commit verified correct against
+  library sources; menu/native-handler diff + route-scoping sweeps clean.
+  Fixed: Entry Frequency now drives calendar missed-cadence highlighting
+  (`entryCadence.ts` — it was a dead control since M1); backup importer
+  taught WeekStartDay, Entry.LastAccessedDate, and Reminder.NextOccurrenceID
+  (recurrence chains remap via a second-pass id map); the import drift guard
+  upgraded from table-level to COLUMN-level with a documented exclusion list
+  — it caught all three restore fidelity losses.
+
+- **Audit round 4 (2026-06-10c)**: fixed five round-3 defects (doodle export
+  now composites strokes onto the photo at natural resolution via
+  `compositeAnnotation` — the library's own export drew the photo unscaled at
+  (0,0); VoiceMemos unmountedRef resets on mount for StrictMode; stale
+  Ctrl+Shift+B kbd label in TabBar; rotation-only save reachable by skipping
+  the auto-seeded 80% crop after rotate; removed autocorrect rules that
+  rewrote real words alright/wont/hight). Closed the last two feature-page
+  gaps: per-category WeekStartDay (column + PUT + Category Properties
+  dropdown + calendar grid/headers honoring it) and a portable Windows build
+  target.
+
+- **Audit round 3 (2026-06-10b)**: fixed five round-2 defects (Ctrl+Shift+B vs
+  StarterKit Blockquote -> view.toggle-sidebar now Ctrl+Alt+B; VoiceMemos mic
+  leak on unmount race; Ctrl+Shift+T added to WEB_RESERVED_ACCELS; tag-rename
+  now normalizes the active-filter patch; backlinks now parse
+  journal://entry anchors). Closed davidrm.com feature-page gaps:
+  auto-correction (`autocorrect.ts` + editor word-boundary hook + toggle),
+  launch-at-login (openAtLogin + setLoginItemSettings), image rotation
+  (Crop & Rotate modal), doodle-on-photo (DrawingModal backgroundImage
+  annotate mode), topic-source word cloud. Documented decisions: blog
+  publishing (external-service class, ATOM export covers format) and FTP
+  backup upload (folder destinations + no-new-deps) are out of scope.
+
+- **Parity audit round (2026-06-09)**: fixed the SearchPanel scope-resync
+  no-op + the PromptHost concurrent-prompt hang; closed verified J8 gaps
+  (Change Entry Date/Time with editor version-sync, spell-check toggle,
+  Ctrl+Alt+J global hotkey + tray New Entry); wired four stranded features
+  (Favorites panel, Habit Tracker panel, web scheduled backups with verified
+  snapshots + admin gate + hourly sweep started from db.ts — NOT
+  instrumentation.ts, whose file trace ignores outputFileTracingExcludes and
+  shipped journal.tjdb into the bundle — and min-words-per-entry); wired the
+  stats year heatmap; removed superseded orphans (api/autolink/outline/
+  hourActivity libs + route). To-do carry-forward confirmed NOT a J8 feature
+  (davidrm.com) — not built.
+
 ## What's intentionally NOT done
 
 - **Importers (Outlook / Penzu / Diaro / WordPress) + external Category Sync**:
   the goal's only carve-out ("bridge all gaps except importing from other
   apps"). Category Sync is the same class — sync/import from an external service.
+- **Blog publishing + FTP backup upload**: same external-service class —
+  posting to third-party blog platforms / FTP servers needs external accounts
+  and credentials that can't be exercised here. ATOM export covers the
+  syndication format; scheduled backups target any mounted/synced folder.
 - **macOS code signing / notarization**: a credential, not code. `release.yml`
   consumes `CSC_LINK`/`CSC_KEY_PASSWORD` if the repo provides them; the mac +
   linux *builds* are otherwise configured. (The mac/linux installers cannot be
@@ -267,7 +345,7 @@ shipping to production.
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 933 tests as of the last commit.
+# Baseline: 1021 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

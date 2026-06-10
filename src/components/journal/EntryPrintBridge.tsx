@@ -170,13 +170,6 @@ export default function EntryPrintBridge() {
     }, [runPrint]);
 
     useEffect(() => {
-        if (typeof window !== 'undefined' && window.electron?.onExportCurrentEntryPdf) {
-            const u = window.electron.onExportCurrentEntryPdf(() => runExportPdf());
-            return () => { u?.(); };
-        }
-    }, [runExportPdf]);
-
-    useEffect(() => {
         // Web / in-app triggers — Editor's Print + PDF buttons dispatch these.
         const onPrint = () => runPrint();
         const onExport = () => runExportPdf();

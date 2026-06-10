@@ -25,6 +25,9 @@ export const PUT = authedHandler<[NextRequest]>('PUT /api/settings', async (user
     if (parsed.data.key === 'dateFormat' && !validateDateFormat(parsed.data.value)) {
         return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
     }
+    if (parsed.data.key === 'minWordsPerEntry' && !/^\d{1,7}$/.test(parsed.data.value)) {
+        return NextResponse.json({ error: 'minWordsPerEntry must be a non-negative integer' }, { status: 400 });
+    }
 
     await setSetting(dbManager, userId, parsed.data.key, parsed.data.value);
     return NextResponse.json({ success: true });

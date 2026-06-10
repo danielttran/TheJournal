@@ -1,5 +1,398 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Audit round 7 — round-6 verification + Electron IPC surface sweep (2026-06-10f)
+
+Round 7 verified the round-6 commit empirically (COALESCE semantics against
+the real SQLCipher driver; the drift-guard regexes executed against the real
+importer source, incl. a demonstrated negative case) and audited the whole
+preload/contextBridge surface (contextIsolation on, save-setting allowlisted,
+sandboxed PDF window — not overly broad). Findings, all fixed:
+
+1. **Electron theme toggle didn't survive a restart** — the live toggle path
+   only called `setTheme`, while startup unconditionally re-applied
+   `settings.theme`; the one code path that persisted listened on a
+   `toggle-theme` IPC channel main.js never sends (orphaned by the
+   view-action menu refactor). The toggle now persists via
+   `saveSetting('theme', …)` on Electron, and the dead IPC path was removed.
+2. **Dead IPC surface removed** — `readFileForImport` (preload + main
+   handler; zero callers, unnecessary file-read attack surface) and the
+   never-sent `toggle-theme` / `logout-request` / `open-settings` /
+   `export-current-entry-pdf` channels with their dead renderer
+   subscriptions and type declarations.
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**1021/1021** · `npm run build` + standalone verify clean · main/preload
+syntax-checked.
+
+## Audit round 6 — round-5 verification + destructive-flow sweep (2026-06-10e)
+
+Round 6 verified the round-5 commit (cadence math, importer SQL/scoping/
+back-compat) and traced the five most data-destructive flows end-to-end
+(category delete cascade, permanent entry delete, trash purge, restore
+pre-delete validation, transformCategoryEntries) — all guards genuinely
+prevent the destructive path. Two defects found in round-5's own guard work,
+both fixed:
+
+1. **`Attachment.CreatedAt` was dropped on restore** — a live column (voice
+   memo timestamps/ordering) reset to restore time. The importer now carries
+   it (`COALESCE(?, CURRENT_TIMESTAMP)` for old backups).
+2. **The column-level drift guard accepted substring false positives** — a
+   whole-file `includes()` let Attachment.CreatedAt pass via other tables'
+   CreatedAt columns. The guard now parses each table's own
+   `INSERT [OR …] INTO main.<table> (…)` column lists plus second-pass
+   `UPDATE main.<table> SET` statements; PKs are auto-excluded via
+   `pragma table_info` (fresh ids, remapped through id maps) and the dead
+   legacy `EntryContent.QuillDelta` is a documented exclusion.
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**1021/1021** · `npm run build` + standalone verify clean.
+
+## Audit round 5 — round-4 verification + cross-cutting sweeps (2026-06-10d)
+
+Round 5 verified the round-4 commit fully correct against the library sources
+(composite math, crop-skip transition behavior, StrictMode ref reset,
+week-start chain, portable target) and ran two cross-cutting sweeps (menuSpec
+↔ Electron native handler diff: clean; per-UserID scoping of all
+recently-touched routes: clean). Findings, all fixed:
+
+1. **"Entry Frequency" was a dead control** (pre-existing since M1) — the
+   Category Properties dropdown persisted and round-tripped but had zero
+   behavioral consumers. It now drives its documented purpose: the calendar
+   highlights missed cadence (pure `entryCadence.ts` — daily/hourly mark past
+   in-month entry-less days; weekly marks only the last day of a fully-elapsed
+   empty week; amber ring + explanatory tooltip in the sidebar calendar,
+   re-read live with WeekStartDay). `entry-cadence.test.ts`.
+2. **Restore dropped `Category.WeekStartDay`** — the round-4 column wasn't
+   taught to the importer's explicit column list (the drift guard was only
+   table-level). Fixed, and the guard is now **column-level**: every live
+   column of every user-owned table must appear in the importer source, with
+   a documented exclusion list (Entry.Version = fresh-row counter; standalone
+   PKs that nothing references). The upgraded guard immediately caught two
+   more pre-existing restore fidelity losses, also fixed:
+   **Entry.LastAccessedDate** (recent-entries history survived nothing) and
+   **Reminder.NextOccurrenceID** (recurrence chains now remap through a
+   reminder id map in a second pass, like the category/entry hierarchies).
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**1021/1021** (+ entry-cadence, column-level import guard) · `npm run build`
++ standalone verify clean.
+
+## Audit round 4 — round-3 diff review + exhaustive feature-page pull (2026-06-10c)
+
+Round 4 ran two fresh passes: a skeptical review of the round-3 commit
+(including reading the react-sketch-canvas / react-image-crop library sources)
+and a full pull of every davidrm.com feature subpage. The wiring/orphan/test
+sweep verified clean end-to-end; the other angles found issues, all fixed:
+
+### Round-3 code defects (all fixed)
+
+1. **Doodle-on-photo export was misaligned/cropped (major)** —
+   react-sketch-canvas's `exportWithBackgroundImage` draws the photo unscaled
+   at (0,0) while displaying it scaled/centered, so the saved PNG essentially
+   never matched what the user drew (and downgraded the photo to canvas size).
+   The annotate save now exports the strokes alone and composites them onto
+   the photo at its NATURAL resolution (`compositeAnnotation` reproduces the
+   "xMidYMid meet" math and maps the on-screen rect back to full size).
+2. **VoiceMemos Record silently no-op'd in dev** — the round-3 `unmountedRef`
+   was never reset, and StrictMode's mount→cleanup→remount preserves refs, so
+   the guard stayed permanently true. The ref now resets at effect start.
+3. **The web View menu still advertised Ctrl+Shift+B** for the sidebar after
+   the rebind — pressing it created a blockquote. Label updated to Ctrl+Alt+B.
+4. **Rotation-only save was unreachable** — react-image-crop auto-fires
+   `onComplete` for the default 80% selection seeded after every image load,
+   so rotate→Apply silently cropped to 80%. After a rotate the default
+   selection is no longer seeded (`skipDefaultCropRef`), making the
+   full-image fallback actually reachable.
+5. **Autocorrect rules rewrote legitimate words** — removed
+   'alright'→'all right' (real word; style choice), 'wont'→"won't" ("as is
+   her wont"), and archaic-valid 'hight'.
+
+### J8 gaps closed (exhaustive davidrm.com subpage pull)
+
+6. **Per-category week-start day** ("customizable category settings including
+   week-start day") — additive `Category.WeekStartDay` column (0=Sunday…6,
+   idempotent migration, `week-start-day.test.ts`), accepted by the category
+   PUT, a "Week starts on" dropdown in Category Properties (Journal type),
+   and the sidebar calendar derives its grid + rotated day headers from it
+   (re-reads live via `category-settings-changed`).
+7. **Portable USB build** — `electron-builder.yml` win targets now include
+   `portable` alongside NSIS (J8 installs to a thumb drive).
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**1000/1000** · `npm run build` + standalone verify clean · yml validates.
+
+## Audit round 3 — round-2 diff review + davidrm.com feature-page cross-check (2026-06-10b)
+
+Round 3 (skeptical diff review of round 2 + a fresh J8 feature-list pull from
+davidrm.com + wiring/orphan verification). The wiring/orphan sweep came back
+fully clean; the other two angles found issues, all fixed:
+
+### Round-2 code defects (all fixed)
+
+1. **Ctrl+Shift+B collided with StarterKit's Blockquote keymap** — inside the
+   editor the "toggle sidebar" key created a blockquote (document mutation)
+   and the sidebar never moved; the same defect class round 2 fixed for
+   Ctrl+Shift+L. `view.toggle-sidebar` now defaults to **Ctrl+Alt+B**
+   (Blockquote keeps the standard editor key; the command stays rebindable).
+2. **VoiceMemosPanel could leave the microphone hot** — closing the panel
+   while the getUserMedia permission prompt was pending let the resolved
+   stream start recording with no UI to stop it. The await is now guarded by
+   an unmounted ref that stops the tracks immediately.
+3. **Ctrl+Shift+T added to `WEB_RESERVED_ACCELS`** — browsers reserve it
+   (reopen closed tab), so the web menu no longer advertises it for Insert
+   from Template (Electron unaffected; the command stays rebindable on web).
+4. **Tag rename stored the raw name in the active filter** — the server
+   normalizes tags to lowercase, so renaming an active tag to a name with
+   uppercase left a stuck, un-toggleable filter chip. The filter now patches
+   with `normalizeTag(to)`.
+5. **Backlinks couldn't see the hyperlink dialog's own links** —
+   `findBacklinks` only parsed `[[..]]` wiki tokens, so `journal://entry/<id>`
+   anchors (including resolved `entry:` references from the same round!) never
+   appeared in "Linked from". The candidate filter and matcher now also parse
+   `journal://entry` hrefs (`hasJournalAnchor`, regression-tested).
+
+### J8 gaps closed (fresh pull of davidrm.com/features/* pages)
+
+6. **Auto-correction of common misspellings** ("Automatically corrects common
+   English misspellings") — new pure `autocorrect.ts` (~110-rule table,
+   case-preserving incl. ALL-CAPS and apostrophe fixes like dont→don't) hooked
+   into the editor's word-boundary keydown (same hook as snippet expansion;
+   the boundary key still inserts). Settings ▸ Editor Preferences toggle
+   ("Auto-correct common misspellings", default on). `autocorrect.test.ts`.
+7. **Launch at login** ("Launches with Windows") — `openAtLogin` setting
+   (Settings ▸ Security, Electron-only) applied via
+   `app.setLoginItemSettings` immediately on toggle and re-asserted at
+   startup (installer updates can drop the login item). Guarded so an
+   unsupported platform can't break startup.
+8. **Image rotation** ("rotation, thumbnails, and doodling") — the crop modal
+   is now **Crop & Rotate**: 90°-step rotation on an off-screen canvas, crop
+   resets on rotate, and Apply can save a rotation alone (full-image crop
+   fallback). Cross-origin images surface the canvas-taint limitation
+   honestly.
+9. **Doodle on a photograph** — new **Doodle** button on the image-selected
+   toolbar (`trigger-annotate-image`): opens the drawing canvas with the
+   photo as the background (`ReactSketchCanvas backgroundImage` +
+   `exportWithBackgroundImage`), composites strokes onto a PNG, and replaces
+   the image node in place.
+10. **Word cloud from assigned topics** ("from entry text or assigned
+    topics") — the Word Cloud panel gained an Entry text / Topics source
+    toggle; topic mode weighs each topic by its non-deleted entry count
+    (pure SQL — no decryption, so locked categories contribute safely).
+
+### Decisions documented (NOT built, with reasons)
+
+- **Blog publishing** (J8 posts entries to blog platforms): publishing to an
+  external service is the same class as the external Category Sync carve-out
+  — it needs third-party accounts/credentials that can't be exercised in this
+  environment. The syndication *format* half is covered (ATOM export via
+  `exportEntriesAsATOM`). Decision: out of scope alongside Category Sync.
+- **FTP upload of backups**: scheduled backups write SHA-256-verified
+  snapshots to any mounted/synced folder, which is the modern equivalent;
+  Node has no built-in FTP client and the no-new-dependencies convention
+  holds. Self-host operators can point `DestPath` at a synced/remote mount
+  (documented in the backup runbook).
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**998/998** (+ autocorrect, backlinks journal-anchor regression) ·
+`npm run build` + standalone verify clean · `node --check` main.js clean.
+
+## Audit round 2 — keyboard layer + remaining stranded clusters (2026-06-10)
+
+Round 2 (fresh diff review of round 1 + a J8 keyboard-shortcuts parity check
+against davidrm.com + a fresh orphan scan) found real issues. All fixed:
+
+### Round-1 code defects (minor, both fixed)
+
+1. **StatsPanel heatmap could crash on a non-OK response** — no `r.ok` check
+   and an unbounded "previous year" button stored `{error}` in state and threw
+   in `heat.cells.map`. Now guarded + year floored at 1900.
+2. **Min-words silent desync** — the client had no cap while the route
+   rejected >7 digits, and the optimistic state showed an unsaved value.
+   Client now caps at 9,999,999 and re-syncs from the server on a failed PUT.
+
+### Keyboard-layer defects (the audit's main findings)
+
+3. **Ctrl+Shift+P did different things per target** — the menu advertised
+   Category Properties, but the editor hardcoded it to Writing Prompts on web.
+   Fixed via a new `category.properties` registry command (default
+   Ctrl+Shift+P → `trigger-category-properties`); the editor's hardcoded
+   branches (Ctrl+Shift+T/P, Ctrl+\, Ctrl+F, F11) were removed entirely — the
+   registry owns them, so user rebinds finally take effect (`trigger-focus`
+   now toggles focus mode so F11 still exits).
+4. **Ctrl+Delete hijacked "delete next word" on Electron** — the Delete Entry
+   native accelerator consumed the editing keystroke. Accelerator removed
+   (menu item + sidebar flows unchanged).
+5. **Ctrl+Shift+L three-way collision** — TipTap TextAlign's default keymap
+   claimed it for align-left while security.lock also used it; inside the
+   editor the paragraph was REALIGNED (a real document mutation that could
+   autosave) and then the app locked. TextAlign now drops only the `L`
+   binding (center/right/justify keys kept); LockGate no longer has its own
+   keydown — it listens for `trigger-lock-app` dispatched by the registry,
+   which honors `defaultPrevented` and user rebinds.
+6. **Rebinding 8 commands was a silent no-op** — commands missing from
+   `COMMAND_TRIGGER_MAP` fell through to a `tj-command` event with zero
+   listeners (edit.find, format.bold/italic/underline/strikethrough,
+   format.clear, insert.image-url, security.lock). EVERY command now maps to
+   a real trigger event with a live listener (new editor listeners for
+   marks/clear-format, toolbar listener for image-url); the dead fallthrough
+   was deleted and `command-triggers.test.ts` now requires full coverage with
+   NO carve-outs, plus a no-duplicate-defaults guard.
+7. **Duplicate Ctrl+F defaults** — `edit.find` shadowed `view.search`.
+   `edit.find` is now "Find in entry" (maps to the find bar, no default —
+   Ctrl+F stays the global search by documented design).
+8. **Web menu advertised unbound accelerators** — Ctrl+P / Ctrl+Shift+F /
+   Ctrl+Shift+D now have registry commands (`entry.print`,
+   `view.search-all`, `view.toggle-theme`) so the labels are true on web; the
+   genuinely browser-reserved combos (Ctrl+N, Ctrl+Shift+N, Ctrl+T, Ctrl+W,
+   Ctrl+Tab) are hidden from web menu labels (`isAccelShownOnWeb`) instead of
+   lying.
+9. **No keyboard category cycling (J8 Ctrl+Tab)** — new Category ▸
+   Next/Previous Category items (Ctrl+Tab/Ctrl+Shift+Tab native on Electron)
+   plus rebindable `nav.next/prev-category` commands (Ctrl+Alt+PageDown/Up,
+   web-safe) cycling via the pure `categoryCycle.ts` (wrap-around, tested).
+
+### J8 features added (verified against the J8 shortcuts page)
+
+10. **Thesaurus** — Tools ▸ Thesaurus… looks the selected word up
+    (Merriam-Webster web thesaurus; an offline thesaurus would need a new
+    dataset dependency, noted as the trade-off).
+11. **Writing Timer / Insert Timer** — Tools ▸ Writing Timer… opens a floating
+    stopwatch (pause/resume/reset) whose Insert button drops the elapsed time
+    at the caret (`timerFormat.ts`, tested).
+12. **Right-to-Left paragraph** — Format ▸ Right-to-Left Paragraph toggles the
+    standard `dir="rtl"` attribute on the current block (ParagraphStyle
+    extension), surviving save/export.
+13. **Calendar charms** — verified ALREADY PRESENT: calendar day cells render
+    the entry's icon (Sidebar emoji picker = the charm picker). Documented
+    rather than rebuilt.
+
+### Stranded clusters wired (built API/lib, no UI — same class as round 1)
+
+14. **Recent entries** — `touchEntry` was never called, so the list was
+    permanently empty. Now stamped on entry GET (fire-and-forget); new
+    Go ▸ Recent Entries… panel.
+15. **Voice memos** — new Tools ▸ Voice Memos… panel (MediaRecorder record,
+    list, play, delete over the existing /api/audio routes).
+16. **Duplicate entry** — Entry ▸ Duplicate Entry (server-side copy via the
+    existing route, opens the copy).
+17. **Backlinks** — Entry Properties now shows "Linked from" (clickable list
+    via /api/entry/[id]/backlinks).
+18. **Reminder snooze** — hover snooze buttons (10m/1h/1d) on open reminders
+    in the Reminders panel, calling the existing snooze route.
+19. **Daily prompt** — Writing Prompts picker pins the server's deterministic
+    "Prompt of the day" (/api/prompts/today) at the top.
+20. **Tag rename/merge** — right-click a tag chip in the sidebar tag filter to
+    rename it across every entry (merges when the target name exists).
+21. **Bulk operations** — Trash panel gained multi-select with bulk Restore /
+    Delete-forever via /api/entry/bulk.
+22. **Entry references** — the hyperlink dialog now resolves J8-style
+    `entry:Category\Title` references (with * / ? wildcards) through
+    /api/entry/lookup into internal journal:// links (the entryRefs lib was
+    nearly removed as "superseded" — it is a J8 parity feature and is now
+    reachable).
+
+### Removed
+
+- Orphans `src/components/ThemeProvider.tsx` (providers uses next-themes
+  directly) and `src/hooks/useElectronIPC.ts` (+ barrel entry).
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**991/991** (+ category-cycle, timer-format; command-triggers tightened to
+full coverage) · `npm run build` + standalone verify clean.
+
+## Parity + stranded-feature audit round — 2026-06-09
+
+Fresh-eyes audit (two independent passes: a skeptical diff review of the
+2026-06-08 commits, and a feature-parity sweep beyond the menu level).
+Findings and fixes:
+
+### Defects fixed
+
+1. **"Search Across All Categories…" no-op'd when the panel was already open**
+   — `initialScope` only seeded `useState`, so re-firing the menu action on a
+   mounted SearchPanel changed nothing (the exact defect the 2026-06-08 fix #7
+   claimed to close recurred in this path). Fixed with a `scopeRequestSeq`
+   bumped on every open action + a resync effect; works in both directions
+   (all→current too). Guarded by `search-scope-resync.test.tsx`.
+2. **Concurrent `requestPrompt()` stranded the first caller forever** — a
+   second prompt while one was open (reachable via Electron's native menu,
+   which the DOM overlay doesn't block) replaced the host's request without
+   settling it: the awaiting flow (e.g. a template's `{{prompt}}` loop) hung,
+   and the replacement modal inherited the superseded prompt's typed text.
+   PromptHost now cancels (resolves null) any pending request before accepting
+   a new one, and `PromptModal` is keyed per request id so it mounts fresh.
+   Covered in `prompt-and-dialogs.test.tsx`.
+
+### J8 gaps closed (verified against davidrm.com feature pages)
+
+3. **Change Entry Date/Time** (J8: entries can be placed on/moved to any date)
+   — new `Entry ▸ Change Entry Date/Time…` menu item; styled datetime prompt
+   (PromptModal gained `date`/`datetime-local` input types); `PUT
+   /api/entry/[id]` accepts `createdDate` validated by the pure
+   `src/lib/entryDate.ts` (`entry-date.test.ts`: noon convention for bare
+   dates, Feb-30/hour-24 rejection). The editor adopts the bumped Version via
+   an `entry-version-synced` event so its next optimistic-concurrency autosave
+   doesn't 409.
+4. **Spell-check toggle** (J8 ships configurable live spell check) — Settings ▸
+   Editor Preferences ▸ "Check spelling as you type"; pure `spellcheck.ts`
+   (default-on, junk-safe) + live re-apply to both editor panes
+   (`spellcheck.test.ts`). The checker itself is the platform's native one.
+5. **Global hotkey + tray quick entry** (J8: Ctrl+Alt+J summons the app from
+   the tray) — Electron registers `Ctrl+Alt+J` (guarded: a conflict can't
+   break startup, unregistered on quit) and the tray menu gained **New Entry**
+   (routes through the same `view-action → trigger-new-entry` path as the menu).
+
+### Stranded features wired (built API/lib layers that had no UI)
+
+6. **Favorites panel** — `FavoritesPanel.tsx` existed but nothing opened it
+   (and its navigation used a wrong `?entryId=` param — fixed to `?entry=`).
+   Now at **Tools ▸ Favorites…** (with "Surprise me" random-entry jump).
+7. **Habit tracker** — full lib/routes/tests existed with zero UI. New
+   `HabitsPanel.tsx` (14-day click-to-toggle day grid, current/best streaks,
+   color-coded habits) at **Tools ▸ Habit Tracker…**.
+8. **Web scheduled backups** — `BackupSchedule` CRUD existed with no executor
+   and no UI. New `src/lib/backupRunner.ts` (hourly sweep started from the
+   server's db module; WAL-checkpointed snapshot per due schedule, SHA-256
+   verified via the previously-orphaned `backupVerify.ts` — a torn copy is
+   deleted and retried, never silently kept; keeps 5 newest per destination;
+   LastRun only stamped on success) + a Settings ▸ Backup management UI on the
+   web target. The schedule routes are now **admin-gated** (a schedule
+   snapshots the whole DB file — same trust level as `backup/export`).
+   `backup-runner.test.ts` covers copy/verify/prune/failure-retry.
+   Note: the sweep is started from `db.ts` module scope, NOT instrumentation.ts
+   — the instrumentation entry's file trace ignores `outputFileTracingExcludes`
+   and shipped the live `journal.tjdb` into the standalone bundle (caught by
+   `verify-standalone.js`).
+9. **Minimum words per entry** — wired as a real feature: Tools ▸ Word Goals
+   gained the setting (persisted via `/api/settings` with route-side
+   validation), and the editor footer shows an amber "N to go" hint while the
+   open entry is under the minimum. The orphaned `minWordGoal.ts` wrapper was
+   superseded and removed.
+10. **Stats: year activity heatmap** — the built-but-unreachable
+    `/api/stats/heatmap` now renders in Text Statistics as a GitHub-style
+    year grid with year navigation. The locked-category word-count regression
+    test (`wordcount-locked.test.ts`) now exercises `buildHeatmap`.
+
+### Dead code removed (superseded, kept failing fresh audits)
+
+- `src/lib/api.ts` (unused fetch wrapper), `autolink.ts` (TipTap Link's own
+  `autolink` covers it), `outline.ts` (no consumer), `hourActivity.ts` +
+  `/api/stats/hour-activity` (duplicated `time-of-day`'s by-hour chart), each
+  with their orphan tests where applicable.
+
+### Decisions (not gaps)
+
+- **To-do carry-forward**: checked DavidRM's published feature set — NOT a J8
+  feature; not built (building it would diverge, and the goal is parity).
+- Custom spell-check dictionaries: the platform-native checker manages its own
+  dictionary; only the on/off control is app-level.
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**982/982** (was 1001; −19 removed orphan tests, +tests for every item above) ·
+`npm run build` + standalone verify clean · `node --check` on all Electron
+main-process files · menu spec loads with 0 accelerator conflicts and
+`menu-bar.test.tsx` still clicks every leaf.
+
 ## Menu correctness audit — 2026-06-08
 
 Goal: go over **every** menu item and verify it fires the right dialog/action,

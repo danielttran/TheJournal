@@ -84,6 +84,16 @@ export default function RemindersPanel({ onClose }: RemindersPanelProps) {
         refresh();
     };
 
+    // J8 snooze — push the due time forward without completing the reminder.
+    const snooze = async (id: number, minutes: number) => {
+        await fetch(`/api/reminder/${id}/snooze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ minutes }),
+        });
+        refresh();
+    };
+
     const filters: { id: Filter; label: string }[] = [
         { id: 'today', label: 'Today' },
         { id: 'upcoming', label: 'Upcoming' },
@@ -214,6 +224,13 @@ export default function RemindersPanel({ onClose }: RemindersPanelProps) {
                                     </div>
                                     {item.Notes && <div className="text-xs text-text-muted mt-0.5 whitespace-pre-wrap">{item.Notes}</div>}
                                 </div>
+                                {!item.IsComplete && (
+                                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100" title="Snooze">
+                                        <button onClick={() => snooze(item.ReminderID, 10)} className="px-1.5 py-0.5 text-[10px] rounded bg-bg-card text-text-muted hover:text-text-primary">10m</button>
+                                        <button onClick={() => snooze(item.ReminderID, 60)} className="px-1.5 py-0.5 text-[10px] rounded bg-bg-card text-text-muted hover:text-text-primary">1h</button>
+                                        <button onClick={() => snooze(item.ReminderID, 60 * 24)} className="px-1.5 py-0.5 text-[10px] rounded bg-bg-card text-text-muted hover:text-text-primary">1d</button>
+                                    </div>
+                                )}
                                 <button
                                     onClick={() => remove(item.ReminderID)}
                                     className="p-1 rounded hover:bg-bg-card text-red-400 opacity-0 group-hover:opacity-100"

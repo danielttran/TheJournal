@@ -3,6 +3,8 @@
 import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen, Star, Hash, Pin, ArrowUpDown } from 'lucide-react';
 import { sortEntries, type SortMode } from '@/lib/sort';
 import { adjacentEntryId } from '@/lib/navOrder';
+import { normalizeTag } from '@/lib/tags';
+import { computeMissedDays, type EntryFrequency } from '@/lib/entryCadence';
 import { requestPrompt } from '@/lib/promptService';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -623,19 +625,31 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         return (localStorage.getItem(sortKey) as SortMode) ?? 'manual';
     });
     const [showSortMenu, setShowSortMenu] = useState(false);
+    // J8 per-category week start for the calendar (0=Sunday … 6=Saturday).
+    const [weekStartDay, setWeekStartDay] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(0);
+    // Drives the calendar's missed-day highlighting (entryCadence).
+    const [entryFrequency, setEntryFrequency] = useState<EntryFrequency>('daily');
 
     useEffect(() => {
         let cancelled = false;
-        fetch(`/api/category/${categoryId}`)
+        const load = () => fetch(`/api/category/${categoryId}`)
             .then(r => r.ok ? r.json() : null)
             .then(data => {
                 if (cancelled || !data) return;
                 if (data.SortMode) {
                     setSortMode(data.SortMode as SortMode);
                 }
+                const w = Number(data.WeekStartDay);
+                setWeekStartDay(Number.isInteger(w) && w >= 0 && w <= 6 ? w as 0 | 1 | 2 | 3 | 4 | 5 | 6 : 0);
+                const f = data.EntryFrequency;
+                setEntryFrequency(f === 'weekly' || f === 'hourly' ? f : 'daily');
             })
             .catch(() => {});
-        return () => { cancelled = true; };
+        void load();
+        // Category Properties saves dispatch this so the calendar re-reads live.
+        const onChanged = () => { void load(); };
+        window.addEventListener('category-settings-changed', onChanged);
+        return () => { cancelled = true; window.removeEventListener('category-settings-changed', onChanged); };
     }, [categoryId]);
 
     const applySortMode = useCallback((m: SortMode) => {
@@ -662,6 +676,35 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         }, 600);
         return () => { cancelled = true; clearTimeout(t); };
     }, [pages, journalEntries]);
+
+    // Right-click a tag chip → rename it across every entry (merges into an
+    // existing tag if the new name is already in use).
+    const renameTagFlow = async (tag: string) => {
+        const next = await requestPrompt({
+            title: 'Rename Tag',
+            message: `Rename "${tag}" on every entry. Using an existing tag's name merges them.`,
+            initialValue: tag,
+            confirmLabel: 'Rename',
+        });
+        if (next == null) return;
+        const to = next.trim();
+        if (!to || to === tag) return;
+        const r = await fetch('/api/tag/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: tag, to, mode: 'merge' }),
+        });
+        if (!r.ok) { window.alert('Could not rename the tag.'); return; }
+        // The server normalizes tags (lowercase); patch the filter with the
+        // normalized name or the chip toggle would never match it again.
+        const normalized = normalizeTag(to);
+        setActiveTags(prev => prev.map(t => (t === tag ? normalized : t)));
+        fetch('/api/tags')
+            .then(res => res.ok ? res.json() : { tags: [] })
+            .then(d => setAvailableTags(d.tags ?? []))
+            .catch(() => {});
+        if (type === 'Journal') fetchJournalEntries(); else fetchPages();
+    };
 
     const entryHasAllTags = useCallback((entry: Entry, wanted: string[]) => {
         if (!wanted.length) return true;
@@ -784,6 +827,54 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         else { const d = await r.json().catch(() => ({})); window.alert('Move failed: ' + (d.error || r.status)); }
     };
 
+    // J8 "Change Entry Date/Time" — redate an existing entry (the calendar
+    // groups by CreatedDate, so this moves it to another day).
+    const redateEntryFlow = async (entryId: number) => {
+        const existing = journalEntries.find(e => e.EntryID === entryId)?.CreatedDate;
+        const seed = existing ? new Date(existing) : new Date();
+        const initialValue = Number.isNaN(seed.getTime()) ? '' : format(seed, "yyyy-MM-dd'T'HH:mm");
+        const pick = await requestPrompt({
+            title: 'Change Entry Date & Time',
+            message: 'Move this entry to a different date. Calendar categories group entries by this date.',
+            inputType: 'datetime-local',
+            initialValue,
+            confirmLabel: 'Change Date',
+        });
+        if (pick == null) return;
+        const createdDate = pick.replace('T', ' ');
+        const r = await fetch(`/api/entry/${entryId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ createdDate }),
+        });
+        if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            window.alert('Could not change the entry date: ' + (typeof d.error === 'string' ? d.error : r.status));
+            return;
+        }
+        // The PUT bumped the entry's Version; tell an open editor so its next
+        // optimistic-concurrency save doesn't 409 against its stale snapshot.
+        const data = await r.json().catch(() => ({}));
+        if (data.version) {
+            window.dispatchEvent(new CustomEvent('entry-version-synced', { detail: { entryId, version: data.version } }));
+        }
+        if (type === 'Journal') fetchJournalEntries(); else fetchPages();
+    };
+
+    // J8 "Duplicate Entry" — server-side copy (content, topics, metadata),
+    // then open the copy.
+    const duplicateEntryFlow = async (entryId: number) => {
+        const r = await fetch(`/api/entry/${entryId}/duplicate`, { method: 'POST' });
+        if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            window.alert('Could not duplicate the entry: ' + (typeof d.error === 'string' ? d.error : r.status));
+            return;
+        }
+        const { id } = await r.json();
+        if (type === 'Journal') fetchJournalEntries(); else fetchPages();
+        if (id) router.push(`?entry=${id}`);
+    };
+
     const entryActionsRef = useRef<Record<string, () => void>>({});
     useEffect(() => {
         entryActionsRef.current = {
@@ -792,10 +883,12 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
             'trigger-sort-subentries': () => setShowSortMenu(true),
             'trigger-assign-topics': () => { if (urlEntryId) void assignTopicsFlow(urlEntryId); else window.alert('Open an entry first to assign a topic.'); },
             'trigger-move-entry': () => { if (urlEntryId) void moveEntryFlow(urlEntryId); else window.alert('Open an entry first to move it.'); },
+            'trigger-change-entry-date': () => { if (urlEntryId) void redateEntryFlow(urlEntryId); else window.alert('Open an entry first to change its date.'); },
+            'trigger-duplicate-entry': () => { if (urlEntryId) void duplicateEntryFlow(urlEntryId); else window.alert('Open an entry first to duplicate it.'); },
         };
     });
     useEffect(() => {
-        const events = ['trigger-new-entry', 'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry'];
+        const events = ['trigger-new-entry', 'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry', 'trigger-change-entry-date', 'trigger-duplicate-entry'];
         const subs = events.map(e => { const h = () => entryActionsRef.current[e]?.(); window.addEventListener(e, h); return [e, h] as const; });
         return () => subs.forEach(([e, h]) => window.removeEventListener(e, h));
     }, []);
@@ -936,12 +1029,16 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
 
     const dropAnimation: DropAnimation = { sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0.5' } } }) };
 
-    // Calendar
+    // Calendar (week starts on the category's configured day)
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(monthStart);
-    const startDate = startOfWeek(monthStart);
-    const endDate = endOfWeek(monthEnd);
+    const startDate = startOfWeek(monthStart, { weekStartsOn: weekStartDay });
+    const endDate = endOfWeek(monthEnd, { weekStartsOn: weekStartDay });
     const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
+    const dayHeaders = useMemo(() => {
+        const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+        return Array.from({ length: 7 }, (_, i) => labels[(weekStartDay + i) % 7]);
+    }, [weekStartDay]);
     // Bucket entries by day once (memoized) instead of re-filtering all entries
     // per calendar cell on every render (was O(cells × entries)).
     const entriesByDay = useMemo(() => {
@@ -956,6 +1053,19 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         }
         return map;
     }, [journalEntries]);
+
+    // Entry-frequency cadence: which calendar cells get the "missed" marker.
+    const missedDays = useMemo(() => {
+        const todayYmd = format(new Date(), 'yyyy-MM-dd');
+        return computeMissedDays({
+            days: calendarDays.map(d => format(d, 'yyyy-MM-dd')),
+            inCurrentMonth: calendarDays.map(d => isSameMonth(d, currentMonth)),
+            hasEntry: calendarDays.map(d => (entriesByDay.get(format(d, 'yyyy-MM-dd'))?.length ?? 0) > 0),
+            todayYmd,
+            frequency: entryFrequency,
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- calendarDays derives from currentMonth + weekStartDay
+    }, [currentMonth, weekStartDay, entriesByDay, entryFrequency]);
 
     return (
         <div
@@ -992,20 +1102,23 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
                                 <button onClick={nextYear} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><ChevronsRight className="w-4 h-4" /></button>
                             </div>
                         </div>
-                        <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+                        <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2">{dayHeaders.map((l, i) => <span key={i}>{l}</span>)}</div>
                         <div className="grid grid-cols-7 gap-1 text-sm">
-                            {calendarDays.map((day) => {
+                            {calendarDays.map((day, dayIdx) => {
                                 const isSelected = isSameDay(day, selectedDate);
                                 const isCurrentMonth = isSameMonth(day, currentMonth);
                                 const entriesForDay = entriesByDay.get(format(day, 'yyyy-MM-dd')) ?? [];
                                 const entryForDay = entriesForDay[0];
                                 const dayCount = entriesForDay.length;
+                                const isMissed = missedDays[dayIdx] && !isSelected;
                                 return (
                                     <div
                                         key={format(day, 'yyyy-MM-dd')}
                                         onClick={() => onDateClick(day)}
-                                        className={`relative p-1 rounded cursor-pointer flex items-center justify-center h-8 w-8 mx-auto ${!isCurrentMonth ? 'text-text-muted opacity-50' : ''} ${isSelected ? 'bg-accent-primary text-white font-bold' : 'hover:bg-bg-hover text-text-secondary'}`}
-                                        title={dayCount > 1 ? `${dayCount} entries on ${format(day, 'PP')}` : (entryForDay?.Title || "")}
+                                        className={`relative p-1 rounded cursor-pointer flex items-center justify-center h-8 w-8 mx-auto ${!isCurrentMonth ? 'text-text-muted opacity-50' : ''} ${isSelected ? 'bg-accent-primary text-white font-bold' : 'hover:bg-bg-hover text-text-secondary'} ${isMissed ? 'ring-1 ring-amber-500/50' : ''}`}
+                                        title={isMissed
+                                            ? `No entry ${entryFrequency === 'weekly' ? 'this week' : 'this day'} — ${format(day, 'PP')}`
+                                            : dayCount > 1 ? `${dayCount} entries on ${format(day, 'PP')}` : (entryForDay?.Title || "")}
                                     >
                                         {entryForDay?.Icon ? <span className="text-base leading-none">{entryForDay.Icon}</span> : format(day, 'd')}
                                         {dayCount > 0 && !entryForDay?.Icon && (
@@ -1059,6 +1172,8 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
                                                 <button
                                                     key={tag}
                                                     onClick={() => setActiveTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
+                                                    onContextMenu={(e) => { e.preventDefault(); void renameTagFlow(tag); }}
+                                                    title="Click to filter · right-click to rename"
                                                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${isActive ? 'bg-accent-primary text-white' : 'bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25'}`}
                                                 >
                                                     {tag}
@@ -1191,6 +1306,8 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
                                                 <button
                                                     key={tag}
                                                     onClick={() => setActiveTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
+                                                    onContextMenu={(e) => { e.preventDefault(); void renameTagFlow(tag); }}
+                                                    title="Click to filter · right-click to rename"
                                                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${isActive ? 'bg-accent-primary text-white' : 'bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25'}`}
                                                 >
                                                     {tag}

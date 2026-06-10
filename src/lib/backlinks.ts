@@ -8,9 +8,20 @@ export interface Backlink {
     CategoryName: string;
 }
 
+/** True when `html` contains an anchor to journal://entry/<entryId>. */
+export function hasJournalAnchor(html: string, entryId: number): boolean {
+    const re = /href\s*=\s*["']journal:\/\/entry\/(\d+)["']/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) {
+        if (parseInt(m[1], 10) === entryId) return true;
+    }
+    return false;
+}
+
 /**
  * Find all entries (owned by `userId`) whose HtmlContent references `entryId`
- * via `[[Title]]` or `[[#id]]`.
+ * via `[[Title]]` / `[[#id]]` wiki tokens OR a journal://entry/<id> anchor
+ * (the hyperlink dialog's internal links, incl. resolved entry: references).
  *
  * Implementation: pull all candidate entries, parse their HTML for link targets,
  * resolve each target against the title of `entryId` and against `[[#entryId]]`.
@@ -39,13 +50,14 @@ export async function findBacklinks(
         WHERE c.UserID = ?
           AND e.IsDeleted = 0
           AND e.EntryID <> ?
-          AND ec.HtmlContent LIKE '%[[%'
+          AND (ec.HtmlContent LIKE '%[[%' OR ec.HtmlContent LIKE '%journal://entry/%')
     `).all(userId, entryId) as { EntryID: number; Title: string; CategoryID: number; CategoryName: string; HtmlContent: string | null }[];
 
     const out: Backlink[] = [];
     for (const row of candidates) {
-        const targets = extractLinkTargets(row.HtmlContent ?? '');
-        const hit = targets.some(t => {
+        const html = row.HtmlContent ?? '';
+        const targets = extractLinkTargets(html);
+        const hit = hasJournalAnchor(html, entryId) || targets.some(t => {
             const trimmed = t.trim();
             if (trimmed === idMarker) return true;
             return trimmed.toLowerCase() === titleLower;
