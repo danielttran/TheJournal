@@ -266,6 +266,17 @@ shipping to production.
   ThemeProvider + useElectronIPC. Calendar charms verified already present
   (entry icons on calendar days).
 
+- **Audit round 4 (2026-06-10c)**: fixed five round-3 defects (doodle export
+  now composites strokes onto the photo at natural resolution via
+  `compositeAnnotation` — the library's own export drew the photo unscaled at
+  (0,0); VoiceMemos unmountedRef resets on mount for StrictMode; stale
+  Ctrl+Shift+B kbd label in TabBar; rotation-only save reachable by skipping
+  the auto-seeded 80% crop after rotate; removed autocorrect rules that
+  rewrote real words alright/wont/hight). Closed the last two feature-page
+  gaps: per-category WeekStartDay (column + PUT + Category Properties
+  dropdown + calendar grid/headers honoring it) and a portable Windows build
+  target.
+
 - **Audit round 3 (2026-06-10b)**: fixed five round-2 defects (Ctrl+Shift+B vs
   StarterKit Blockquote -> view.toggle-sidebar now Ctrl+Alt+B; VoiceMemos mic
   leak on unmount race; Ctrl+Shift+T added to WEB_RESERVED_ACCELS; tag-rename
@@ -312,7 +323,7 @@ shipping to production.
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 998 tests as of the last commit.
+# Baseline: 1000 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

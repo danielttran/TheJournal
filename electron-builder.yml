@@ -27,7 +27,11 @@ files:
 asar: true
 
 win:
-  target: nsis
+  # nsis = the normal installer; portable = J8-style run-from-USB single exe
+  # (no install; settings/data live under the user profile as usual).
+  target:
+    - nsis
+    - portable
   icon: public/favicon.ico
 
 nsis:

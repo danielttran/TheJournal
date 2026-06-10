@@ -40,6 +40,10 @@ export default function VoiceMemosPanel({ onClose }: Props) {
     };
 
     useEffect(() => {
+        // Reset on every (re)mount — StrictMode's dev mount→cleanup→remount
+        // preserves refs, so without this the guard would stay permanently
+        // true and Record would silently no-op.
+        unmountedRef.current = false;
         const ctl = new AbortController();
         void reload(ctl.signal);
         return () => {

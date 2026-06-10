@@ -13,7 +13,7 @@ export const AUTOCORRECT_RULES: Record<string, string> = {
     'abbout': 'about', 'abscence': 'absence', 'accidentaly': 'accidentally',
     'accomodate': 'accommodate', 'acheive': 'achieve', 'acommodate': 'accommodate',
     'acording': 'according', 'agian': 'again', 'agressive': 'aggressive',
-    'alot': 'a lot', 'alright': 'all right', 'amung': 'among',
+    'alot': 'a lot', 'amung': 'among',
     'anual': 'annual', 'apparant': 'apparent', 'appearence': 'appearance',
     'arguement': 'argument', 'assesment': 'assessment', 'aswell': 'as well',
     'basicly': 'basically', 'becuase': 'because', 'begining': 'beginning',
@@ -28,7 +28,7 @@ export const AUTOCORRECT_RULES: Record<string, string> = {
     'experiance': 'experience', 'familar': 'familiar', 'finaly': 'finally',
     'foriegn': 'foreign', 'freind': 'friend', 'futher': 'further',
     'goverment': 'government', 'gaurd': 'guard', 'happend': 'happened',
-    'harrass': 'harass', 'hight': 'height', 'humourous': 'humorous',
+    'harrass': 'harass', 'humourous': 'humorous',
     'immediatly': 'immediately', 'independant': 'independent', 'isnt': "isn't",
     'knowlege': 'knowledge', 'liason': 'liaison', 'libary': 'library',
     'lisence': 'license', 'maintainance': 'maintenance', 'maintenence': 'maintenance',
@@ -45,7 +45,7 @@ export const AUTOCORRECT_RULES: Record<string, string> = {
     'successfull': 'successful', 'sucess': 'success', 'suprise': 'surprise',
     'teh': 'the', 'tommorow': 'tomorrow', 'tommorrow': 'tomorrow',
     'tounge': 'tongue', 'truely': 'truly', 'unfortunatly': 'unfortunately',
-    'untill': 'until', 'wierd': 'weird', 'wont': "won't",
+    'untill': 'until', 'wierd': 'weird',
     'wich': 'which', 'whith': 'with', 'youre': "you're",
 };
 

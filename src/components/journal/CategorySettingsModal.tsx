@@ -52,6 +52,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
     const [viewType, setViewType] = useState<'Journal' | 'Notebook'>('Notebook');
     const [autoTemplateId, setAutoTemplateId] = useState<number>(0);
     const [entryFrequency, setEntryFrequency] = useState<'daily' | 'weekly' | 'hourly'>('daily');
+    const [weekStartDay, setWeekStartDay] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(0);
     const [sortMode, setSortMode] = useState<SortMode>('manual');
     const [parentId, setParentId] = useState<number | null>(null);
     const [isSmartbook, setIsSmartbook] = useState(false);
@@ -89,6 +90,10 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
                 setViewType((cat.Type ?? 'Notebook') as 'Journal' | 'Notebook');
                 setAutoTemplateId(Number(cat.AutoTemplateID ?? 0));
                 setEntryFrequency((cat.EntryFrequency ?? 'daily') as 'daily' | 'weekly' | 'hourly');
+                {
+                    const w = Number((cat as unknown as { WeekStartDay?: number }).WeekStartDay);
+                    setWeekStartDay(Number.isInteger(w) && w >= 0 && w <= 6 ? w as 0 | 1 | 2 | 3 | 4 | 5 | 6 : 0);
+                }
                 setSortMode((cat.SortMode ?? 'manual') as SortMode);
                 setParentId(cat.ParentCategoryID ?? null);
                 setIsSmartbook(!!cat.IsSmartbook);
@@ -120,6 +125,7 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
             sortMode,
             autoTemplateId: autoTemplateId || 0,
             entryFrequency,
+            weekStartDay,
             isSmartbook,
             parentCategoryId: parentId,
         };
@@ -145,6 +151,9 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
                 SmartbookQuery: isSmartbook ? JSON.stringify(smartbookQuery) : null,
             };
             onSaved?.(next);
+            // The sidebar calendar reads WeekStartDay (and other category
+            // settings) independently — tell it to re-read.
+            window.dispatchEvent(new Event('category-settings-changed'));
             onClose();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -308,6 +317,24 @@ export default function CategorySettingsModal({ categoryId, onClose, onSaved }: 
                                 </select>
                                 <p className="text-text-muted text-xs mt-1">
                                     How often a fresh entry is expected. Used by the calendar to highlight missed days.
+                                </p>
+                            </section>
+                        )}
+
+                        {category.Type === 'Journal' && (
+                            <section>
+                                <label className="block text-text-muted text-xs uppercase tracking-wider mb-1">Week starts on</label>
+                                <select
+                                    value={weekStartDay}
+                                    onChange={e => setWeekStartDay(Number(e.target.value) as 0 | 1 | 2 | 3 | 4 | 5 | 6)}
+                                    className="w-full bg-bg-sidebar border border-border-primary rounded p-2 text-text-primary"
+                                >
+                                    {['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((d, i) => (
+                                        <option key={d} value={i}>{d}</option>
+                                    ))}
+                                </select>
+                                <p className="text-text-muted text-xs mt-1">
+                                    First day of the week in this category&apos;s calendar.
                                 </p>
                             </section>
                         )}

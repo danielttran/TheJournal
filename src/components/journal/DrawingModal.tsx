@@ -23,14 +23,41 @@ interface DrawingModalProps {
     onClose: () => void;
 }
 
-/** data:image/png;base64,... → Blob (exportImage returns a data URL). */
-function dataUrlToBlob(dataUrl: string): Blob {
-    const [head, body] = dataUrl.split(',');
-    const mime = /data:([^;]+)/.exec(head)?.[1] ?? 'image/png';
-    const bin = atob(body);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return new Blob([bytes], { type: mime });
+function loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`could not load ${src}`));
+        img.src = src;
+    });
+}
+
+/**
+ * Composite the strokes layer onto the photo at the photo's NATURAL size.
+ * react-sketch-canvas's own exportWithBackgroundImage draws the photo
+ * unscaled at (0,0) while displaying it scaled/centered ("xMidYMid meet"),
+ * so its output never matches what the user drew. Instead we export the
+ * strokes alone (transparent canvas at display size), reproduce the meet
+ * math, and map the photo's on-screen rect back onto full resolution.
+ */
+async function compositeAnnotation(strokesDataUrl: string, photoSrc: string): Promise<Blob> {
+    const [strokes, photo] = await Promise.all([loadImage(strokesDataUrl), loadImage(photoSrc)]);
+    const cw = strokes.width, ch = strokes.height;
+    const iw = photo.naturalWidth, ih = photo.naturalHeight;
+    const scale = Math.min(cw / iw, ch / ih);
+    const ox = (cw - iw * scale) / 2;
+    const oy = (ch - ih * scale) / 2;
+    const out = document.createElement('canvas');
+    out.width = iw;
+    out.height = ih;
+    const ctx = out.getContext('2d');
+    if (!ctx) throw new Error('Could not get canvas context');
+    ctx.drawImage(photo, 0, 0);
+    // Strokes outside the photo's displayed rect fall off the edges, exactly
+    // as they appeared to fall off the photo on screen.
+    ctx.drawImage(strokes, ox, oy, iw * scale, ih * scale, 0, 0, iw, ih);
+    return new Promise((resolve, reject) =>
+        out.toBlob(b => b ? resolve(b) : reject(new Error('Canvas toBlob returned null')), 'image/png'));
 }
 
 const PALETTE = ['#111827', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff'];
@@ -70,9 +97,11 @@ export default function DrawingModal({ initialPaths, backgroundImage, onConfirm,
             }
             let file: File;
             if (backgroundImage) {
-                // Annotation mode: composite strokes onto the photo as a PNG.
-                const dataUrl = await canvasRef.current.exportImage('png');
-                file = new File([dataUrlToBlob(dataUrl)], 'annotated.png', { type: 'image/png' });
+                // Annotation mode: strokes-only export, then composite onto the
+                // photo at its natural resolution (see compositeAnnotation).
+                const strokesDataUrl = await canvasRef.current.exportImage('png');
+                const blob = await compositeAnnotation(strokesDataUrl, backgroundImage);
+                file = new File([blob], 'annotated.png', { type: 'image/png' });
             } else {
                 const rawSvg = await canvasRef.current.exportSvg();
                 const svg = buildDrawingSvg(rawSvg, paths);
@@ -175,7 +204,9 @@ export default function DrawingModal({ initialPaths, backgroundImage, onConfirm,
                         canvasColor={backgroundImage ? 'transparent' : '#ffffff'}
                         backgroundImage={backgroundImage ?? undefined}
                         preserveBackgroundImageAspectRatio="xMidYMid meet"
-                        exportWithBackgroundImage={!!backgroundImage}
+                        // Export strokes only; compositeAnnotation does the photo
+                        // merge itself (the library's export misplaces the photo).
+                        exportWithBackgroundImage={false}
                         style={{ borderRadius: 8, border: '1px solid var(--border-primary)' }}
                     />
                 </div>

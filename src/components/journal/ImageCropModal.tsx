@@ -57,6 +57,10 @@ export default function ImageCropModal({ imageSrc, onConfirm, onClose }: ImageCr
     // J8 image rotation: true once the loaded image has been rotated, so
     // Apply can save a rotation even without a crop selection.
     const [rotated, setRotated] = useState(false);
+    // After a rotate, skip re-seeding the default 80% selection: react-image-crop
+    // auto-fires onComplete for it, which would make Apply silently crop a
+    // rotation-only save to 80%.
+    const skipDefaultCropRef = useRef(false);
     const imgRef = useRef<HTMLImageElement>(null);
     const objectUrlRef = useRef<string | null>(null);
 
@@ -106,6 +110,10 @@ export default function ImageCropModal({ imageSrc, onConfirm, onClose }: ImageCr
 
     const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
         setIsImageLoading(false);
+        if (skipDefaultCropRef.current) {
+            skipDefaultCropRef.current = false;
+            return; // rotated image: no selection until the user drags one
+        }
         const { naturalWidth, naturalHeight } = e.currentTarget;
         // Start with a centered 80% width selection keeping the image's aspect ratio
         const initial = centerCrop(
@@ -143,6 +151,7 @@ export default function ImageCropModal({ imageSrc, onConfirm, onClose }: ImageCr
             setIsImageLoading(true);
             setCrop(undefined);
             setCompletedCrop(undefined);
+            skipDefaultCropRef.current = true;
             setRotated(true);
             setObjectUrl(url);
         } catch (err) {

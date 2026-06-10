@@ -792,7 +792,7 @@ export default function TabBar({ userId }: { userId: string }) {
                                     className="w-full text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors flex items-center justify-between group"
                                 >
                                     <span>Show / Hide Sidebar</span>
-                                    <kbd className="text-[10px] opacity-70 font-sans">Ctrl+Shift+B</kbd>
+                                    <kbd className="text-[10px] opacity-70 font-sans">Ctrl+Alt+B</kbd>
                                 </button>
                                 <button onClick={() => { dispatchViewAction('sidebar-side'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Move Sidebar Left / Right</button>
                                 <button onClick={() => { dispatchViewAction('toggle-toolbar'); setIsViewMenuOpen(false); }} className="text-left px-4 py-2 hover:bg-accent-primary hover:text-white transition-colors">Show / Hide Formatting Toolbar</button>

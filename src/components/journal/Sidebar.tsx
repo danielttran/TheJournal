@@ -624,19 +624,27 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         return (localStorage.getItem(sortKey) as SortMode) ?? 'manual';
     });
     const [showSortMenu, setShowSortMenu] = useState(false);
+    // J8 per-category week start for the calendar (0=Sunday … 6=Saturday).
+    const [weekStartDay, setWeekStartDay] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(0);
 
     useEffect(() => {
         let cancelled = false;
-        fetch(`/api/category/${categoryId}`)
+        const load = () => fetch(`/api/category/${categoryId}`)
             .then(r => r.ok ? r.json() : null)
             .then(data => {
                 if (cancelled || !data) return;
                 if (data.SortMode) {
                     setSortMode(data.SortMode as SortMode);
                 }
+                const w = Number(data.WeekStartDay);
+                setWeekStartDay(Number.isInteger(w) && w >= 0 && w <= 6 ? w as 0 | 1 | 2 | 3 | 4 | 5 | 6 : 0);
             })
             .catch(() => {});
-        return () => { cancelled = true; };
+        void load();
+        // Category Properties saves dispatch this so the calendar re-reads live.
+        const onChanged = () => { void load(); };
+        window.addEventListener('category-settings-changed', onChanged);
+        return () => { cancelled = true; window.removeEventListener('category-settings-changed', onChanged); };
     }, [categoryId]);
 
     const applySortMode = useCallback((m: SortMode) => {
@@ -1016,12 +1024,16 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
 
     const dropAnimation: DropAnimation = { sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0.5' } } }) };
 
-    // Calendar
+    // Calendar (week starts on the category's configured day)
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(monthStart);
-    const startDate = startOfWeek(monthStart);
-    const endDate = endOfWeek(monthEnd);
+    const startDate = startOfWeek(monthStart, { weekStartsOn: weekStartDay });
+    const endDate = endOfWeek(monthEnd, { weekStartsOn: weekStartDay });
     const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
+    const dayHeaders = useMemo(() => {
+        const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+        return Array.from({ length: 7 }, (_, i) => labels[(weekStartDay + i) % 7]);
+    }, [weekStartDay]);
     // Bucket entries by day once (memoized) instead of re-filtering all entries
     // per calendar cell on every render (was O(cells × entries)).
     const entriesByDay = useMemo(() => {
@@ -1072,7 +1084,7 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
                                 <button onClick={nextYear} className="p-1 hover:bg-bg-hover rounded text-accent-primary hover:text-accent-primary/80"><ChevronsRight className="w-4 h-4" /></button>
                             </div>
                         </div>
-                        <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+                        <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2">{dayHeaders.map((l, i) => <span key={i}>{l}</span>)}</div>
                         <div className="grid grid-cols-7 gap-1 text-sm">
                             {calendarDays.map((day) => {
                                 const isSelected = isSameDay(day, selectedDate);

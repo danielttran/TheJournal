@@ -1,5 +1,49 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Audit round 4 — round-3 diff review + exhaustive feature-page pull (2026-06-10c)
+
+Round 4 ran two fresh passes: a skeptical review of the round-3 commit
+(including reading the react-sketch-canvas / react-image-crop library sources)
+and a full pull of every davidrm.com feature subpage. The wiring/orphan/test
+sweep verified clean end-to-end; the other angles found issues, all fixed:
+
+### Round-3 code defects (all fixed)
+
+1. **Doodle-on-photo export was misaligned/cropped (major)** —
+   react-sketch-canvas's `exportWithBackgroundImage` draws the photo unscaled
+   at (0,0) while displaying it scaled/centered, so the saved PNG essentially
+   never matched what the user drew (and downgraded the photo to canvas size).
+   The annotate save now exports the strokes alone and composites them onto
+   the photo at its NATURAL resolution (`compositeAnnotation` reproduces the
+   "xMidYMid meet" math and maps the on-screen rect back to full size).
+2. **VoiceMemos Record silently no-op'd in dev** — the round-3 `unmountedRef`
+   was never reset, and StrictMode's mount→cleanup→remount preserves refs, so
+   the guard stayed permanently true. The ref now resets at effect start.
+3. **The web View menu still advertised Ctrl+Shift+B** for the sidebar after
+   the rebind — pressing it created a blockquote. Label updated to Ctrl+Alt+B.
+4. **Rotation-only save was unreachable** — react-image-crop auto-fires
+   `onComplete` for the default 80% selection seeded after every image load,
+   so rotate→Apply silently cropped to 80%. After a rotate the default
+   selection is no longer seeded (`skipDefaultCropRef`), making the
+   full-image fallback actually reachable.
+5. **Autocorrect rules rewrote legitimate words** — removed
+   'alright'→'all right' (real word; style choice), 'wont'→"won't" ("as is
+   her wont"), and archaic-valid 'hight'.
+
+### J8 gaps closed (exhaustive davidrm.com subpage pull)
+
+6. **Per-category week-start day** ("customizable category settings including
+   week-start day") — additive `Category.WeekStartDay` column (0=Sunday…6,
+   idempotent migration, `week-start-day.test.ts`), accepted by the category
+   PUT, a "Week starts on" dropdown in Category Properties (Journal type),
+   and the sidebar calendar derives its grid + rotated day headers from it
+   (re-reads live via `category-settings-changed`).
+7. **Portable USB build** — `electron-builder.yml` win targets now include
+   `portable` alongside NSIS (J8 installs to a thumb drive).
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**1000/1000** · `npm run build` + standalone verify clean · yml validates.
+
 ## Audit round 3 — round-2 diff review + davidrm.com feature-page cross-check (2026-06-10b)
 
 Round 3 (skeptical diff review of round 2 + a fresh J8 feature-list pull from

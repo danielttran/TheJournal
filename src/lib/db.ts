@@ -397,6 +397,8 @@ export class DBManager {
             // roots rather than cascading (no surprise data loss).
             `ALTER TABLE Category ADD COLUMN ParentCategoryID INTEGER REFERENCES Category(CategoryID) ON DELETE SET NULL`,
             `CREATE INDEX IF NOT EXISTS "Idx_Category_Parent" ON "Category" ("UserID", "ParentCategoryID")`,
+            // J8 per-category week-start day for the calendar (0=Sunday..6=Saturday).
+            `ALTER TABLE Category ADD COLUMN WeekStartDay INTEGER NOT NULL DEFAULT 0`,
             // Data migration: scrub any plaintext PreviewText left in a password-
             // locked category by a build that predates preview-scrubbing. Entry
             // content is encrypted, but PreviewText (a ~200-char body excerpt) is
