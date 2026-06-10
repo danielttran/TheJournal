@@ -18,6 +18,7 @@ import TimerWidget from './TimerWidget';
 import PromptModal, { type PromptConfig } from './PromptModal';
 import { requestPrompt } from '@/lib/promptService';
 import { isSpellcheckEnabled, SPELLCHECK_EVENT } from '@/lib/spellcheck';
+import { correctWord, wordBehindCaret, isAutocorrectEnabled } from '@/lib/autocorrect';
 import { useToast } from '@/components/Toast';
 
 import { useEditor, EditorContent, type Editor as TipTapEditor, type JSONContent } from '@tiptap/react';
@@ -262,9 +263,10 @@ function PluginLoadedEditor({
     const [tagSuggestIndex, setTagSuggestIndex] = useState(0);
     const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
     // Drawing modal: null = closed; mode 'create' inserts a new drawing,
-    // mode 'edit' replaces the currently-selected drawing image.
+    // mode 'edit' replaces the currently-selected drawing image, mode
+    // 'annotate' doodles over the selected photo (J8) and replaces it.
     const [drawingState, setDrawingState] = useState<
-        { mode: 'create' | 'edit'; initialPaths: CanvasPath[] | null } | null
+        { mode: 'create' | 'edit' | 'annotate'; initialPaths: CanvasPath[] | null; backgroundImage?: string } | null
     >(null);
     const moodRef = useRef<string | null>(null);
     const isFavoritedRef = useRef(false);
@@ -550,12 +552,28 @@ function PluginLoadedEditor({
         return true;
     }, [editor]);
 
+    // J8 auto-correction: fix a common misspelling when a word boundary key
+    // lands. Replaces only the word; the boundary key itself still inserts.
+    const tryAutocorrect = useCallback((): void => {
+        if (!editor || !editor.isFocused || !isAutocorrectEnabled()) return;
+        const sel = editor.state.selection;
+        if (!sel.empty) return;
+        const $from = sel.$from;
+        const textBefore = $from.parent.textBetween(0, $from.parentOffset, '\n', '￼');
+        const word = wordBehindCaret(textBefore);
+        const fix = correctWord(word);
+        if (!fix) return;
+        const from = sel.from;
+        editor.chain().insertContentAt({ from: from - word.length, to: from }, fix).run();
+    }, [editor]);
+
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
             // Snippet auto-expansion: typing a shortcut then a boundary key
             // (space / Enter) swaps it for the snippet content. Consume the key.
             if ((e.key === ' ' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 if (tryExpandSnippet()) { e.preventDefault(); return; }
+                tryAutocorrect();
             }
             if (e.key === 'Escape') {
                 if (isDistractionFree) { setIsDistractionFree(false); setShowDfToolbar(false); }
@@ -1475,6 +1493,17 @@ function PluginLoadedEditor({
         return () => window.removeEventListener('trigger-crop-image', handler);
     }, [editor]);
 
+    // Doodle-on-photo trigger (J8) — open the drawing canvas over the image.
+    useEffect(() => {
+        const handler = () => {
+            if (!editor?.isActive('image')) return;
+            const src = editor.getAttributes('image').src as string | undefined;
+            if (src) setDrawingState({ mode: 'annotate', initialPaths: null, backgroundImage: src });
+        };
+        window.addEventListener('trigger-annotate-image', handler);
+        return () => window.removeEventListener('trigger-annotate-image', handler);
+    }, [editor]);
+
     // Insert-drawing trigger from toolbar → open a blank canvas.
     useEffect(() => {
         const handler = () => setDrawingState({ mode: 'create', initialPaths: null });
@@ -2110,12 +2139,17 @@ function PluginLoadedEditor({
                 />
             )}
 
-            {/* Drawing Modal — freehand sketch, create or edit existing */}
+            {/* Drawing Modal — freehand sketch: create, edit, or doodle on a photo */}
             {drawingState && (
                 <DrawingModal
                     initialPaths={drawingState.initialPaths}
+                    backgroundImage={drawingState.backgroundImage ?? null}
                     onConfirm={(url) => {
-                        if (drawingState.mode === 'edit') {
+                        if (drawingState.mode === 'annotate') {
+                            // Replace the selected photo with the annotated copy,
+                            // keeping its size/alt attributes.
+                            editor?.chain().focus().updateAttributes('image', { src: url }).run();
+                        } else if (drawingState.mode === 'edit') {
                             // Cache-bust so the <img> reloads the updated SVG.
                             const bust = `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}`;
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ResizableImage width attr isn't in TipTap's command map

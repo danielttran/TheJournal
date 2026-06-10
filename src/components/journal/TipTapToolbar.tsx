@@ -862,13 +862,22 @@ export default function TipTapToolbar({ editor }: { editor: Editor | null }) {
                         </button>
                     )}
                     {isAttachedImage && !isDrawing && (
-                        <button
-                            onClick={() => window.dispatchEvent(new Event('trigger-crop-image'))}
-                            className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
-                            title="Crop image"
-                        >
-                            Crop
-                        </button>
+                        <>
+                            <button
+                                onClick={() => window.dispatchEvent(new Event('trigger-crop-image'))}
+                                className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
+                                title="Crop or rotate image"
+                            >
+                                Crop / Rotate
+                            </button>
+                            <button
+                                onClick={() => window.dispatchEvent(new Event('trigger-annotate-image'))}
+                                className="text-xs px-2 py-1 rounded text-text-muted hover:bg-bg-hover"
+                                title="Draw on this image"
+                            >
+                                Doodle
+                            </button>
+                        </>
                     )}
                     <button
                         onClick={async () => {

@@ -12,14 +12,30 @@ import { buildDrawingSvg } from '@/lib/drawing';
 interface DrawingModalProps {
     /** Existing drawing's editable paths, when editing an inserted drawing. */
     initialPaths?: CanvasPath[] | null;
-    /** Receives the uploaded attachment URL of the saved SVG. */
+    /**
+     * J8 "doodle on a photograph": draw over this image instead of a blank
+     * canvas. The save composites strokes onto the photo (PNG), so the result
+     * replaces the original image node.
+     */
+    backgroundImage?: string | null;
+    /** Receives the uploaded attachment URL of the saved SVG / annotated PNG. */
     onConfirm: (url: string) => void;
     onClose: () => void;
 }
 
+/** data:image/png;base64,... → Blob (exportImage returns a data URL). */
+function dataUrlToBlob(dataUrl: string): Blob {
+    const [head, body] = dataUrl.split(',');
+    const mime = /data:([^;]+)/.exec(head)?.[1] ?? 'image/png';
+    const bin = atob(body);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+}
+
 const PALETTE = ['#111827', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff'];
 
-export default function DrawingModal({ initialPaths, onConfirm, onClose }: DrawingModalProps) {
+export default function DrawingModal({ initialPaths, backgroundImage, onConfirm, onClose }: DrawingModalProps) {
     const canvasRef = useRef<ReactSketchCanvasRef>(null);
     const [strokeColor, setStrokeColor] = useState('#111827');
     const [strokeWidth, setStrokeWidth] = useState(4);
@@ -52,9 +68,16 @@ export default function DrawingModal({ initialPaths, onConfirm, onClose }: Drawi
                 setIsSaving(false);
                 return;
             }
-            const rawSvg = await canvasRef.current.exportSvg();
-            const svg = buildDrawingSvg(rawSvg, paths);
-            const file = new File([svg], 'drawing.svg', { type: 'image/svg+xml' });
+            let file: File;
+            if (backgroundImage) {
+                // Annotation mode: composite strokes onto the photo as a PNG.
+                const dataUrl = await canvasRef.current.exportImage('png');
+                file = new File([dataUrlToBlob(dataUrl)], 'annotated.png', { type: 'image/png' });
+            } else {
+                const rawSvg = await canvasRef.current.exportSvg();
+                const svg = buildDrawingSvg(rawSvg, paths);
+                file = new File([svg], 'drawing.svg', { type: 'image/svg+xml' });
+            }
             const formData = new FormData();
             formData.append('file', file);
             const res = await fetch('/api/upload', { method: 'POST', body: formData });
@@ -63,17 +86,19 @@ export default function DrawingModal({ initialPaths, onConfirm, onClose }: Drawi
             onConfirm(data.url as string);
         } catch (e) {
             console.error('[DrawingModal] save failed:', e);
-            setError('Could not save the drawing. Please try again.');
+            setError(backgroundImage
+                ? 'Could not save the annotation (cross-origin images are read-only).'
+                : 'Could not save the drawing. Please try again.');
             setIsSaving(false);
         }
-    }, [onConfirm]);
+    }, [onConfirm, backgroundImage]);
 
     return (
         <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4">
             <div className="bg-bg-card border border-border-primary rounded-lg shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh]">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border-primary">
                     <h2 className="text-text-primary font-semibold">
-                        {initialPaths && initialPaths.length > 0 ? 'Edit drawing' : 'New drawing'}
+                        {backgroundImage ? 'Doodle on image' : initialPaths && initialPaths.length > 0 ? 'Edit drawing' : 'New drawing'}
                     </h2>
                     <button onClick={onClose} className="p-1 rounded hover:bg-bg-hover text-text-muted" title="Close">
                         <X className="w-4 h-4" />
@@ -147,7 +172,10 @@ export default function DrawingModal({ initialPaths, onConfirm, onClose }: Drawi
                         strokeColor={strokeColor}
                         strokeWidth={strokeWidth}
                         eraserWidth={strokeWidth * 3}
-                        canvasColor="#ffffff"
+                        canvasColor={backgroundImage ? 'transparent' : '#ffffff'}
+                        backgroundImage={backgroundImage ?? undefined}
+                        preserveBackgroundImageAspectRatio="xMidYMid meet"
+                        exportWithBackgroundImage={!!backgroundImage}
                         style={{ borderRadius: 8, border: '1px solid var(--border-primary)' }}
                     />
                 </div>

@@ -24,6 +24,9 @@ export default function VoiceMemosPanel({ onClose }: Props) {
     const [error, setError] = useState<string | null>(null);
     const recorderRef = useRef<MediaRecorder | null>(null);
     const chunksRef = useRef<Blob[]>([]);
+    // Guards the getUserMedia await: if the panel closes while the permission
+    // prompt is up, the resolved stream must be stopped, not left recording.
+    const unmountedRef = useRef(false);
 
     const reload = async (signal?: AbortSignal) => {
         try {
@@ -41,6 +44,7 @@ export default function VoiceMemosPanel({ onClose }: Props) {
         void reload(ctl.signal);
         return () => {
             ctl.abort();
+            unmountedRef.current = true;
             // Stop a recording left running when the panel closes.
             if (recorderRef.current?.state === 'recording') {
                 recorderRef.current.stream.getTracks().forEach(t => t.stop());
@@ -57,6 +61,10 @@ export default function VoiceMemosPanel({ onClose }: Props) {
         }
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (unmountedRef.current) {
+                stream.getTracks().forEach(t => t.stop());
+                return;
+            }
             const recorder = new MediaRecorder(stream);
             chunksRef.current = [];
             recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };

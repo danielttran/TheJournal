@@ -46,6 +46,15 @@ beforeEach(async () => {
 });
 
 describe('findBacklinks', () => {
+    it('returns entries that link via a journal://entry anchor (hyperlink dialog / entry: refs)', async () => {
+        const target = await entry('Anchored', '<p>target body</p>');
+        const ref = await entry('Linker', `<p>see <a href="journal://entry/${target}">this</a></p>`);
+        await entry('Decoy', `<p><a href="journal://entry/${target}99">different id prefix</a></p>`);
+
+        const backs = await findBacklinks(dbm, USER_ID, target);
+        expect(backs.map(b => b.EntryID)).toEqual([ref]);
+    });
+
     it('returns entries that link by title', async () => {
         const target = await entry('Project Plan', '<p>plan body</p>');
         const ref = await entry('Daily Notes', '<p>see [[Project Plan]] for context</p>');

@@ -87,7 +87,10 @@ export const COMMANDS: CommandDef[] = [
     { id: 'view.toggle-theme',   label: 'Toggle light / dark theme', category: 'View', defaultBinding: 'Ctrl+Shift+D' },
     { id: 'view.focus-mode',     label: 'Focus mode',          category: 'View', defaultBinding: 'F11' },
     { id: 'view.split',          label: 'Toggle split editor', category: 'View', defaultBinding: 'Ctrl+\\' },
-    { id: 'view.toggle-sidebar', label: 'Show / hide sidebar',  category: 'View', defaultBinding: 'Ctrl+Shift+B' },
+    // Ctrl+Alt+B, not Ctrl+Shift+B: TipTap StarterKit's Blockquote keymap owns
+    // Mod-Shift-B inside the editor (a real document mutation), which both
+    // shadowed this command and made the key do two different things by focus.
+    { id: 'view.toggle-sidebar', label: 'Show / hide sidebar',  category: 'View', defaultBinding: 'Ctrl+Alt+B' },
     { id: 'view.sidebar-side',   label: 'Move sidebar left / right', category: 'View', defaultBinding: null },
     { id: 'view.toggle-toolbar', label: 'Show / hide formatting toolbar', category: 'View', defaultBinding: null },
 

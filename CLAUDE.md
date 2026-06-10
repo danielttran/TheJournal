@@ -266,6 +266,18 @@ shipping to production.
   ThemeProvider + useElectronIPC. Calendar charms verified already present
   (entry icons on calendar days).
 
+- **Audit round 3 (2026-06-10b)**: fixed five round-2 defects (Ctrl+Shift+B vs
+  StarterKit Blockquote -> view.toggle-sidebar now Ctrl+Alt+B; VoiceMemos mic
+  leak on unmount race; Ctrl+Shift+T added to WEB_RESERVED_ACCELS; tag-rename
+  now normalizes the active-filter patch; backlinks now parse
+  journal://entry anchors). Closed davidrm.com feature-page gaps:
+  auto-correction (`autocorrect.ts` + editor word-boundary hook + toggle),
+  launch-at-login (openAtLogin + setLoginItemSettings), image rotation
+  (Crop & Rotate modal), doodle-on-photo (DrawingModal backgroundImage
+  annotate mode), topic-source word cloud. Documented decisions: blog
+  publishing (external-service class, ATOM export covers format) and FTP
+  backup upload (folder destinations + no-new-deps) are out of scope.
+
 - **Parity audit round (2026-06-09)**: fixed the SearchPanel scope-resync
   no-op + the PromptHost concurrent-prompt hang; closed verified J8 gaps
   (Change Entry Date/Time with editor version-sync, spell-check toggle,
@@ -283,6 +295,10 @@ shipping to production.
 - **Importers (Outlook / Penzu / Diaro / WordPress) + external Category Sync**:
   the goal's only carve-out ("bridge all gaps except importing from other
   apps"). Category Sync is the same class — sync/import from an external service.
+- **Blog publishing + FTP backup upload**: same external-service class —
+  posting to third-party blog platforms / FTP servers needs external accounts
+  and credentials that can't be exercised here. ATOM export covers the
+  syndication format; scheduled backups target any mounted/synced folder.
 - **macOS code signing / notarization**: a credential, not code. `release.yml`
   consumes `CSC_LINK`/`CSC_KEY_PASSWORD` if the repo provides them; the mac +
   linux *builds* are otherwise configured. (The mac/linux installers cannot be
@@ -296,7 +312,7 @@ shipping to production.
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 991 tests as of the last commit.
+# Baseline: 998 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

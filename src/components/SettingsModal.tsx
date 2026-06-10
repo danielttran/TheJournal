@@ -10,6 +10,7 @@ import {
     TOOLBAR_GROUPS, loadToolbarConfig, saveToolbarConfig, toggleGroup, isGroupVisible,
 } from '@/lib/toolbarConfig';
 import { isSpellcheckEnabled, setSpellcheckEnabled } from '@/lib/spellcheck';
+import { isAutocorrectEnabled, setAutocorrectEnabled } from '@/lib/autocorrect';
 import { J8_MENUS } from '@/lib/menuSpec';
 import { listMenuItems } from '@/lib/menuCustomization';
 import { loadMenuHidden, saveMenuHidden } from '@/lib/menuCustomConfig';
@@ -37,6 +38,7 @@ interface Settings {
     idleLockMinutes?: number;
     lockOnMinimize?: boolean;
     minimizeToTray?: boolean;
+    openAtLogin?: boolean;
 }
 
 export const THEME_PALETTES = [
@@ -63,6 +65,7 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
         idleLockMinutes: 0,
         lockOnMinimize: false,
         minimizeToTray: false,
+        openAtLogin: false,
         themePreferences: {},
     });
     const [loading, setLoading] = useState(true);
@@ -105,6 +108,7 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
                         idleLockMinutes: Number(saved.idleLockMinutes) || 0,
                         lockOnMinimize: !!saved.lockOnMinimize,
                         minimizeToTray: !!saved.minimizeToTray,
+                        openAtLogin: !!saved.openAtLogin,
                     });
                 }
             } catch (error) {
@@ -451,6 +455,20 @@ export default function SettingsModal({ isOpen, onClose, initialSection }: Setti
                                             </button>
                                         </div>
                                     )}
+                                    {isElectron && (
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <label className="text-sm font-medium text-text-primary">Launch at login</label>
+                                                <p className="text-xs text-text-muted">Start TheJournal automatically when you sign in to your computer.</p>
+                                            </div>
+                                            <button
+                                                onClick={() => handleSave('openAtLogin', !settings.openAtLogin)}
+                                                className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-accent-primary ${settings.openAtLogin ? 'bg-accent-primary' : 'bg-gray-200 dark:bg-gray-700'}`}
+                                            >
+                                                <span className={`absolute top-1 left-1 bg-white border border-gray-100 dark:border-0 w-4 h-4 rounded-full shadow transform transition-transform duration-200 ${settings.openAtLogin ? 'translate-x-5' : 'translate-x-0'}`} />
+                                            </button>
+                                        </div>
+                                    )}
                                     <p className="text-xs text-text-muted">
                                         Press <kbd className="px-1.5 py-0.5 rounded bg-bg-active border border-border-primary text-[10px]">Ctrl</kbd>
                                         +<kbd className="px-1.5 py-0.5 rounded bg-bg-active border border-border-primary text-[10px]">Shift</kbd>
@@ -655,22 +673,37 @@ function ScheduledBackupsSection() {
     );
 }
 
-// Spell-check toggle (J8 configurable spell checking — the checker itself is
-// the platform's native one). Persists via spellcheck lib + live event.
+// Spell-check + auto-correct toggles (J8 configurable spell checking; the
+// checker itself is the platform's native one). Persist via libs + live events.
 function SpellcheckSetting() {
     const [enabled, setEnabled] = useState(() => isSpellcheckEnabled());
+    const [autocorrect, setAutocorrect] = useState(() => isAutocorrectEnabled());
     return (
-        <div className="mt-5">
-            <label className="flex items-center gap-2 text-sm font-medium text-text-primary cursor-pointer select-none">
-                <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={(e) => { setEnabled(e.target.checked); setSpellcheckEnabled(e.target.checked); }}
-                    className="accent-[color:var(--color-accent-primary)]"
-                />
-                Check spelling as you type
-            </label>
-            <p className="text-xs text-text-muted mt-1 ml-6">Underlines misspelled words in entries using your system dictionary.</p>
+        <div className="mt-5 space-y-3">
+            <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-text-primary cursor-pointer select-none">
+                    <input
+                        type="checkbox"
+                        checked={enabled}
+                        onChange={(e) => { setEnabled(e.target.checked); setSpellcheckEnabled(e.target.checked); }}
+                        className="accent-[color:var(--color-accent-primary)]"
+                    />
+                    Check spelling as you type
+                </label>
+                <p className="text-xs text-text-muted mt-1 ml-6">Underlines misspelled words in entries using your system dictionary.</p>
+            </div>
+            <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-text-primary cursor-pointer select-none">
+                    <input
+                        type="checkbox"
+                        checked={autocorrect}
+                        onChange={(e) => { setAutocorrect(e.target.checked); setAutocorrectEnabled(e.target.checked); }}
+                        className="accent-[color:var(--color-accent-primary)]"
+                    />
+                    Auto-correct common misspellings
+                </label>
+                <p className="text-xs text-text-muted mt-1 ml-6">Fixes frequent typos (teh → the) as you finish each word.</p>
+            </div>
         </div>
     );
 }

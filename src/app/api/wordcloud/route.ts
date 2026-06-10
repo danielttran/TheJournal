@@ -24,6 +24,24 @@ export const GET = authedHandler<[NextRequest]>('GET /api/wordcloud', async (use
         }
     }
 
+    // J8: word clouds from entry text OR assigned topics. Topic mode weighs
+    // each topic by how many (non-deleted) entries carry it - no content
+    // decryption involved, so locked categories contribute safely.
+    if (searchParams.get('source') === 'topics') {
+        const topicRows = await dbManager.prepare(`
+            SELECT t.Name AS word, COUNT(et.EntryID) AS count
+            FROM Topic t
+            JOIN EntryTopic et ON et.TopicID = t.TopicID
+            JOIN Entry e ON e.EntryID = et.EntryID
+            JOIN Category c ON e.CategoryID = c.CategoryID
+            WHERE t.UserID = ? AND e.IsDeleted = 0${extra}
+            GROUP BY t.TopicID
+            ORDER BY count DESC
+            LIMIT ?
+        `).all(...params, limit) as { word: string; count: number }[];
+        return NextResponse.json({ words: topicRows, scannedEntries: 0, capped: false, source: 'topics' });
+    }
+
     const rows = await dbManager.prepare(`
         SELECT e.CategoryID, ec.HtmlContent FROM Entry e
         JOIN Category c ON e.CategoryID = c.CategoryID

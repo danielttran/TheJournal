@@ -503,6 +503,16 @@ function ensureTray(url) {
     }
 }
 
+// J8 "launches with Windows". Guarded: setLoginItemSettings is a no-op on
+// unsupported platforms/sandboxes and must never break startup or settings.
+function applyOpenAtLogin(enabled) {
+    try {
+        app.setLoginItemSettings({ openAtLogin: !!enabled });
+    } catch (err) {
+        console.error('[Electron] setLoginItemSettings failed (continuing):', err);
+    }
+}
+
 // J8's global hot-key (Ctrl+Alt+J) summons The Journal from anywhere — even
 // when minimized to the tray. Guarded: registration can fail if another app
 // owns the combo; the app must still start.
@@ -664,7 +674,7 @@ app.whenReady().then(async () => {
             'theme', 'userName', 'rememberMe', 'savedPassword',
             'backupPath', 'autoBackupOnClose', 'backupFrequency', 'retentionCount',
             'defaultFontSize', 'idleLockMinutes', 'lockOnMinimize', 'themePreferences',
-            'minimizeToTray', 'menuHiddenItems',
+            'minimizeToTray', 'menuHiddenItems', 'openAtLogin',
             // UI prefs the renderer persists; without these the keybinding editor
             // and theme-palette dropdown apply live but reset on restart (the
             // writes were silently rejected and only web localStorage kept them).
@@ -679,6 +689,10 @@ app.whenReady().then(async () => {
             // Rebuild the native menu live when the user changes its customization.
             if (success && key === 'menuHiddenItems') {
                 try { createMenu(); } catch (e) { console.error('[Electron] menu rebuild failed:', e); }
+            }
+            // J8 "launch with Windows" — apply immediately, not just at next boot.
+            if (success && key === 'openAtLogin') {
+                applyOpenAtLogin(!!value);
             }
             return success ? settingsManager.getSettings() : false;
         });
@@ -871,6 +885,9 @@ app.whenReady().then(async () => {
         createWindow(url);
         ensureTray(url);
         registerGlobalHotkey(url);
+        // Re-assert the login item: an installer update can drop the registry
+        // entry while the saved setting still says enabled.
+        applyOpenAtLogin(!!settingsManager.getSettings().openAtLogin);
 
         app.on('activate', () => {
             if (BrowserWindow.getAllWindows().length === 0) createWindow(url);

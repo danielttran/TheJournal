@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRightIcon, Folder, File, GripVertical, X, Trash, ChevronsLeft, ChevronsRight, Lock, LockOpen, Star, Hash, Pin, ArrowUpDown } from 'lucide-react';
 import { sortEntries, type SortMode } from '@/lib/sort';
 import { adjacentEntryId } from '@/lib/navOrder';
+import { normalizeTag } from '@/lib/tags';
 import { requestPrompt } from '@/lib/promptService';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -681,7 +682,10 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
             body: JSON.stringify({ from: tag, to, mode: 'merge' }),
         });
         if (!r.ok) { window.alert('Could not rename the tag.'); return; }
-        setActiveTags(prev => prev.map(t => (t === tag ? to : t)));
+        // The server normalizes tags (lowercase); patch the filter with the
+        // normalized name or the chip toggle would never match it again.
+        const normalized = normalizeTag(to);
+        setActiveTags(prev => prev.map(t => (t === tag ? normalized : t)));
         fetch('/api/tags')
             .then(res => res.ok ? res.json() : { tags: [] })
             .then(d => setAvailableTags(d.tags ?? []))

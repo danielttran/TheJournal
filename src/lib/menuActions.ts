@@ -87,7 +87,7 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
  * web via the click path and the rebindable command registry.
  */
 export const WEB_RESERVED_ACCELS = new Set([
-    'Ctrl+N', 'Ctrl+Shift+N', 'Ctrl+T', 'Ctrl+W', 'Ctrl+Tab', 'Ctrl+Shift+Tab',
+    'Ctrl+N', 'Ctrl+Shift+N', 'Ctrl+T', 'Ctrl+Shift+T', 'Ctrl+W', 'Ctrl+Tab', 'Ctrl+Shift+Tab',
 ]);
 
 export function isAccelShownOnWeb(accel?: string): boolean {

@@ -1,5 +1,80 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Audit round 3 — round-2 diff review + davidrm.com feature-page cross-check (2026-06-10b)
+
+Round 3 (skeptical diff review of round 2 + a fresh J8 feature-list pull from
+davidrm.com + wiring/orphan verification). The wiring/orphan sweep came back
+fully clean; the other two angles found issues, all fixed:
+
+### Round-2 code defects (all fixed)
+
+1. **Ctrl+Shift+B collided with StarterKit's Blockquote keymap** — inside the
+   editor the "toggle sidebar" key created a blockquote (document mutation)
+   and the sidebar never moved; the same defect class round 2 fixed for
+   Ctrl+Shift+L. `view.toggle-sidebar` now defaults to **Ctrl+Alt+B**
+   (Blockquote keeps the standard editor key; the command stays rebindable).
+2. **VoiceMemosPanel could leave the microphone hot** — closing the panel
+   while the getUserMedia permission prompt was pending let the resolved
+   stream start recording with no UI to stop it. The await is now guarded by
+   an unmounted ref that stops the tracks immediately.
+3. **Ctrl+Shift+T added to `WEB_RESERVED_ACCELS`** — browsers reserve it
+   (reopen closed tab), so the web menu no longer advertises it for Insert
+   from Template (Electron unaffected; the command stays rebindable on web).
+4. **Tag rename stored the raw name in the active filter** — the server
+   normalizes tags to lowercase, so renaming an active tag to a name with
+   uppercase left a stuck, un-toggleable filter chip. The filter now patches
+   with `normalizeTag(to)`.
+5. **Backlinks couldn't see the hyperlink dialog's own links** —
+   `findBacklinks` only parsed `[[..]]` wiki tokens, so `journal://entry/<id>`
+   anchors (including resolved `entry:` references from the same round!) never
+   appeared in "Linked from". The candidate filter and matcher now also parse
+   `journal://entry` hrefs (`hasJournalAnchor`, regression-tested).
+
+### J8 gaps closed (fresh pull of davidrm.com/features/* pages)
+
+6. **Auto-correction of common misspellings** ("Automatically corrects common
+   English misspellings") — new pure `autocorrect.ts` (~110-rule table,
+   case-preserving incl. ALL-CAPS and apostrophe fixes like dont→don't) hooked
+   into the editor's word-boundary keydown (same hook as snippet expansion;
+   the boundary key still inserts). Settings ▸ Editor Preferences toggle
+   ("Auto-correct common misspellings", default on). `autocorrect.test.ts`.
+7. **Launch at login** ("Launches with Windows") — `openAtLogin` setting
+   (Settings ▸ Security, Electron-only) applied via
+   `app.setLoginItemSettings` immediately on toggle and re-asserted at
+   startup (installer updates can drop the login item). Guarded so an
+   unsupported platform can't break startup.
+8. **Image rotation** ("rotation, thumbnails, and doodling") — the crop modal
+   is now **Crop & Rotate**: 90°-step rotation on an off-screen canvas, crop
+   resets on rotate, and Apply can save a rotation alone (full-image crop
+   fallback). Cross-origin images surface the canvas-taint limitation
+   honestly.
+9. **Doodle on a photograph** — new **Doodle** button on the image-selected
+   toolbar (`trigger-annotate-image`): opens the drawing canvas with the
+   photo as the background (`ReactSketchCanvas backgroundImage` +
+   `exportWithBackgroundImage`), composites strokes onto a PNG, and replaces
+   the image node in place.
+10. **Word cloud from assigned topics** ("from entry text or assigned
+    topics") — the Word Cloud panel gained an Entry text / Topics source
+    toggle; topic mode weighs each topic by its non-deleted entry count
+    (pure SQL — no decryption, so locked categories contribute safely).
+
+### Decisions documented (NOT built, with reasons)
+
+- **Blog publishing** (J8 posts entries to blog platforms): publishing to an
+  external service is the same class as the external Category Sync carve-out
+  — it needs third-party accounts/credentials that can't be exercised in this
+  environment. The syndication *format* half is covered (ATOM export via
+  `exportEntriesAsATOM`). Decision: out of scope alongside Category Sync.
+- **FTP upload of backups**: scheduled backups write SHA-256-verified
+  snapshots to any mounted/synced folder, which is the modern equivalent;
+  Node has no built-in FTP client and the no-new-dependencies convention
+  holds. Self-host operators can point `DestPath` at a synced/remote mount
+  (documented in the backup runbook).
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**998/998** (+ autocorrect, backlinks journal-anchor regression) ·
+`npm run build` + standalone verify clean · `node --check` main.js clean.
+
 ## Audit round 2 — keyboard layer + remaining stranded clusters (2026-06-10)
 
 Round 2 (fresh diff review of round 1 + a J8 keyboard-shortcuts parity check
