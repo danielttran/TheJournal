@@ -1,5 +1,28 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Audit round 6 — round-5 verification + destructive-flow sweep (2026-06-10e)
+
+Round 6 verified the round-5 commit (cadence math, importer SQL/scoping/
+back-compat) and traced the five most data-destructive flows end-to-end
+(category delete cascade, permanent entry delete, trash purge, restore
+pre-delete validation, transformCategoryEntries) — all guards genuinely
+prevent the destructive path. Two defects found in round-5's own guard work,
+both fixed:
+
+1. **`Attachment.CreatedAt` was dropped on restore** — a live column (voice
+   memo timestamps/ordering) reset to restore time. The importer now carries
+   it (`COALESCE(?, CURRENT_TIMESTAMP)` for old backups).
+2. **The column-level drift guard accepted substring false positives** — a
+   whole-file `includes()` let Attachment.CreatedAt pass via other tables'
+   CreatedAt columns. The guard now parses each table's own
+   `INSERT [OR …] INTO main.<table> (…)` column lists plus second-pass
+   `UPDATE main.<table> SET` statements; PKs are auto-excluded via
+   `pragma table_info` (fresh ids, remapped through id maps) and the dead
+   legacy `EntryContent.QuillDelta` is a documented exclusion.
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**1021/1021** · `npm run build` + standalone verify clean.
+
 ## Audit round 5 — round-4 verification + cross-cutting sweeps (2026-06-10d)
 
 Round 5 verified the round-4 commit fully correct against the library sources

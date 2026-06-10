@@ -144,6 +144,7 @@ export async function POST(req: NextRequest) {
         }
         interface ImportedAttachmentRow {
             AttachmentID: number; Filename: string; MimeType: string; Size: number; Data: Buffer;
+            CreatedAt: string | null;
         }
         interface ImportedContentRow {
             EntryID: number; HtmlContent: string | null; DocumentJson: string | null;
@@ -303,9 +304,9 @@ export async function POST(req: NextRequest) {
             console.log(`[Import] Copying ${importedAtts.length} attachment(s)...`);
             for (const att of importedAtts) {
                 const r = await db.prepare(`
-                    INSERT INTO main.Attachment (UserID, Filename, MimeType, Size, Data)
-                    VALUES (?, ?, ?, ?, ?)
-                `).run(userId, att.Filename, att.MimeType, att.Size, att.Data);
+                    INSERT INTO main.Attachment (UserID, Filename, MimeType, Size, Data, CreatedAt)
+                    VALUES (?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+                `).run(userId, att.Filename, att.MimeType, att.Size, att.Data, att.CreatedAt ?? null);
                 attIdMap.set(att.AttachmentID, r.lastInsertRowid as number);
             }
 

@@ -56,19 +56,39 @@ describe('backup importer table coverage', () => {
     const EXCLUDED_COLUMNS = new Set([
         // Optimistic-concurrency counter; restored rows are fresh, version 1.
         'Entry.Version',
-        // Standalone primary keys with no table referencing them — rows get
-        // fresh ids on insert. (ReminderID IS referenced: NextOccurrenceID.)
-        'Snippet.SnippetID', 'WordGoal.WordGoalID', 'SavedSearch.SavedSearchID',
-        'BackupSchedule.BackupScheduleID',
+        // Dead legacy column from the Quill era; nothing reads it anywhere.
+        'EntryContent.QuillDelta',
     ]);
 
-    it.each(USER_OWNED_TABLES)('references every live %s column (column-level drift guard)', async (table) => {
-        const cols = await dbm.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    /**
+     * Columns a table's restore actually WRITES: the union of its
+     * `INSERT INTO main.<table> (...)` column lists and any second-pass
+     * `UPDATE main.<table> SET <col>` statements (hierarchy/recurrence
+     * remaps). A whole-file substring check is NOT enough — CreatedAt
+     * appearing in the Reminder insert must not vouch for Attachment's.
+     */
+    function writtenColumns(table: string): Set<string> {
+        const written = new Set<string>();
+        const insertRe = new RegExp(`INSERT (?:OR \\w+ )?INTO main\\.${table}\\s*\\(([^)]*)\\)`, 'g');
+        for (const m of importSrc.matchAll(insertRe)) {
+            for (const col of m[1].split(',')) written.add(col.trim());
+        }
+        const updateRe = new RegExp(`UPDATE main\\.${table} SET (\\w+)`, 'g');
+        for (const m of importSrc.matchAll(updateRe)) written.add(m[1]);
+        return written;
+    }
+
+    it.each(USER_OWNED_TABLES)('writes every live %s column on restore (column-level drift guard)', async (table) => {
+        const cols = await dbm.prepare(`PRAGMA table_info(${table})`).all() as { name: string; pk: number }[];
+        const written = writtenColumns(table);
         const missing = cols
+            // Primary keys get fresh ids; cross-row references are remapped
+            // through the importer's id maps, not copied verbatim.
+            .filter(c => !c.pk)
             .map(c => c.name)
             .filter(name => !EXCLUDED_COLUMNS.has(`${table}.${name}`))
-            .filter(name => !importSrc.includes(name));
-        expect(missing, `importer never mentions ${table} column(s): ${missing.join(', ')} — restore would drop them`).toEqual([]);
+            .filter(name => !written.has(name));
+        expect(missing, `restore never writes ${table} column(s): ${missing.join(', ')} — they would be dropped`).toEqual([]);
     });
 
     it('restores per-category password material (locked entries stay decryptable)', () => {

@@ -266,6 +266,13 @@ shipping to production.
   ThemeProvider + useElectronIPC. Calendar charms verified already present
   (entry icons on calendar days).
 
+- **Audit round 6 (2026-06-10e)**: destructive-flow sweep clean (delete
+  cascade, permanent delete, purge, restore validation, transform atomicity).
+  Fixed round-5's own guard work: Attachment.CreatedAt now restores
+  (COALESCE for old backups), and the column drift guard parses per-table
+  INSERT/UPDATE column lists (PKs auto-excluded) instead of a whole-file
+  substring check that passed false positives.
+
 - **Audit round 5 (2026-06-10d)**: round-4 commit verified correct against
   library sources; menu/native-handler diff + route-scoping sweeps clean.
   Fixed: Entry Frequency now drives calendar missed-cadence highlighting
