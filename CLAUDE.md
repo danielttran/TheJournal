@@ -266,6 +266,12 @@ shipping to production.
   ThemeProvider + useElectronIPC. Calendar charms verified already present
   (entry icons on calendar days).
 
+- **Audit round 7 (2026-06-10f)**: Electron theme toggle now persists
+  (saveSetting on toggle; startup re-applies settings.theme, and the only
+  persisting path listened on a never-sent IPC channel). Removed dead IPC
+  surface: readFileForImport + the toggle-theme/logout-request/open-settings/
+  export-current-entry-pdf channels, their renderer subscriptions, and types.
+
 - **Audit round 6 (2026-06-10e)**: destructive-flow sweep clean (delete
   cascade, permanent delete, purge, restore validation, transform atomicity).
   Fixed round-5's own guard work: Attachment.CreatedAt now restores

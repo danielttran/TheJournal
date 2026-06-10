@@ -102,7 +102,13 @@ export default function GlobalIPCManager() {
         };
         const onManageUsers = () => setShowManageUsers(true);
         const onManageTopics = () => setShowManageTopics(true);
-        const onToggleTheme = () => setTheme(resolvedThemeRef.current === 'dark' ? 'light' : 'dark');
+        const onToggleTheme = () => {
+            const next = resolvedThemeRef.current === 'dark' ? 'light' : 'dark';
+            setTheme(next);
+            // Electron re-applies settings.theme at startup (below), so a
+            // toggle that isn't persisted would silently revert next launch.
+            window.electron?.saveSetting?.('theme', next);
+        };
         // "Set up Automatic Login…" — auto-login is the Remember-Me credential
         // saved at login; its on/off control lives in Settings ▸ Security.
         const onAutoLogin = () => { setSettingsSection('security'); setIsSettingsOpen(true); };
@@ -212,20 +218,6 @@ export default function GlobalIPCManager() {
             window.removeEventListener('trigger-settings', handleOpenSettings);
         };
 
-        const unsubscribeOpenSettings = window.electron.onOpenSettings?.(() => {
-            setIsSettingsOpen(true);
-        });
-
-        const unsubscribeToggleTheme = window.electron.onToggleTheme?.(() => {
-            callbacksRef.current.setTheme(currentTheme => {
-                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-                if (window.electron) {
-                    window.electron.saveSetting('theme', newTheme);
-                }
-                return newTheme;
-            });
-        });
-
         const unsubscribeImport = window.electron.onImportDB?.((filePath: string) => {
             callbacksRef.current.handleFileImport(filePath);
         });
@@ -234,21 +226,14 @@ export default function GlobalIPCManager() {
             callbacksRef.current.handleExportClick();
         });
 
-        const unsubscribeLogout = window.electron.onLogoutRequest?.(() => {
-            callbacksRef.current.handleLogout();
-        });
-
         const unsubscribeViewAction = window.electron.onViewAction?.((action: string) => {
             callbacksRef.current.dispatchViewAction(action);
         });
 
         return () => {
             window.removeEventListener('trigger-settings', handleOpenSettings);
-            unsubscribeOpenSettings?.();
-            unsubscribeToggleTheme?.();
             unsubscribeImport?.();
             unsubscribeExport?.();
-            unsubscribeLogout?.();
             unsubscribeViewAction?.();
         };
     }, []);

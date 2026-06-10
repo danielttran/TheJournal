@@ -1,5 +1,29 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Audit round 7 — round-6 verification + Electron IPC surface sweep (2026-06-10f)
+
+Round 7 verified the round-6 commit empirically (COALESCE semantics against
+the real SQLCipher driver; the drift-guard regexes executed against the real
+importer source, incl. a demonstrated negative case) and audited the whole
+preload/contextBridge surface (contextIsolation on, save-setting allowlisted,
+sandboxed PDF window — not overly broad). Findings, all fixed:
+
+1. **Electron theme toggle didn't survive a restart** — the live toggle path
+   only called `setTheme`, while startup unconditionally re-applied
+   `settings.theme`; the one code path that persisted listened on a
+   `toggle-theme` IPC channel main.js never sends (orphaned by the
+   view-action menu refactor). The toggle now persists via
+   `saveSetting('theme', …)` on Electron, and the dead IPC path was removed.
+2. **Dead IPC surface removed** — `readFileForImport` (preload + main
+   handler; zero callers, unnecessary file-read attack surface) and the
+   never-sent `toggle-theme` / `logout-request` / `open-settings` /
+   `export-current-entry-pdf` channels with their dead renderer
+   subscriptions and type declarations.
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**1021/1021** · `npm run build` + standalone verify clean · main/preload
+syntax-checked.
+
 ## Audit round 6 — round-5 verification + destructive-flow sweep (2026-06-10e)
 
 Round 6 verified the round-5 commit (cadence math, importer SQL/scoping/
