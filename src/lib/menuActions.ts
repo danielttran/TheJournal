@@ -51,6 +51,7 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
     'trigger-image-upload', 'trigger-undo', 'trigger-redo', 'trigger-search', 'trigger-focus', 'trigger-split',
     'trigger-split-orientation',
     'trigger-prompts', 'trigger-templates', 'trigger-run-plugin', 'trigger-insert-drawing',
+    'trigger-rtl-paragraph', 'trigger-thesaurus', 'trigger-timer',
     // Sidebar (entry tree)
     'trigger-nav-prev', 'trigger-nav-next', 'trigger-new-subentry', 'trigger-new-entry',
     'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry',
@@ -66,8 +67,9 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
     'trigger-new-category', 'trigger-category-properties', 'trigger-delete-category',
     'trigger-import-entries', 'trigger-export-entries', 'trigger-sync-category',
     'trigger-toggle-main-toolbar', 'trigger-tabs-top', 'trigger-tabs-bottom', 'trigger-tabs-vertical',
+    'trigger-next-category', 'trigger-prev-category',
     'trigger-trash', 'trigger-goals', 'trigger-stats', 'trigger-snippets', 'trigger-favorites',
-    'trigger-habits',
+    'trigger-habits', 'trigger-recent-entries', 'trigger-voice-memos', 'trigger-duplicate-entry',
     // GlobalIPCManager (db / users / topics / settings / account / volumes)
     'trigger-settings', 'trigger-check-integrity', 'trigger-optimize-db', 'trigger-change-password',
     'trigger-switch-user', 'trigger-manage-users', 'trigger-manage-topics', 'trigger-auto-login',
@@ -76,6 +78,23 @@ export const HANDLED_WEB_EVENTS = new Set<string>([
     // EntryPrintBridge
     'trigger-print-entry', 'trigger-print-preview', 'trigger-export-pdf',
 ]);
+
+/**
+ * Accelerators browsers RESERVE (a web page cannot intercept them — Ctrl+N
+ * opens a window, Ctrl+T/Ctrl+Tab act on browser tabs). The web MenuBar hides
+ * these labels so the menu doesn't advertise keys that won't reach the app;
+ * the Electron native menu binds them normally. The actions stay reachable on
+ * web via the click path and the rebindable command registry.
+ */
+export const WEB_RESERVED_ACCELS = new Set([
+    'Ctrl+N', 'Ctrl+Shift+N', 'Ctrl+T', 'Ctrl+W', 'Ctrl+Tab', 'Ctrl+Shift+Tab',
+]);
+
+export function isAccelShownOnWeb(accel?: string): boolean {
+    if (!accel) return false;
+    const normalized = accel.replace(/CmdOrCtrl|CommandOrControl|Cmd|Command/g, 'Ctrl');
+    return !WEB_RESERVED_ACCELS.has(normalized);
+}
 
 const WEB_URL: Record<string, string> = {
     'help-docs': 'https://github.com/danielttran/TheJournal#readme',

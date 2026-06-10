@@ -1,5 +1,109 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Audit round 2 — keyboard layer + remaining stranded clusters (2026-06-10)
+
+Round 2 (fresh diff review of round 1 + a J8 keyboard-shortcuts parity check
+against davidrm.com + a fresh orphan scan) found real issues. All fixed:
+
+### Round-1 code defects (minor, both fixed)
+
+1. **StatsPanel heatmap could crash on a non-OK response** — no `r.ok` check
+   and an unbounded "previous year" button stored `{error}` in state and threw
+   in `heat.cells.map`. Now guarded + year floored at 1900.
+2. **Min-words silent desync** — the client had no cap while the route
+   rejected >7 digits, and the optimistic state showed an unsaved value.
+   Client now caps at 9,999,999 and re-syncs from the server on a failed PUT.
+
+### Keyboard-layer defects (the audit's main findings)
+
+3. **Ctrl+Shift+P did different things per target** — the menu advertised
+   Category Properties, but the editor hardcoded it to Writing Prompts on web.
+   Fixed via a new `category.properties` registry command (default
+   Ctrl+Shift+P → `trigger-category-properties`); the editor's hardcoded
+   branches (Ctrl+Shift+T/P, Ctrl+\, Ctrl+F, F11) were removed entirely — the
+   registry owns them, so user rebinds finally take effect (`trigger-focus`
+   now toggles focus mode so F11 still exits).
+4. **Ctrl+Delete hijacked "delete next word" on Electron** — the Delete Entry
+   native accelerator consumed the editing keystroke. Accelerator removed
+   (menu item + sidebar flows unchanged).
+5. **Ctrl+Shift+L three-way collision** — TipTap TextAlign's default keymap
+   claimed it for align-left while security.lock also used it; inside the
+   editor the paragraph was REALIGNED (a real document mutation that could
+   autosave) and then the app locked. TextAlign now drops only the `L`
+   binding (center/right/justify keys kept); LockGate no longer has its own
+   keydown — it listens for `trigger-lock-app` dispatched by the registry,
+   which honors `defaultPrevented` and user rebinds.
+6. **Rebinding 8 commands was a silent no-op** — commands missing from
+   `COMMAND_TRIGGER_MAP` fell through to a `tj-command` event with zero
+   listeners (edit.find, format.bold/italic/underline/strikethrough,
+   format.clear, insert.image-url, security.lock). EVERY command now maps to
+   a real trigger event with a live listener (new editor listeners for
+   marks/clear-format, toolbar listener for image-url); the dead fallthrough
+   was deleted and `command-triggers.test.ts` now requires full coverage with
+   NO carve-outs, plus a no-duplicate-defaults guard.
+7. **Duplicate Ctrl+F defaults** — `edit.find` shadowed `view.search`.
+   `edit.find` is now "Find in entry" (maps to the find bar, no default —
+   Ctrl+F stays the global search by documented design).
+8. **Web menu advertised unbound accelerators** — Ctrl+P / Ctrl+Shift+F /
+   Ctrl+Shift+D now have registry commands (`entry.print`,
+   `view.search-all`, `view.toggle-theme`) so the labels are true on web; the
+   genuinely browser-reserved combos (Ctrl+N, Ctrl+Shift+N, Ctrl+T, Ctrl+W,
+   Ctrl+Tab) are hidden from web menu labels (`isAccelShownOnWeb`) instead of
+   lying.
+9. **No keyboard category cycling (J8 Ctrl+Tab)** — new Category ▸
+   Next/Previous Category items (Ctrl+Tab/Ctrl+Shift+Tab native on Electron)
+   plus rebindable `nav.next/prev-category` commands (Ctrl+Alt+PageDown/Up,
+   web-safe) cycling via the pure `categoryCycle.ts` (wrap-around, tested).
+
+### J8 features added (verified against the J8 shortcuts page)
+
+10. **Thesaurus** — Tools ▸ Thesaurus… looks the selected word up
+    (Merriam-Webster web thesaurus; an offline thesaurus would need a new
+    dataset dependency, noted as the trade-off).
+11. **Writing Timer / Insert Timer** — Tools ▸ Writing Timer… opens a floating
+    stopwatch (pause/resume/reset) whose Insert button drops the elapsed time
+    at the caret (`timerFormat.ts`, tested).
+12. **Right-to-Left paragraph** — Format ▸ Right-to-Left Paragraph toggles the
+    standard `dir="rtl"` attribute on the current block (ParagraphStyle
+    extension), surviving save/export.
+13. **Calendar charms** — verified ALREADY PRESENT: calendar day cells render
+    the entry's icon (Sidebar emoji picker = the charm picker). Documented
+    rather than rebuilt.
+
+### Stranded clusters wired (built API/lib, no UI — same class as round 1)
+
+14. **Recent entries** — `touchEntry` was never called, so the list was
+    permanently empty. Now stamped on entry GET (fire-and-forget); new
+    Go ▸ Recent Entries… panel.
+15. **Voice memos** — new Tools ▸ Voice Memos… panel (MediaRecorder record,
+    list, play, delete over the existing /api/audio routes).
+16. **Duplicate entry** — Entry ▸ Duplicate Entry (server-side copy via the
+    existing route, opens the copy).
+17. **Backlinks** — Entry Properties now shows "Linked from" (clickable list
+    via /api/entry/[id]/backlinks).
+18. **Reminder snooze** — hover snooze buttons (10m/1h/1d) on open reminders
+    in the Reminders panel, calling the existing snooze route.
+19. **Daily prompt** — Writing Prompts picker pins the server's deterministic
+    "Prompt of the day" (/api/prompts/today) at the top.
+20. **Tag rename/merge** — right-click a tag chip in the sidebar tag filter to
+    rename it across every entry (merges when the target name exists).
+21. **Bulk operations** — Trash panel gained multi-select with bulk Restore /
+    Delete-forever via /api/entry/bulk.
+22. **Entry references** — the hyperlink dialog now resolves J8-style
+    `entry:Category\Title` references (with * / ? wildcards) through
+    /api/entry/lookup into internal journal:// links (the entryRefs lib was
+    nearly removed as "superseded" — it is a J8 parity feature and is now
+    reachable).
+
+### Removed
+
+- Orphans `src/components/ThemeProvider.tsx` (providers uses next-themes
+  directly) and `src/hooks/useElectronIPC.ts` (+ barrel entry).
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**991/991** (+ category-cycle, timer-format; command-triggers tightened to
+full coverage) · `npm run build` + standalone verify clean.
+
 ## Parity + stranded-feature audit round — 2026-06-09
 
 Fresh-eyes audit (two independent passes: a skeptical diff review of the

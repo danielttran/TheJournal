@@ -15,6 +15,9 @@ import WordCloudPanel from './WordCloudPanel';
 import SnippetsPanel from './SnippetsPanel';
 import FavoritesPanel from './FavoritesPanel';
 import HabitsPanel from './HabitsPanel';
+import RecentEntriesPanel from './RecentEntriesPanel';
+import VoiceMemosPanel from './VoiceMemosPanel';
+import { adjacentCategoryId } from '@/lib/categoryCycle';
 import CategorySettingsModal from './CategorySettingsModal';
 import CategoryTree from './CategoryTree';
 import { Scissors } from 'lucide-react';
@@ -289,6 +292,8 @@ export default function TabBar({ userId }: { userId: string }) {
     const [isSnippetsOpen, setIsSnippetsOpen] = useState(false);
     const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
     const [isHabitsOpen, setIsHabitsOpen] = useState(false);
+    const [isRecentOpen, setIsRecentOpen] = useState(false);
+    const [isVoiceMemosOpen, setIsVoiceMemosOpen] = useState(false);
     const [settingsCategoryId, setSettingsCategoryId] = useState<number | null>(null);
     const [isClient, setIsClient] = useState(false);
     const [mainToolbarHidden, setMainToolbarHidden] = useState(false);
@@ -510,6 +515,24 @@ export default function TabBar({ userId }: { userId: string }) {
 
     const activeId = pathname.split('/')[2];
 
+    // Category (tab) cycling — J8 Ctrl+Tab (Electron native accel) and the
+    // rebindable nav.prev/next-category commands on web.
+    useEffect(() => {
+        const num = activeId ? Number(activeId) : null;
+        const cycle = (direction: 1 | -1) => {
+            const target = adjacentCategoryId(tabs.map(t => t.CategoryID), num, direction);
+            if (target !== null) router.push(`/journal/${target}`);
+        };
+        const onNext = () => cycle(1);
+        const onPrev = () => cycle(-1);
+        window.addEventListener('trigger-next-category', onNext);
+        window.addEventListener('trigger-prev-category', onPrev);
+        return () => {
+            window.removeEventListener('trigger-next-category', onNext);
+            window.removeEventListener('trigger-prev-category', onPrev);
+        };
+    }, [activeId, tabs, router]);
+
     // Menu actions owned by the TabBar (Tools panels + Categories ops + main
     // toolbar visibility). Dispatched by the MenuBar / Electron native menu.
     useEffect(() => {
@@ -526,6 +549,8 @@ export default function TabBar({ userId }: { userId: string }) {
             'trigger-snippets': () => setIsSnippetsOpen(true),
             'trigger-favorites': () => setIsFavoritesOpen(true),
             'trigger-habits': () => setIsHabitsOpen(true),
+            'trigger-recent-entries': () => setIsRecentOpen(true),
+            'trigger-voice-memos': () => setIsVoiceMemosOpen(true),
             'trigger-trash': () => setIsTrashOpen(true),
             'trigger-on-this-day': () => setIsOnThisDayOpen(true),
             'trigger-new-category': () => setIsAddMenuOpen(true),
@@ -924,6 +949,14 @@ export default function TabBar({ userId }: { userId: string }) {
 
             {isHabitsOpen && (
                 <HabitsPanel onClose={() => setIsHabitsOpen(false)} />
+            )}
+
+            {isRecentOpen && (
+                <RecentEntriesPanel onClose={() => setIsRecentOpen(false)} />
+            )}
+
+            {isVoiceMemosOpen && (
+                <VoiceMemosPanel onClose={() => setIsVoiceMemosOpen(false)} />
             )}
 
             {isSnippetsOpen && (

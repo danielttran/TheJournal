@@ -249,6 +249,23 @@ shipping to production.
   fixed an asar `files` packaging bug (round-4 libs `windowState.js` +
   `menuCustomization.js` weren't whitelisted → would crash the packaged app).
 
+- **Audit round 2 — keyboard layer (2026-06-10)**: fixed the per-target
+  Ctrl+Shift+P split, the Ctrl+Delete delete-word hijack, the Ctrl+Shift+L
+  TextAlign/lock collision (align-then-logout), the dead `tj-command`
+  fallthrough (EVERY command now maps in commandTriggers — rebinding works;
+  test requires full coverage), duplicate Ctrl+F defaults, and false web menu
+  accel labels (new registry commands for print/search-all/toggle-theme +
+  `isAccelShownOnWeb` hides browser-reserved combos). Added J8 features:
+  category cycling (Ctrl+Tab native + rebindable commands, `categoryCycle.ts`),
+  Thesaurus (web lookup), Writing Timer (`timerFormat.ts` + TimerWidget),
+  RTL paragraph (`dir` attr in ParagraphStyle). Wired remaining stranded
+  clusters: recent entries (touchEntry now stamped on entry GET + panel),
+  voice memos panel, duplicate entry, backlinks in Entry Properties, reminder
+  snooze, daily prompt, tag rename (right-click chip), trash bulk ops,
+  `entry:Category\Title` refs in the hyperlink dialog. Removed orphan
+  ThemeProvider + useElectronIPC. Calendar charms verified already present
+  (entry icons on calendar days).
+
 - **Parity audit round (2026-06-09)**: fixed the SearchPanel scope-resync
   no-op + the PromptHost concurrent-prompt hang; closed verified J8 gaps
   (Change Entry Date/Time with editor version-sync, spell-check toggle,
@@ -279,7 +296,7 @@ shipping to production.
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 982 tests as of the last commit.
+# Baseline: 991 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

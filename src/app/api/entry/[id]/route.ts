@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getUserIdFromRequest } from "@/lib/route-helpers";
 import { CREATED_DATE_SHAPE, normalizeCreatedDate } from "@/lib/entryDate";
+import { touchEntry } from "@/lib/recent";
 
 /**
  * Tags arrive as a JSON-encoded array of user-entered strings. Normalize each
@@ -112,6 +113,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         if (!entry) {
             return NextResponse.json({ error: "Entry not found" }, { status: 404 });
         }
+
+        // Feed the Go ▸ Recent Entries list. Fire-and-forget: a failed touch
+        // must never break the read path.
+        touchEntry(dbManager, userId, entryId).catch(() => {});
 
         // Decrypt category-locked content if the EEK is cached. When the
         // category is locked and we don't have the key, return null

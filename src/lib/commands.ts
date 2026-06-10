@@ -40,7 +40,9 @@ export const COMMANDS: CommandDef[] = [
     // ── Edit ─────────────────────────────────────────────────────────
     { id: 'edit.undo',  label: 'Undo',  category: 'Edit', defaultBinding: 'Ctrl+Z' },
     { id: 'edit.redo',  label: 'Redo',  category: 'Edit', defaultBinding: 'Ctrl+Y' },
-    { id: 'edit.find',  label: 'Find / replace',  category: 'Edit', defaultBinding: 'Ctrl+F' },
+    // No default: Ctrl+F is the global search (view.search) by documented
+    // design; the in-entry find bar opens via F3 / the Search menu.
+    { id: 'edit.find',  label: 'Find in entry',  category: 'Edit', defaultBinding: null },
     { id: 'edit.find-next', label: 'Find next', category: 'Edit', defaultBinding: 'F3' },
     { id: 'edit.replace', label: 'Replace',  category: 'Edit', defaultBinding: 'Ctrl+H' },
     { id: 'edit.paste-special', label: 'Paste as plain text', category: 'Edit', defaultBinding: 'Ctrl+Shift+V' },
@@ -81,6 +83,8 @@ export const COMMANDS: CommandDef[] = [
 
     // ── View ─────────────────────────────────────────────────────────
     { id: 'view.search',         label: 'Open search',         category: 'View', defaultBinding: 'Ctrl+F' },
+    { id: 'view.search-all',     label: 'Search across all categories', category: 'View', defaultBinding: 'Ctrl+Shift+F' },
+    { id: 'view.toggle-theme',   label: 'Toggle light / dark theme', category: 'View', defaultBinding: 'Ctrl+Shift+D' },
     { id: 'view.focus-mode',     label: 'Focus mode',          category: 'View', defaultBinding: 'F11' },
     { id: 'view.split',          label: 'Toggle split editor', category: 'View', defaultBinding: 'Ctrl+\\' },
     { id: 'view.toggle-sidebar', label: 'Show / hide sidebar',  category: 'View', defaultBinding: 'Ctrl+Shift+B' },
@@ -97,6 +101,15 @@ export const COMMANDS: CommandDef[] = [
     { id: 'nav.next-entry',  label: 'Next entry',      category: 'Navigation', defaultBinding: 'Ctrl+Pagedown' },
     { id: 'nav.back',        label: 'Back',            category: 'Navigation', defaultBinding: 'Alt+Arrowleft' },
     { id: 'nav.forward',     label: 'Forward',         category: 'Navigation', defaultBinding: 'Alt+Arrowright' },
+    // Category (tab) cycling. The Electron native menu also offers
+    // Ctrl+Tab / Ctrl+Shift+Tab, which browsers reserve — these web-safe
+    // defaults work on both targets and remain rebindable.
+    { id: 'nav.prev-category', label: 'Previous category', category: 'Navigation', defaultBinding: 'Ctrl+Alt+Pageup' },
+    { id: 'nav.next-category', label: 'Next category',     category: 'Navigation', defaultBinding: 'Ctrl+Alt+Pagedown' },
+
+    // ── Entry / Category ─────────────────────────────────────────────
+    { id: 'entry.print',         label: 'Print entries', category: 'Edit', defaultBinding: 'Ctrl+P' },
+    { id: 'category.properties', label: 'Category properties…', category: 'Navigation', defaultBinding: 'Ctrl+Shift+P' },
 
     // ── Security ─────────────────────────────────────────────────────
     { id: 'security.lock',       label: 'Lock now', category: 'Security', defaultBinding: 'Ctrl+Shift+L' },

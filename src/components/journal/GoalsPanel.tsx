@@ -43,7 +43,9 @@ export default function GoalsPanel({ onClose }: GoalsPanelProps) {
     }, []);
 
     const saveMinWords = async (n: number) => {
-        const safe = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+        // Cap matches the settings route's validation (7 digits) so the panel
+        // can't display a value the server rejected.
+        const safe = Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 9_999_999) : 0;
         setMinWords(safe);
         const res = await fetch('/api/settings', {
             method: 'PUT',
@@ -54,6 +56,11 @@ export default function GoalsPanel({ onClose }: GoalsPanelProps) {
             window.dispatchEvent(new CustomEvent('min-words-changed', { detail: safe }));
             setMinWordsSaved(true);
             setTimeout(() => setMinWordsSaved(false), 1500);
+        } else {
+            // Re-sync from the server rather than showing an unsaved value.
+            const cur = await fetch('/api/settings').then(r => r.ok ? r.json() : null).catch(() => null);
+            const m = parseInt(cur?.settings?.minWordsPerEntry ?? '0', 10);
+            setMinWords(Number.isFinite(m) && m > 0 ? m : 0);
         }
     };
 

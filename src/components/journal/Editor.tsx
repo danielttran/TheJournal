@@ -14,6 +14,7 @@ import { type WritingPrompt } from '@/lib/prompts';
 import { useLoading } from '@/contexts/LoadingContext';
 import TipTapToolbar from './TipTapToolbar';
 import FindBar from './FindBar';
+import TimerWidget from './TimerWidget';
 import PromptModal, { type PromptConfig } from './PromptModal';
 import { requestPrompt } from '@/lib/promptService';
 import { isSpellcheckEnabled, SPELLCHECK_EVENT } from '@/lib/spellcheck';
@@ -231,8 +232,20 @@ function PluginLoadedEditor({
     const [tags, setTags] = useState<string[]>([]);
     const [showMoodPicker, setShowMoodPicker] = useState(false);
     const [showWritingPrompts, setShowWritingPrompts] = useState(false);
+    const [showTimer, setShowTimer] = useState(false);
     const [showProperties, setShowProperties] = useState(false);
     const [propsMeta, setPropsMeta] = useState<{ created?: string; modified?: string; title?: string }>({});
+    // "Linked from" (backlinks) shown in Entry Properties. null = loading.
+    const [backlinks, setBacklinks] = useState<{ EntryID: number; Title: string; CategoryID: number; CategoryName: string }[] | null>(null);
+    useEffect(() => {
+        if (!showProperties || !entryId) { setBacklinks(null); return; }
+        const ctl = new AbortController();
+        fetch(`/api/entry/${entryId}/backlinks`, { signal: ctl.signal })
+            .then(r => r.ok ? r.json() : { items: [] })
+            .then(d => { if (!ctl.signal.aborted) setBacklinks(d.items ?? []); })
+            .catch(() => { if (!ctl.signal.aborted) setBacklinks([]); });
+        return () => ctl.abort();
+    }, [showProperties, entryId]);
     const [toolbarHidden, setToolbarHidden] = useState(false);
     const [statusBarHidden, setStatusBarHidden] = useState(false);
     const [showFindBar, setShowFindBar] = useState(false);
@@ -299,7 +312,19 @@ function PluginLoadedEditor({
         // `journal` is registered so internal journal://entry/<id> links the
         // hyperlink dialog accepts actually pass TipTap's URI allowlist.
         Link.configure({ openOnClick: false, protocols: ['journal'] }),
-        TextAlign.configure({ types: ['heading', 'paragraph'] }),
+        // TextAlign's default keymap claims Ctrl+Shift+L for align-left, which
+        // collides with security.lock (Ctrl+Shift+L) — the editor would align
+        // the paragraph (a real document mutation) AND the app would lock.
+        // Keep center/right/justify; left-align stays on the toolbar + menu.
+        TextAlign.extend({
+            addKeyboardShortcuts() {
+                return {
+                    'Mod-Shift-e': () => this.editor.commands.setTextAlign('center'),
+                    'Mod-Shift-r': () => this.editor.commands.setTextAlign('right'),
+                    'Mod-Shift-j': () => this.editor.commands.setTextAlign('justify'),
+                };
+            },
+        }).configure({ types: ['heading', 'paragraph'] }),
         TaskList,
         TaskItem.configure({ nested: true }),
         Highlight.configure({ multicolor: true }),
@@ -532,39 +557,17 @@ function PluginLoadedEditor({
             if ((e.key === ' ' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 if (tryExpandSnippet()) { e.preventDefault(); return; }
             }
-            if (e.key === 'F11') {
-                e.preventDefault();
-                setIsDistractionFree(v => {
-                    if (v) setShowDfToolbar(false);
-                    return !v;
-                });
-                return;
-            }
             if (e.key === 'Escape') {
                 if (isDistractionFree) { setIsDistractionFree(false); setShowDfToolbar(false); }
                 setContextMenu(null);
                 return;
             }
-            if (e.ctrlKey && e.shiftKey && e.key === 'T') {
-                e.preventDefault();
-                setShowTemplatePicker(true);
-                return;
-            }
-            if (e.ctrlKey && e.shiftKey && e.key === 'P') {
-                e.preventDefault();
-                setShowWritingPrompts(true);
-                return;
-            }
-            if (e.ctrlKey && e.key === '\\') {
-                e.preventDefault();
-                onToggleSplitMode?.();
-                return;
-            }
-            if (e.ctrlKey && !e.shiftKey && e.key === 'f') {
-                e.preventDefault();
-                onOpenSearch?.();
-                return;
-            }
+            // No other hardcoded shortcuts here: F11 / Ctrl+F / Ctrl+\ /
+            // Ctrl+Shift+T etc. are owned by the command registry
+            // (CommandDispatcher → trigger-* → the listeners below), so user
+            // rebinds actually take effect. Hardcoding them made the old keys
+            // un-rebindable and Ctrl+Shift+P fight the Category Properties
+            // menu accelerator.
         };
         window.addEventListener('keydown', handler);
 
@@ -573,7 +576,12 @@ function PluginLoadedEditor({
         // cross-entry search; F3 / "Find Next" / "Find in Entry" open this bar.
         const handleFindInEntry = () => setShowFindBar(true);
         const handleTemplates = () => setShowTemplatePicker(true);
-        const handleFocus = () => setIsDistractionFree(true);
+        // Toggle (not just enter): F11 routes here via the registry, and the
+        // second press must exit focus mode like it always did.
+        const handleFocus = () => setIsDistractionFree(v => {
+            if (v) setShowDfToolbar(false);
+            return !v;
+        });
         const handleSplit = () => onToggleSplitMode?.();
         const handleSplitOrientation = () => setSplitHorizontal(v => {
             const next = !v;
@@ -584,10 +592,29 @@ function PluginLoadedEditor({
         const handleUndo = () => editor?.chain().focus().undo().run();
         const handleRedo = () => editor?.chain().focus().redo().run();
         const handleInlineCode = () => editor?.chain().focus().toggleCode().run();
+        // Mark commands for REBOUND keys (the defaults are TipTap's own keymap,
+        // which preventDefaults before the dispatcher sees the event).
+        const handleBold = () => editor?.chain().focus().toggleBold().run();
+        const handleItalic = () => editor?.chain().focus().toggleItalic().run();
+        const handleUnderline = () => editor?.chain().focus().toggleUnderline().run();
+        const handleStrikethrough = () => editor?.chain().focus().toggleStrike().run();
+        const handleClearFormat = () => editor?.chain().focus().clearNodes().unsetAllMarks().run();
         const handleChecklist = () => editor?.chain().focus().toggleTaskList().run();
         const handleHighlight = () => editor?.chain().focus().toggleHighlight().run();
         const handleHr = () => editor?.chain().focus().setHorizontalRule().run();
         const handlePrompts = () => setShowWritingPrompts(true);
+        const handleRtl = () => editor?.chain().focus().toggleRtlParagraph().run();
+        const handleTimer = () => setShowTimer(v => !v);
+        // J8 Thesaurus: look the selected word up. An offline thesaurus would
+        // need a new dataset dependency, so this opens the web lookup.
+        const handleThesaurus = () => {
+            const sel = editor?.state.selection;
+            const word = sel && !sel.empty
+                ? editor.state.doc.textBetween(sel.from, sel.to, ' ').trim().split(/\s+/)[0]
+                : '';
+            if (!word) { window.alert('Select a word first to look it up in the thesaurus.'); return; }
+            window.open(`https://www.merriam-webster.com/thesaurus/${encodeURIComponent(word)}`, '_blank');
+        };
         const handleInsertSnippet = (e: Event) => {
             const html = (e as CustomEvent<string>).detail;
             if (typeof html === 'string' && html) editor?.chain().focus().insertContent(html).run();
@@ -604,10 +631,18 @@ function PluginLoadedEditor({
         window.addEventListener('trigger-undo', handleUndo);
         window.addEventListener('trigger-redo', handleRedo);
         window.addEventListener('trigger-inline-code', handleInlineCode);
+        window.addEventListener('trigger-bold', handleBold);
+        window.addEventListener('trigger-italic', handleItalic);
+        window.addEventListener('trigger-underline', handleUnderline);
+        window.addEventListener('trigger-strikethrough', handleStrikethrough);
+        window.addEventListener('trigger-clear-format', handleClearFormat);
         window.addEventListener('trigger-checklist', handleChecklist);
         window.addEventListener('trigger-highlight', handleHighlight);
         window.addEventListener('trigger-hr', handleHr);
         window.addEventListener('trigger-prompts', handlePrompts);
+        window.addEventListener('trigger-rtl-paragraph', handleRtl);
+        window.addEventListener('trigger-timer', handleTimer);
+        window.addEventListener('trigger-thesaurus', handleThesaurus);
 
         return () => {
             window.removeEventListener('keydown', handler);
@@ -622,10 +657,18 @@ function PluginLoadedEditor({
             window.removeEventListener('trigger-undo', handleUndo);
             window.removeEventListener('trigger-redo', handleRedo);
             window.removeEventListener('trigger-inline-code', handleInlineCode);
+            window.removeEventListener('trigger-bold', handleBold);
+            window.removeEventListener('trigger-italic', handleItalic);
+            window.removeEventListener('trigger-underline', handleUnderline);
+            window.removeEventListener('trigger-strikethrough', handleStrikethrough);
+            window.removeEventListener('trigger-clear-format', handleClearFormat);
             window.removeEventListener('trigger-checklist', handleChecklist);
             window.removeEventListener('trigger-highlight', handleHighlight);
             window.removeEventListener('trigger-hr', handleHr);
             window.removeEventListener('trigger-prompts', handlePrompts);
+            window.removeEventListener('trigger-rtl-paragraph', handleRtl);
+            window.removeEventListener('trigger-timer', handleTimer);
+            window.removeEventListener('trigger-thesaurus', handleThesaurus);
         };
     }, [editor, isDistractionFree, onOpenSearch, onToggleSplitMode]);
 
@@ -1976,6 +2019,14 @@ function PluginLoadedEditor({
                 </div>
             )}
 
+            {/* Writing Timer (J8 Timer / Insert Timer) */}
+            {showTimer && (
+                <TimerWidget
+                    onInsert={(text) => editor?.chain().focus().insertContent(text).run()}
+                    onClose={() => setShowTimer(false)}
+                />
+            )}
+
             {/* Writing Prompts Modal */}
             {showWritingPrompts && (
                 <WritingPromptsPicker
@@ -2016,6 +2067,30 @@ function PluginLoadedEditor({
                                     </div>
                                 ))}
                             </dl>
+                            <div className="mt-3 pt-3 border-t border-border-primary">
+                                <div className="text-xs text-text-muted mb-1.5">Linked from</div>
+                                {backlinks === null ? (
+                                    <div className="text-xs text-text-muted italic">Loading…</div>
+                                ) : backlinks.length === 0 ? (
+                                    <div className="text-xs text-text-muted italic">No entries link here.</div>
+                                ) : (
+                                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                                        {backlinks.map(b => (
+                                            <button
+                                                key={b.EntryID}
+                                                onClick={() => {
+                                                    setShowProperties(false);
+                                                    router.push(`/journal/${b.CategoryID}?entry=${b.EntryID}`);
+                                                }}
+                                                className="w-full text-left text-xs text-accent-primary hover:underline truncate"
+                                                title={b.CategoryName}
+                                            >
+                                                {b.Title || 'Untitled'} <span className="text-text-muted">· {b.CategoryName}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 );

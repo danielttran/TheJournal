@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { J8_MENUS, type MenuNode, type MenuLeaf, type MenuTop } from '@/lib/menuSpec';
 import { applyMenuCustomization } from '@/lib/menuCustomization';
 import { loadMenuHidden, MENU_CONFIG_EVENT } from '@/lib/menuCustomConfig';
-import { resolveWebMenuAction } from '@/lib/menuActions';
+import { resolveWebMenuAction, isAccelShownOnWeb } from '@/lib/menuActions';
 import { logAction } from '@/lib/actionLog';
 
 function humanAccel(accel?: string): string {
@@ -74,7 +74,7 @@ function Flyout({ nodes, onRun }: { nodes: MenuNode[]; onRun: () => void }) {
                         className="w-full text-left flex items-center justify-between px-3 py-1.5 text-sm text-text-primary hover:bg-accent-primary hover:text-white"
                     >
                         <span>{n.label}</span>
-                        {n.accel && <kbd className="ml-6 text-[10px] opacity-60 font-sans">{humanAccel(n.accel)}</kbd>}
+                        {n.accel && isAccelShownOnWeb(n.accel) && <kbd className="ml-6 text-[10px] opacity-60 font-sans">{humanAccel(n.accel)}</kbd>}
                     </button>
                 );
             })}

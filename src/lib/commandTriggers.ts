@@ -8,15 +8,16 @@
  * that has an editor handler can't silently lose its keybinding wiring again
  * (the style.* shortcuts regression).
  *
- * Not every command lives here: format.bold/italic/underline/strikethrough are
- * handled by TipTap's StarterKit keymap, edit.find is handled directly by the
- * editor's own keydown, security.lock by LockGate, and menu-only actions have
- * no keybinding. Commands absent from this map fall through to a generic
- * `tj-command` CustomEvent.
+ * EVERY command id maps here (command-triggers.test.ts enforces it). Earlier
+ * a "handled elsewhere" carve-out (TipTap keymap, hardcoded editor keydown,
+ * LockGate's own hotkey) covered the DEFAULT keys but made REBINDING those
+ * commands a silent no-op — the rebound key dispatched a `tj-command` event
+ * nobody listened for.
  */
 export const COMMAND_TRIGGER_MAP: Record<string, string> = {
     'edit.undo': 'trigger-undo',
     'edit.redo': 'trigger-redo',
+    'edit.find': 'trigger-find-in-entry',
     'edit.find-next': 'trigger-find-next',
     'edit.replace': 'trigger-replace',
     'edit.paste-special': 'trigger-paste-special',
@@ -27,6 +28,14 @@ export const COMMAND_TRIGGER_MAP: Record<string, string> = {
     'insert.attachment': 'trigger-attachment',
     'format.highlight': 'trigger-highlight',
     'format.code': 'trigger-inline-code',
+    // Marks: TipTap's keymap handles the default keys inside the editor (and
+    // preventDefaults, so the dispatcher bails); these mappings make REBOUND
+    // keys work too.
+    'format.bold': 'trigger-bold',
+    'format.italic': 'trigger-italic',
+    'format.underline': 'trigger-underline',
+    'format.strikethrough': 'trigger-strikethrough',
+    'format.clear': 'trigger-clear-format',
     // Paragraph-style shortcuts (Ctrl+1/2/3/0/9, Ctrl+Shift+C). The editor
     // already listens for these trigger-style-* events from the Format menu;
     // without these entries the keybindings dispatched into a dead tj-command.
@@ -37,12 +46,15 @@ export const COMMAND_TRIGGER_MAP: Record<string, string> = {
     'style.blockquote': 'trigger-style-quote',
     'style.code-block': 'trigger-style-code',
     'insert.image-upload': 'trigger-image-upload',
+    'insert.image-url': 'trigger-image-url',
     'insert.drawing': 'trigger-insert-drawing',
     'insert.checklist': 'trigger-checklist',
     'insert.hr': 'trigger-hr',
     'insert.template': 'trigger-templates',
     'insert.prompt': 'trigger-prompts',
     'view.search': 'trigger-search',
+    'view.search-all': 'trigger-search-all',
+    'view.toggle-theme': 'trigger-toggle-theme',
     'view.focus-mode': 'trigger-focus',
     'view.split': 'trigger-split',
     'view.toggle-sidebar': 'trigger-toggle-sidebar',
@@ -54,7 +66,12 @@ export const COMMAND_TRIGGER_MAP: Record<string, string> = {
     'nav.next-entry': 'trigger-nav-next',
     'nav.back': 'trigger-history-back',
     'nav.forward': 'trigger-history-forward',
+    'nav.prev-category': 'trigger-prev-category',
+    'nav.next-category': 'trigger-next-category',
     'entry.save': 'trigger-save',
     'entry.properties': 'trigger-entry-properties',
     'entry.new-subentry': 'trigger-new-subentry',
+    'entry.print': 'trigger-print-entry',
+    'category.properties': 'trigger-category-properties',
+    'security.lock': 'trigger-lock-app',
 };

@@ -19,16 +19,12 @@ type CommandRunner = (commandId: string) => void;
  */
 function runCommand(commandId: string) {
     // Map command ids to the existing trigger-* events the editor already
-    // listens for (COMMAND_TRIGGER_MAP — a pure, test-guarded module). Ids that
-    // don't map fall through to a generic `tj-command` CustomEvent.
+    // listens for (COMMAND_TRIGGER_MAP — pure + test-guarded: EVERY command id
+    // maps, so a keybinding can never dispatch into the void).
     const ev = COMMAND_TRIGGER_MAP[commandId];
-    if (ev) {
-        logAction('keyboard', commandId, { event: ev });
-        window.dispatchEvent(new Event(ev));
-        return;
-    }
-    logAction('keyboard', commandId, { event: 'tj-command' });
-    window.dispatchEvent(new CustomEvent('tj-command', { detail: { commandId } }));
+    if (!ev) return;
+    logAction('keyboard', commandId, { event: ev });
+    window.dispatchEvent(new Event(ev));
 }
 
 export default function CommandDispatcher({ runner = runCommand }: { runner?: CommandRunner }) {

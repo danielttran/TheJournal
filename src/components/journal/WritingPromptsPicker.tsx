@@ -13,10 +13,21 @@ export default function WritingPromptsPicker({ onSelect, onClose }: WritingPromp
     const [activeCategory, setActiveCategory] = useState<PromptCategory | 'All'>('All');
     const [searchQuery, setSearchQuery] = useState('');
     const [highlighted, setHighlighted] = useState<string | null>(null);
+    // Prompt of the day — deterministic per date (server-side rotation).
+    const [dailyPrompt, setDailyPrompt] = useState<string | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         searchRef.current?.focus();
+    }, []);
+
+    useEffect(() => {
+        const ctl = new AbortController();
+        fetch('/api/prompts/today', { signal: ctl.signal })
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (!ctl.signal.aborted && typeof d?.prompt === 'string') setDailyPrompt(d.prompt); })
+            .catch(() => {});
+        return () => ctl.abort();
     }, []);
 
     // Close on Escape
@@ -127,6 +138,19 @@ export default function WritingPromptsPicker({ onSelect, onClose }: WritingPromp
 
                 {/* Prompts list */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
+                    {dailyPrompt && !searchQuery.trim() && activeCategory === 'All' && (
+                        <button
+                            onClick={() => onSelect({ id: 'daily', category: 'Reflection', text: dailyPrompt })}
+                            className="w-full text-left px-4 py-3 rounded-lg border border-accent-primary/40 bg-accent-primary/5 text-sm text-text-primary hover:bg-accent-primary/10 transition-all"
+                        >
+                            <div className="flex items-start gap-3">
+                                <span className="mt-0.5 px-2 py-0.5 rounded text-[10px] font-semibold border border-accent-primary/40 text-accent-primary whitespace-nowrap">
+                                    Today
+                                </span>
+                                <span>{dailyPrompt}</span>
+                            </div>
+                        </button>
+                    )}
                     {filtered.length === 0 ? (
                         <p className="text-center text-text-muted text-sm py-8">No prompts match your search.</p>
                     ) : (

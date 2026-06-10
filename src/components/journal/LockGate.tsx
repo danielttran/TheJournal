@@ -9,13 +9,14 @@ const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
 ];
 
 const IDLE_TICK_MS = 30_000;
-const HOTKEY_LOCK = (e: KeyboardEvent) =>
-    e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l');
 
 /**
  * Mounts once inside the journal layout. Owns three lock triggers:
  *   1. Idle-timer (renderer side) — reads `idleLockMinutes` from settings.
- *   2. Rapid lock hot-key (Ctrl+Shift+L) — fires immediately.
+ *   2. The security.lock command (default Ctrl+Shift+L) — dispatched by the
+ *      command registry as `trigger-lock-app`, so user rebinds apply and the
+ *      dispatcher's defaultPrevented guard stops an editor-consumed keystroke
+ *      from also locking.
  *   3. Electron 'lock-app' IPC — fires when the user minimizes and
  *      `lockOnMinimize` is enabled in settings.
  *
@@ -89,16 +90,11 @@ export default function LockGate() {
         return () => window.clearInterval(handle);
     }, [lock]);
 
-    // Rapid lock hot-key.
+    // Rapid lock command (security.lock via the command registry).
     useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            if (HOTKEY_LOCK(e)) {
-                e.preventDefault();
-                lock();
-            }
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
+        const onLock = () => { void lock(); };
+        window.addEventListener('trigger-lock-app', onLock);
+        return () => window.removeEventListener('trigger-lock-app', onLock);
     }, [lock]);
 
     // Electron minimize-lock IPC.

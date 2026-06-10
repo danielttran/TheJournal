@@ -663,6 +663,32 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         return () => { cancelled = true; clearTimeout(t); };
     }, [pages, journalEntries]);
 
+    // Right-click a tag chip → rename it across every entry (merges into an
+    // existing tag if the new name is already in use).
+    const renameTagFlow = async (tag: string) => {
+        const next = await requestPrompt({
+            title: 'Rename Tag',
+            message: `Rename "${tag}" on every entry. Using an existing tag's name merges them.`,
+            initialValue: tag,
+            confirmLabel: 'Rename',
+        });
+        if (next == null) return;
+        const to = next.trim();
+        if (!to || to === tag) return;
+        const r = await fetch('/api/tag/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: tag, to, mode: 'merge' }),
+        });
+        if (!r.ok) { window.alert('Could not rename the tag.'); return; }
+        setActiveTags(prev => prev.map(t => (t === tag ? to : t)));
+        fetch('/api/tags')
+            .then(res => res.ok ? res.json() : { tags: [] })
+            .then(d => setAvailableTags(d.tags ?? []))
+            .catch(() => {});
+        if (type === 'Journal') fetchJournalEntries(); else fetchPages();
+    };
+
     const entryHasAllTags = useCallback((entry: Entry, wanted: string[]) => {
         if (!wanted.length) return true;
         let parsed: unknown;
@@ -818,6 +844,20 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         if (type === 'Journal') fetchJournalEntries(); else fetchPages();
     };
 
+    // J8 "Duplicate Entry" — server-side copy (content, topics, metadata),
+    // then open the copy.
+    const duplicateEntryFlow = async (entryId: number) => {
+        const r = await fetch(`/api/entry/${entryId}/duplicate`, { method: 'POST' });
+        if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            window.alert('Could not duplicate the entry: ' + (typeof d.error === 'string' ? d.error : r.status));
+            return;
+        }
+        const { id } = await r.json();
+        if (type === 'Journal') fetchJournalEntries(); else fetchPages();
+        if (id) router.push(`?entry=${id}`);
+    };
+
     const entryActionsRef = useRef<Record<string, () => void>>({});
     useEffect(() => {
         entryActionsRef.current = {
@@ -827,10 +867,11 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
             'trigger-assign-topics': () => { if (urlEntryId) void assignTopicsFlow(urlEntryId); else window.alert('Open an entry first to assign a topic.'); },
             'trigger-move-entry': () => { if (urlEntryId) void moveEntryFlow(urlEntryId); else window.alert('Open an entry first to move it.'); },
             'trigger-change-entry-date': () => { if (urlEntryId) void redateEntryFlow(urlEntryId); else window.alert('Open an entry first to change its date.'); },
+            'trigger-duplicate-entry': () => { if (urlEntryId) void duplicateEntryFlow(urlEntryId); else window.alert('Open an entry first to duplicate it.'); },
         };
     });
     useEffect(() => {
-        const events = ['trigger-new-entry', 'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry', 'trigger-change-entry-date'];
+        const events = ['trigger-new-entry', 'trigger-delete-entry', 'trigger-sort-subentries', 'trigger-assign-topics', 'trigger-move-entry', 'trigger-change-entry-date', 'trigger-duplicate-entry'];
         const subs = events.map(e => { const h = () => entryActionsRef.current[e]?.(); window.addEventListener(e, h); return [e, h] as const; });
         return () => subs.forEach(([e, h]) => window.removeEventListener(e, h));
     }, []);
@@ -1094,6 +1135,8 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
                                                 <button
                                                     key={tag}
                                                     onClick={() => setActiveTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
+                                                    onContextMenu={(e) => { e.preventDefault(); void renameTagFlow(tag); }}
+                                                    title="Click to filter · right-click to rename"
                                                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${isActive ? 'bg-accent-primary text-white' : 'bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25'}`}
                                                 >
                                                     {tag}
@@ -1226,6 +1269,8 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
                                                 <button
                                                     key={tag}
                                                     onClick={() => setActiveTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
+                                                    onContextMenu={(e) => { e.preventDefault(); void renameTagFlow(tag); }}
+                                                    title="Click to filter · right-click to rename"
                                                     className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${isActive ? 'bg-accent-primary text-white' : 'bg-accent-primary/15 text-accent-primary hover:bg-accent-primary/25'}`}
                                                 >
                                                     {tag}

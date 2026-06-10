@@ -52,7 +52,8 @@ export default function StatsPanel({ onClose }: Props) {
     useEffect(() => {
         const ctl = new AbortController();
         fetch(`/api/stats/heatmap?year=${heatYear}`, { signal: ctl.signal })
-            .then(r => r.json()).then(d => { if (!ctl.signal.aborted) setHeat(d); })
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (!ctl.signal.aborted && d && Array.isArray(d.cells)) setHeat(d); })
             .catch(err => { if (err?.name !== 'AbortError') throw err; });
         return () => ctl.abort();
     }, [heatYear]);
@@ -111,7 +112,12 @@ export default function StatsPanel({ onClose }: Props) {
                                 <div className="flex items-center justify-between mb-2">
                                     <h3 className="text-xs uppercase tracking-wider text-text-muted">Writing activity</h3>
                                     <div className="flex items-center gap-1 text-xs text-text-muted">
-                                        <button onClick={() => setHeatYear(y => y - 1)} className="px-1.5 py-0.5 rounded hover:bg-bg-hover" title="Previous year">‹</button>
+                                        <button
+                                            onClick={() => setHeatYear(y => Math.max(1900, y - 1))}
+                                            disabled={heatYear <= 1900}
+                                            className="px-1.5 py-0.5 rounded hover:bg-bg-hover disabled:opacity-30"
+                                            title="Previous year"
+                                        >‹</button>
                                         <span className="tabular-nums text-text-primary">{heat.year}</span>
                                         <button
                                             onClick={() => setHeatYear(y => y + 1)}
