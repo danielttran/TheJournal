@@ -1,5 +1,35 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Audit round 5 — round-4 verification + cross-cutting sweeps (2026-06-10d)
+
+Round 5 verified the round-4 commit fully correct against the library sources
+(composite math, crop-skip transition behavior, StrictMode ref reset,
+week-start chain, portable target) and ran two cross-cutting sweeps (menuSpec
+↔ Electron native handler diff: clean; per-UserID scoping of all
+recently-touched routes: clean). Findings, all fixed:
+
+1. **"Entry Frequency" was a dead control** (pre-existing since M1) — the
+   Category Properties dropdown persisted and round-tripped but had zero
+   behavioral consumers. It now drives its documented purpose: the calendar
+   highlights missed cadence (pure `entryCadence.ts` — daily/hourly mark past
+   in-month entry-less days; weekly marks only the last day of a fully-elapsed
+   empty week; amber ring + explanatory tooltip in the sidebar calendar,
+   re-read live with WeekStartDay). `entry-cadence.test.ts`.
+2. **Restore dropped `Category.WeekStartDay`** — the round-4 column wasn't
+   taught to the importer's explicit column list (the drift guard was only
+   table-level). Fixed, and the guard is now **column-level**: every live
+   column of every user-owned table must appear in the importer source, with
+   a documented exclusion list (Entry.Version = fresh-row counter; standalone
+   PKs that nothing references). The upgraded guard immediately caught two
+   more pre-existing restore fidelity losses, also fixed:
+   **Entry.LastAccessedDate** (recent-entries history survived nothing) and
+   **Reminder.NextOccurrenceID** (recurrence chains now remap through a
+   reminder id map in a second pass, like the category/entry hierarchies).
+
+**Audit gate (all green):** `tsc` clean · `eslint` 0 errors · `vitest run`
+**1021/1021** (+ entry-cadence, column-level import guard) · `npm run build`
++ standalone verify clean.
+
 ## Audit round 4 — round-3 diff review + exhaustive feature-page pull (2026-06-10c)
 
 Round 4 ran two fresh passes: a skeptical review of the round-3 commit

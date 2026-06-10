@@ -266,6 +266,15 @@ shipping to production.
   ThemeProvider + useElectronIPC. Calendar charms verified already present
   (entry icons on calendar days).
 
+- **Audit round 5 (2026-06-10d)**: round-4 commit verified correct against
+  library sources; menu/native-handler diff + route-scoping sweeps clean.
+  Fixed: Entry Frequency now drives calendar missed-cadence highlighting
+  (`entryCadence.ts` — it was a dead control since M1); backup importer
+  taught WeekStartDay, Entry.LastAccessedDate, and Reminder.NextOccurrenceID
+  (recurrence chains remap via a second-pass id map); the import drift guard
+  upgraded from table-level to COLUMN-level with a documented exclusion list
+  — it caught all three restore fidelity losses.
+
 - **Audit round 4 (2026-06-10c)**: fixed five round-3 defects (doodle export
   now composites strokes onto the photo at natural resolution via
   `compositeAnnotation` — the library's own export drew the photo unscaled at
@@ -323,7 +332,7 @@ shipping to production.
 ```bash
 npx tsc --noEmit
 npx vitest run
-# Baseline: 1000 tests as of the last commit.
+# Baseline: 1021 tests as of the last commit.
 ```
 
 When tests need a DB, use the pattern in any existing

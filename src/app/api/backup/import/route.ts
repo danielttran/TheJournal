@@ -109,6 +109,7 @@ export async function POST(req: NextRequest) {
             // and preserves per-category view config. Older backups may lack some
             // columns (SELECT * yields undefined → coalesced to null on insert).
             SortMode: string | null; AutoTemplateID: number | null; EntryFrequency: string | null;
+            WeekStartDay: number | null;
             IsSmartbook: number | null; SmartbookQuery: string | null;
             PasswordHash: string | null; PasswordSalt: string | null; PasswordWrappedKey: string | null;
         }
@@ -139,6 +140,7 @@ export async function POST(req: NextRequest) {
             IsExpanded: number; Mood: string | null; IsFavorited: number;
             Tags: string | null; IsDeleted: number; DeletedDate: string | null;
             IsPinned: number; PinnedDate: string | null; ParentEntryID: number | null;
+            LastAccessedDate: string | null;
         }
         interface ImportedAttachmentRow {
             AttachmentID: number; Filename: string; MimeType: string; Size: number; Data: Buffer;
@@ -147,11 +149,13 @@ export async function POST(req: NextRequest) {
             EntryID: number; HtmlContent: string | null; DocumentJson: string | null;
         }
         interface ImportedReminderRow {
+            ReminderID: number;
             Title: string; Notes: string | null; DueAt: string; IsComplete: number;
             CompletedAt: string | null; EntryID: number | null; CreatedAt: string | null;
             RecurInterval: string | null; RecurEvery: number | null;
             ReminderType: string | null; Status: string | null;
             LeadMinutes: number | null; NotifiedAt: string | null;
+            NextOccurrenceID: number | null;
         }
         interface ImportedGoalRow {
             Type: string; Target: number; StartDate: string; EndDate: string | null;
@@ -208,13 +212,14 @@ export async function POST(req: NextRequest) {
                 const r = await db.prepare(`
                     INSERT INTO main.Category
                         (UserID, Name, Color, IsPrivate, Type, Icon, ViewSettings, SortOrder,
-                         SortMode, AutoTemplateID, EntryFrequency, IsSmartbook, SmartbookQuery,
+                         SortMode, AutoTemplateID, EntryFrequency, WeekStartDay, IsSmartbook, SmartbookQuery,
                          PasswordHash, PasswordSalt, PasswordWrappedKey)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `).run(
                     userId, cat.Name, cat.Color, cat.IsPrivate, cat.Type || 'Journal', cat.Icon,
                     cat.ViewSettings, cat.SortOrder || 0,
                     cat.SortMode ?? null, mappedTemplate, cat.EntryFrequency ?? null,
+                    cat.WeekStartDay ?? 0,
                     cat.IsSmartbook ?? 0, cat.SmartbookQuery ?? null,
                     cat.PasswordHash ?? null, cat.PasswordSalt ?? null, cat.PasswordWrappedKey ?? null
                 );
@@ -278,15 +283,16 @@ export async function POST(req: NextRequest) {
                 const newCatId = catIdMap.get(entry.CategoryID);
                 if (!newCatId) continue;
                 const r = await db.prepare(`
-                    INSERT INTO main.Entry(CategoryID, Title, PreviewText, IsLocked, CreatedDate, ModifiedDate, EntryType, SortOrder, Icon, IsExpanded, Mood, IsFavorited, Tags, IsDeleted, DeletedDate, IsPinned, PinnedDate)
-                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO main.Entry(CategoryID, Title, PreviewText, IsLocked, CreatedDate, ModifiedDate, EntryType, SortOrder, Icon, IsExpanded, Mood, IsFavorited, Tags, IsDeleted, DeletedDate, IsPinned, PinnedDate, LastAccessedDate)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `).run(
                     newCatId, entry.Title, entry.PreviewText, entry.IsLocked,
                     entry.CreatedDate, entry.ModifiedDate, entry.EntryType || 'Page',
                     entry.SortOrder || 0, entry.Icon, entry.IsExpanded ? 1 : 0,
                     entry.Mood ?? null, entry.IsFavorited ? 1 : 0, entry.Tags ?? '[]',
                     entry.IsDeleted ? 1 : 0, entry.DeletedDate ?? null,
-                    entry.IsPinned ? 1 : 0, entry.PinnedDate ?? null
+                    entry.IsPinned ? 1 : 0, entry.PinnedDate ?? null,
+                    entry.LastAccessedDate ?? null
                 );
                 entryIdMap.set(entry.EntryID, r.lastInsertRowid as number);
             }
@@ -386,9 +392,10 @@ export async function POST(req: NextRequest) {
 
             // K. Reminders / WordGoals / SavedSearches (remap entry/category FKs).
             const importedReminders = await safeAll<ImportedReminderRow>("SELECT * FROM imported.Reminder");
+            const reminderIdMap = new Map<number, number>();
             for (const rem of importedReminders) {
                 const newEntryId = rem.EntryID ? entryIdMap.get(rem.EntryID) ?? null : null;
-                await db.prepare(`
+                const r = await db.prepare(`
                     INSERT INTO main.Reminder(UserID, Title, Notes, DueAt, IsComplete, CompletedAt, EntryID, CreatedAt, RecurInterval, RecurEvery, ReminderType, Status, LeadMinutes, NotifiedAt)
                     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `).run(
@@ -398,6 +405,18 @@ export async function POST(req: NextRequest) {
                     rem.ReminderType ?? 'Appointment', rem.Status ?? 'active',
                     rem.LeadMinutes ?? 0, rem.NotifiedAt ?? null
                 );
+                if (rem.ReminderID) reminderIdMap.set(rem.ReminderID, r.lastInsertRowid as number);
+            }
+            // Second pass: re-link recurrence chains (a completed recurring
+            // reminder points at the occurrence its completion spawned, so
+            // un-completing after a restore can still delete that occurrence).
+            for (const rem of importedReminders) {
+                if (!rem.ReminderID || !rem.NextOccurrenceID) continue;
+                const newId = reminderIdMap.get(rem.ReminderID);
+                const newNext = reminderIdMap.get(rem.NextOccurrenceID);
+                if (newId && newNext) {
+                    await db.prepare('UPDATE main.Reminder SET NextOccurrenceID = ? WHERE ReminderID = ?').run(newNext, newId);
+                }
             }
             const importedGoals = await safeAll<ImportedGoalRow>("SELECT * FROM imported.WordGoal");
             for (const g of importedGoals) {

@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Book, FileText, ChevronRight as ChevronRight
 import { sortEntries, type SortMode } from '@/lib/sort';
 import { adjacentEntryId } from '@/lib/navOrder';
 import { normalizeTag } from '@/lib/tags';
+import { computeMissedDays, type EntryFrequency } from '@/lib/entryCadence';
 import { requestPrompt } from '@/lib/promptService';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -626,6 +627,8 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
     const [showSortMenu, setShowSortMenu] = useState(false);
     // J8 per-category week start for the calendar (0=Sunday … 6=Saturday).
     const [weekStartDay, setWeekStartDay] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(0);
+    // Drives the calendar's missed-day highlighting (entryCadence).
+    const [entryFrequency, setEntryFrequency] = useState<EntryFrequency>('daily');
 
     useEffect(() => {
         let cancelled = false;
@@ -638,6 +641,8 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
                 }
                 const w = Number(data.WeekStartDay);
                 setWeekStartDay(Number.isInteger(w) && w >= 0 && w <= 6 ? w as 0 | 1 | 2 | 3 | 4 | 5 | 6 : 0);
+                const f = data.EntryFrequency;
+                setEntryFrequency(f === 'weekly' || f === 'hourly' ? f : 'daily');
             })
             .catch(() => {});
         void load();
@@ -1049,6 +1054,19 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
         return map;
     }, [journalEntries]);
 
+    // Entry-frequency cadence: which calendar cells get the "missed" marker.
+    const missedDays = useMemo(() => {
+        const todayYmd = format(new Date(), 'yyyy-MM-dd');
+        return computeMissedDays({
+            days: calendarDays.map(d => format(d, 'yyyy-MM-dd')),
+            inCurrentMonth: calendarDays.map(d => isSameMonth(d, currentMonth)),
+            hasEntry: calendarDays.map(d => (entriesByDay.get(format(d, 'yyyy-MM-dd'))?.length ?? 0) > 0),
+            todayYmd,
+            frequency: entryFrequency,
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- calendarDays derives from currentMonth + weekStartDay
+    }, [currentMonth, weekStartDay, entriesByDay, entryFrequency]);
+
     return (
         <div
             className="w-80 bg-bg-sidebar border-r border-border-primary flex flex-col h-full flex-shrink-0 relative transition-colors duration-200"
@@ -1086,18 +1104,21 @@ export default function Sidebar({ categoryId, userId: _userId, title, type, view
                         </div>
                         <div className="grid grid-cols-7 gap-1 text-center text-xs text-text-muted mb-2">{dayHeaders.map((l, i) => <span key={i}>{l}</span>)}</div>
                         <div className="grid grid-cols-7 gap-1 text-sm">
-                            {calendarDays.map((day) => {
+                            {calendarDays.map((day, dayIdx) => {
                                 const isSelected = isSameDay(day, selectedDate);
                                 const isCurrentMonth = isSameMonth(day, currentMonth);
                                 const entriesForDay = entriesByDay.get(format(day, 'yyyy-MM-dd')) ?? [];
                                 const entryForDay = entriesForDay[0];
                                 const dayCount = entriesForDay.length;
+                                const isMissed = missedDays[dayIdx] && !isSelected;
                                 return (
                                     <div
                                         key={format(day, 'yyyy-MM-dd')}
                                         onClick={() => onDateClick(day)}
-                                        className={`relative p-1 rounded cursor-pointer flex items-center justify-center h-8 w-8 mx-auto ${!isCurrentMonth ? 'text-text-muted opacity-50' : ''} ${isSelected ? 'bg-accent-primary text-white font-bold' : 'hover:bg-bg-hover text-text-secondary'}`}
-                                        title={dayCount > 1 ? `${dayCount} entries on ${format(day, 'PP')}` : (entryForDay?.Title || "")}
+                                        className={`relative p-1 rounded cursor-pointer flex items-center justify-center h-8 w-8 mx-auto ${!isCurrentMonth ? 'text-text-muted opacity-50' : ''} ${isSelected ? 'bg-accent-primary text-white font-bold' : 'hover:bg-bg-hover text-text-secondary'} ${isMissed ? 'ring-1 ring-amber-500/50' : ''}`}
+                                        title={isMissed
+                                            ? `No entry ${entryFrequency === 'weekly' ? 'this week' : 'this day'} — ${format(day, 'PP')}`
+                                            : dayCount > 1 ? `${dayCount} entries on ${format(day, 'PP')}` : (entryForDay?.Title || "")}
                                     >
                                         {entryForDay?.Icon ? <span className="text-base leading-none">{entryForDay.Icon}</span> : format(day, 'd')}
                                         {dayCount > 0 && !entryForDay?.Icon && (
