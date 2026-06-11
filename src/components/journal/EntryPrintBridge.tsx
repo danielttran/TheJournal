@@ -8,8 +8,8 @@ import { useEscapeToClose } from '@/hooks/useEscapeToClose';
  * Bridges the File-menu "Print Entry" and "Export Entry to PDF" actions to
  * the renderer for BOTH modes:
  *
- *   - Electron: listens to onPrintCurrentEntry / onExportCurrentEntryPdf
- *     IPCs that main.js fires from the File menu.
+ *   - Electron: listens to the onPrintCurrentEntry IPC that main.js fires
+ *     from the File menu.
  *   - Web: listens to window CustomEvents (`trigger-print-entry`,
  *     `trigger-export-pdf`) so the Editor header buttons we add can fire
  *     the same code path.

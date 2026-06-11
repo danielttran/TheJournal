@@ -1,5 +1,30 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Audit round 9 — CLEAN (2026-06-10h) — second consecutive clean round; goal met
+
+Round 9 independently confirmed round 8: the HEAD commit verified
+comment/doc-only (and the new comments accurate against the code), all five
+gates re-run fresh and green (tsc clean - eslint 0 errors - vitest 1021/1021
+- main/preload parse - standalone build + forbidden-artifact verify), and two
+previously unexhausted angles probed empirically with nothing reportable:
+session-token tamper resistance (expiry-extension, uid-splice, and
+expired-token forgeries all rejected; every API route swept for auth) and
+plugin install/uninstall path traversal (live filesystem probes; no escape).
+**Zero defects.** With rounds 8 and 9 both clean back-to-back, the audit
+goal — feature parity with The Journal 8 or better, outside the documented
+carve-outs, with two consecutive clean audit rounds — is met.
+
+## Audit round 8 — CLEAN (2026-06-10g)
+
+Round 8 reviewed the round-7 commit (theme persist verified incl. the
+RENDERER_WRITABLE_SETTINGS allowlist and startup re-apply; all IPC deletions
+confirmed reference-free with the surviving print/PDF chains traced), ran all
+gates (tsc clean - eslint 0 errors - vitest 1021/1021 - main/preload parse),
+and re-traced the three newest user-facing feature chains end-to-end
+(Doodle-on-photo, Change Entry Date/Time, scheduled web backups) — all
+intact. **Zero defects found.** Three stale comments it noted in passing
+were tidied in this commit.
+
 ## Audit round 7 — round-6 verification + Electron IPC surface sweep (2026-06-10f)
 
 Round 7 verified the round-6 commit empirically (COALESCE semantics against
