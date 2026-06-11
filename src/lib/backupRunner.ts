@@ -91,7 +91,7 @@ const SWEEP_INTERVAL_MS = 60 * 60 * 1000; // hourly
 
 /**
  * Starts the hourly due-backup sweep (idempotent — a module-reload during dev
- * must not stack intervals). Called from instrumentation.ts at server start.
+ * must not stack intervals). Started from db.ts module scope at server start.
  */
 export function startBackupSweep(dbm: DBManager): void {
     const g = globalThis as { __tjBackupSweep?: NodeJS.Timeout };

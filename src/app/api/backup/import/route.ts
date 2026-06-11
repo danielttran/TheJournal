@@ -56,9 +56,9 @@ export async function POST(req: NextRequest) {
             if (!body?.filePath || typeof body.filePath !== 'string') {
                 return NextResponse.json({ error: 'filePath required' }, { status: 400 });
             }
-            // Defense in depth: same constraint as the read-file-for-import
-            // IPC. A compromised renderer can't redirect this endpoint at an
-            // unrelated file expecting it to be a SQLCipher database.
+            // Defense in depth: only .tjdb files. A compromised renderer
+            // can't redirect this endpoint at an unrelated file expecting it
+            // to be a SQLCipher database.
             const resolved = resolve(body.filePath);
             if (extname(resolved).toLowerCase() !== '.tjdb') {
                 return NextResponse.json({ error: 'filePath must be a .tjdb file' }, { status: 400 });

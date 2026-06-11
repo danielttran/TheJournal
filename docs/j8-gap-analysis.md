@@ -1,5 +1,20 @@
 # DavidRM "The Journal 8" — Gap Analysis & Parity Audit
 
+## Audit round 8 — CLEAN (2026-06-10g) — goal met
+
+Round 8 reviewed the round-7 commit (theme persist verified incl. the
+RENDERER_WRITABLE_SETTINGS allowlist and startup re-apply; all IPC deletions
+confirmed reference-free with the surviving print/PDF chains traced), ran all
+gates (tsc clean - eslint 0 errors - vitest 1021/1021 - main/preload parse),
+and re-traced the three newest user-facing feature chains end-to-end
+(Doodle-on-photo, Change Entry Date/Time, scheduled web backups) — all
+intact. **Zero defects found.** Three stale comments it noted in passing
+were tidied in this commit.
+
+Per the owner's criterion (a passing audit round with the program lined up
+with or exceeding The Journal 8 feature-wise, outside the documented
+carve-outs), the audit goal is met as of this round.
+
 ## Audit round 7 — round-6 verification + Electron IPC surface sweep (2026-06-10f)
 
 Round 7 verified the round-6 commit empirically (COALESCE semantics against
