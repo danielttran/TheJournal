@@ -2,6 +2,8 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, safeStorag
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
+const { createHash } = require('crypto');
+const { Database } = require('@journeyapps/sqlcipher');
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
@@ -18,6 +20,68 @@ const dir = path.join(__dirname, '../../'); // Adjust based on where main.js is 
 let settingsManager;
 // Track scheduled background backup so we can stop it cleanly at shutdown.
 let backupIntervalHandle = null;
+// A scheduled backup and a quit-triggered backup can overlap. Serialize the
+// whole operation so retention pruning and destination-file creation cannot
+// race with each other.
+let autoBackupInFlight = null;
+let hasCompletedQuitBackup = false;
+
+// Keep this in sync with src/lib/auth.ts. Electron's main process cannot
+// import that TypeScript server module directly, but it needs the same
+// SQLCipher key to create a consistent online backup of the active database.
+const DEV_DEFAULT_DB_SECRET =
+    'a8f3e2d1b9c4071650e3da98fc24b781a8f3e2d1b9c4071650e3da98fc24b781';
+
+function getDatabaseKey() {
+    const secret = process.env.JOURNAL_DB_SECRET || DEV_DEFAULT_DB_SECRET;
+    return createHash('sha256').update(secret).digest('hex');
+}
+
+function closeDatabase(database) {
+    return new Promise((resolve, reject) => {
+        database.close(err => err ? reject(err) : resolve());
+    });
+}
+
+/**
+ * Copy a live SQLCipher database using SQLite's online-backup API.
+ *
+ * Copying the .tjdb, -wal, and -shm files one at a time can combine different
+ * points in time when the app is writing. The online-backup API instead reads
+ * a single SQLite snapshot while coordinating with concurrent writers.
+ */
+async function createConsistentDatabaseBackup(sourcePath, destinationPath) {
+    const source = await new Promise((resolve, reject) => {
+        const database = new Database(sourcePath, err => err ? reject(err) : resolve(database));
+    });
+
+    try {
+        await new Promise((resolve, reject) => {
+            source.serialize(() => {
+                source.run(`PRAGMA key = "x'${getDatabaseKey()}'"`, err => {
+                    if (err) return reject(err);
+                    source.run('PRAGMA cipher_page_size = 4096', err => {
+                        if (err) return reject(err);
+                        source.run('PRAGMA kdf_iter = 64000', err => {
+                            if (err) return reject(err);
+                            source.get('SELECT count(*) FROM sqlite_master', err => err ? reject(err) : resolve());
+                        });
+                    });
+                });
+            });
+        });
+
+        await new Promise((resolve, reject) => {
+            const backup = source.backup(destinationPath);
+            backup.step(-1, err => {
+                if (err) return backup.finish(() => reject(err));
+                backup.finish(finishErr => finishErr ? reject(finishErr) : resolve());
+            });
+        });
+    } finally {
+        await closeDatabase(source);
+    }
+}
 
 function getDatabasePath() {
     const currentSettings = settingsManager.getSettings();
@@ -40,8 +104,7 @@ function switchJournalVolume(filePath) {
 
 // ─── Backup Logic ─────────────────────────────────────────────────────────────
 // Extracted from before-quit so it can also be called on a recurring schedule.
-// Safe to call concurrently — if the DB file doesn't exist it fails gracefully.
-async function performAutoBackup() {
+async function performAutoBackupInternal() {
     const fs = require('fs');
     const s = settingsManager.getSettings();
 
@@ -84,19 +147,37 @@ async function performAutoBackup() {
             fs.mkdirSync(s.backupPath, { recursive: true });
         }
 
-        // Collect all existing .tjdb backups and prune oldest if over limit
-        const files = fs.readdirSync(s.backupPath);
-        const tjdbFiles = [];
-        for (const file of files) {
-            if (file.endsWith('.tjdb')) {
-                const fullPath = path.join(s.backupPath, file);
-                const stat = fs.statSync(fullPath);
-                tjdbFiles.push({ name: file, path: fullPath, ctimeMs: stat.ctimeMs });
-            }
+        const dest = path.join(s.backupPath, backupName);
+        const tempDest = `${dest}.partial`;
+        try { fs.unlinkSync(tempDest); } catch (err) {
+            if (err.code !== 'ENOENT') throw err;
         }
-        tjdbFiles.sort((a, b) => a.ctimeMs - b.ctimeMs);
 
-        while (tjdbFiles.length > (maxBackups - 1) && tjdbFiles.length > 0) {
+        // SQLite's online-backup API produces a single coherent snapshot even
+        // while the embedded server is servicing writes. Keep the incomplete
+        // file out of the retention set until the backup has completed.
+        try {
+            await createConsistentDatabaseBackup(dbPath, tempDest);
+            fs.renameSync(tempDest, dest);
+        } catch (err) {
+            // Do not leave an incomplete database that could be mistaken for a
+            // usable backup. Existing completed backups are intentionally kept.
+            try { fs.unlinkSync(tempDest); } catch (cleanupErr) {
+                if (cleanupErr.code !== 'ENOENT') console.error('[Electron] Failed to remove partial backup:', cleanupErr);
+            }
+            throw err;
+        }
+
+        // Prune only after the new backup has been atomically published. A
+        // failed backup must never delete the last known-good backup.
+        const tjdbFiles = fs.readdirSync(s.backupPath)
+            .filter(file => file.endsWith('.tjdb'))
+            .map(file => {
+                const fullPath = path.join(s.backupPath, file);
+                return { name: file, path: fullPath, ctimeMs: fs.statSync(fullPath).ctimeMs };
+            })
+            .sort((a, b) => a.ctimeMs - b.ctimeMs);
+        while (tjdbFiles.length > maxBackups) {
             const oldest = tjdbFiles.shift();
             try {
                 fs.unlinkSync(oldest.path);
@@ -106,17 +187,6 @@ async function performAutoBackup() {
             }
         }
 
-        const dest = path.join(s.backupPath, backupName);
-        fs.copyFileSync(dbPath, dest);
-
-        // Copy WAL and SHM sidecars to ensure consistency
-        ['wal', 'shm'].forEach(suffix => {
-            const sidecar = `${dbPath}-${suffix}`;
-            if (fs.existsSync(sidecar)) {
-                fs.copyFileSync(sidecar, `${dest}-${suffix}`);
-            }
-        });
-
         // Record when so the frequency gate above can throttle the next close.
         settingsManager.saveSettings({ lastAutoBackup: new Date().toISOString() });
 
@@ -124,6 +194,15 @@ async function performAutoBackup() {
     } catch (err) {
         console.error('[Electron] ❌ Auto-backup FAILED:', err);
     }
+}
+
+function performAutoBackup() {
+    if (!autoBackupInFlight) {
+        autoBackupInFlight = performAutoBackupInternal().finally(() => {
+            autoBackupInFlight = null;
+        });
+    }
+    return autoBackupInFlight;
 }
 
 async function startServer() {
@@ -949,15 +1028,19 @@ app.on('will-quit', () => {
     }
 });
 
-app.on('before-quit', (e) => {
+app.on('before-quit', async (e) => {
     // Real quit in progress — let the window close instead of hiding to tray.
     isQuitting = true;
-    // Delegate to the shared performAutoBackup function.
-    // Note: before-quit fires synchronously so we cannot await here —
-    // the backup copy is synchronous (copyFileSync) and completes before
-    // the process exits under normal OS conditions.
+    // Electron does not wait for an async event handler. Cancel the first
+    // quit, then explicitly quit again after the backup is finished.
+    if (hasCompletedQuitBackup) return;
+    e.preventDefault();
+    hasCompletedQuitBackup = true;
     console.log('[Electron] before-quit: triggering auto-backup...');
-    performAutoBackup().catch(err =>
-        console.error('[Electron] before-quit backup error:', err)
-    );
+    try {
+        await performAutoBackup();
+    } catch (err) {
+        console.error('[Electron] before-quit backup error:', err);
+    }
+    app.quit();
 });
